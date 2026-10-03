@@ -26,3 +26,9 @@ Before enabling calls or packaging PJSUA2, the probe must also establish all of 
 - Review the exact PJSIP license path and every native dependency before distributing a release APK.
 
 Until those checks have recorded results, the SIP capability remains unavailable. No PJSIP 2.17 binary or other unverified native artifact is included in the host app.
+# 网关实现方向补充
+
+旧机端采用 Magisk 模块生命周期、priv-app 权限和受限账户 broker，按实际
+系统能力确认订阅与 PhoneAccount；不要求特定机型或 API 31 才开始语音
+实现。主机保持未 root，无需 Magisk。通用网关适配与主机 SIP SDK、服务端
+ARI 是独立实现项；本端在完整链路就绪前继续清楚报告通话不可用。
