@@ -1,6 +1,6 @@
 # PLAN — gsm2sip-client-android 主机 App v1
 
-状态：实施计划；审查时仓库为空（无实现代码），功能尚未实现，SDK pin 待 M0 验证  
+状态：M1/M2 主干实现进行中；HTTPS pairing、Keystore token、SQLite cache/outbox、双卡状态与短信 UI 已落代码；真实设备端到端仍待验收。SIP native SDK 不随 M1/M2 打包，M0/M3 probe 仍需按 [sdk-probe.md](docs/sdk-probe.md) 完成。
 日期：2026-10-03  
 目标仓库：`KiriKira/gsm2sip-client-android`
 
