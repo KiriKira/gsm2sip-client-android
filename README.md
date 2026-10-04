@@ -4,6 +4,8 @@ Android host app for controlling SMS through the two SIMs in a separate Android 
 
 The app now includes a pinned PJSUA2 SIP SDK, self-managed Telecom calls, CallStyle notifications, mute/DTMF/audio routing and server-authorized remote call intents. Calling requires configured server/gateway voice capability; real dual-SIM audio remains a device acceptance gate. It does not read or send SMS through the host phone or fall back to the host carrier dialer.
 
+Several hosts can pair to the same owner and gateway, using separate one-time codes and credentials. The overview lists paired hosts and platform labels, preserves its last snapshot offline and through folding, and distinguishes pairing from online presence. Incoming calls select the first host that actually answers; other hosts show that another device answered. One host rejecting does not reject the call for everyone. See [multi-host operation](docs/multi-host.md); the shared protocol supports future platforms, while a Windows client is not yet implemented.
+
 ## Build
 
 Requires JDK 17 and Android SDK platform 35. From this directory run:
