@@ -48,8 +48,24 @@ SRTP and codec configuration. The real-device/server interoperability gate
 is **still incomplete**: no handset run has yet validated native endpoint startup,
 TLS rejection cases, SDES-SRTP negotiation, the full inbound/outbound flow,
 Telecom audio routes, process recovery, and cellular interruptions. The
-standalone instrumentation smoke has been prepared, but has not completed on
-the emulator yet.
+standalone instrumentation smoke passed on the API 35 Google APIs foldable
+emulator in [Actions run 37204636606](https://github.com/KiriKira/gsm2sip-client-android/actions/runs/37204636606)
+(source commit `9dc07e9d6151b5fccff917a4e8231311f5433423`). It installed the
+arm64 host APK and a harness signed with the same certificate, loaded PJSUA2,
+created/started/destroyed an endpoint with null audio, and enumerated Opus,
+PCMU, PCMA and G.722. It did not capture microphone audio or place a SIP call.
+The generic foldable UI smoke also checked input and IME restoration after
+rotation, observed CLOSED/OPENED device states, and checked visible buttons
+against a simulated hole cutout. This is preliminary emulator evidence,
+not acceptance on Z Fold8 or a cellular handset.
+
+To reproduce, build the debug APK, install it on a compatible Android device,
+and run `bash scripts/run-native-smoke.sh`. Set `PJSUA_SMOKE_KEYSTORE` to the
+actual debug Store reported by `./gradlew :app:signingReport` when it differs
+from the default Android directory. The harness verifies certificate equality
+before installation. The `Android KVM UI smoke` workflow performs these steps
+and uploads `results.json`, instrumentation output, screenshots, hierarchy XML
+and logcat under its artifact. Magisk hardware validation is separate.
 
 The PJSIP AAR is GPL-2.0-or-later with a static third-party dependency
 closure. Full notices are packaged under
