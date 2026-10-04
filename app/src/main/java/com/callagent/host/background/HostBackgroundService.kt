@@ -24,6 +24,7 @@ import com.callagent.host.data.SessionChanged
 import com.callagent.host.data.SyncBudgetExhausted
 import com.callagent.host.data.clientDatabaseName
 import com.callagent.host.data.sameSessionInstance
+import com.callagent.host.calls.CallRuntime
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.WebSocket
@@ -379,6 +380,7 @@ class HostBackgroundService : Service() {
                 val hint = runCatching { JSONObject(text) }.getOrNull() ?: return
                 if (hint.optInt("protocol_version", -1) == 1 && hint.optString("type") == "sync_required") {
                     // The websocket is only a wake hint; all data comes from the authenticated HTTPS event API.
+                    CallRuntime.requestCallSyncFromWakeHint()
                     enqueueSync()
                 }
             }

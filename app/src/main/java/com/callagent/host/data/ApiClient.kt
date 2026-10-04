@@ -44,7 +44,7 @@ class ApiClient(
         }
         val response = publicRequest(
             "POST", "/pairings/claim",
-            JSONObject().put("pairing_code", pairingCode).put("device_name", deviceName)
+            JSONObject().put("pairing_code", pairingCode).put("device_name", deviceName).put("platform", "android")
         )
         val result = sessionFromPairing(response)
         if (result.role != "client") throw IOException("Pairing code is not for a host client")
@@ -79,6 +79,10 @@ class ApiClient(
             )
         }
     }
+
+    fun listPairedHosts(): List<PairedHost> = parsePairedHosts(
+        authenticatedRequest("GET", "/clients")
+    )
 
     fun listSims(gatewayId: String): Pair<Long, List<SimLine>> {
         val json = authenticatedRequest("GET", "/gateways/${pathSegment(gatewayId)}/sims")
@@ -396,6 +400,21 @@ class ApiClient(
 
     companion object {
         private val refreshLock = Any()
+    }
+}
+
+internal fun parsePairedHosts(json: JSONObject): List<PairedHost> {
+    val items = json.optJSONArray("items") ?: JSONArray()
+    return (0 until items.length()).mapNotNull { index ->
+        val item = items.optJSONObject(index) ?: return@mapNotNull null
+        val id = item.optNullableString("id") ?: return@mapNotNull null
+        PairedHost(
+            id = id,
+            name = item.optNullableString("name") ?: id.take(8),
+            platform = item.optNullableString("platform") ?: "unknown",
+            state = item.optNullableString("state") ?: "unknown",
+            isSelf = item.optBoolean("is_self", false)
+        )
     }
 }
 

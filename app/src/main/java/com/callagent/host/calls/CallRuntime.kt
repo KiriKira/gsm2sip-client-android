@@ -54,6 +54,14 @@ object CallRuntime {
         if (coordinator.clearTerminal(callId)) notifyChanged(callId)
     }
 
+    internal fun updateEndedNotice(callId: String, notice: String) {
+        synchronized(coordinator) {
+            if (!coordinator.updateEndedNotice(callId, notice)) return
+            statusText = notice
+            notifyChanged(callId)
+        }
+    }
+
     fun startOutbound(
         context: Activity,
         gatewayId: String,
@@ -256,6 +264,11 @@ object CallRuntime {
 
     internal fun attach(hostCallService: HostCallService) {
         service = hostCallService
+    }
+
+    /** Wake an already-owned call service without starting SIP or another foreground service. */
+    internal fun requestCallSyncFromWakeHint() {
+        service?.requestCallSyncFromWakeHint()
     }
 
     internal fun detach(hostCallService: HostCallService) {

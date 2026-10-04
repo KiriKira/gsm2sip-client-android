@@ -48,3 +48,9 @@ data class RemoteCall(
     val terminal: Boolean get() = state == "ended"
     override fun toString(): String = "RemoteCall(callId=$callId, state=$state)"
 }
+
+fun RemoteCall.localTerminalNotice(): String? = when {
+    state != "ended" -> null
+    reason == "answered_elsewhere" -> "另一台主机已接听此来电。"
+    else -> null
+}

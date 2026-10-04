@@ -51,6 +51,8 @@ import com.callagent.host.data.ClientDatabase
 import com.callagent.host.data.ClientPreferences
 import com.callagent.host.data.GatewaySnapshot
 import com.callagent.host.data.HostSession
+import com.callagent.host.data.PairedHost
+import com.callagent.host.data.pairingStateLabel
 import com.callagent.host.data.OutboundTask
 import com.callagent.host.data.RetryEnvelope
 import com.callagent.host.data.RetryAction
@@ -66,6 +68,7 @@ import com.callagent.host.data.clientDatabaseName
 import com.callagent.host.data.newTaskKey
 import com.callagent.host.data.retryAction
 import com.callagent.host.data.sameSessionInstance
+import com.callagent.host.data.parsePairedHosts
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.chip.Chip
@@ -86,8 +89,16 @@ import java.io.IOException
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.Executors
+import org.json.JSONArray
+import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
+    private sealed class PairedHostsRefresh {
+        data class Loaded(val items: List<PairedHost>) : PairedHostsRefresh()
+        object Unsupported : PairedHostsRefresh()
+        object TemporarilyUnavailable : PairedHostsRefresh()
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var sessionStore: SessionStore
@@ -96,6 +107,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var database: ClientDatabase
     private var session: HostSession? = null
     private var gateway: GatewaySnapshot? = null
+    private var pairedHosts: List<PairedHost> = emptyList()
+    private var pairedHostsAvailable: Boolean? = null
+    private var pairedHostsRefreshIssue: String? = null
     private var sims: List<SimLine> = emptyList()
     private var selectedSimId: String? = null
     private var statusMessage: String = ""
@@ -191,6 +205,8 @@ class MainActivity : AppCompatActivity() {
         private const val STATE_FOCUSED_INPUT = "adaptive.focusedInput"
         private const val STATE_PAIRING_SERVER = "pairing.server"
         private const val STATE_PAIRING_DEVICE_NAME = "pairing.deviceName"
+        private const val SYNC_KEY_PAIRED_HOSTS = "paired_hosts_snapshot"
+        private const val PAIRED_HOSTS_UNSUPPORTED = "unsupported"
     }
 
     private val periodicSync = object : Runnable {
@@ -333,6 +349,9 @@ class MainActivity : AppCompatActivity() {
     private fun showPairing(message: String? = null) {
         pairingForm.initialize(preferences.apiBaseUrl, Build.MODEL.orEmpty().take(100))
         session = null
+        pairedHosts = emptyList()
+        pairedHostsAvailable = null
+        pairedHostsRefreshIssue = null
         selectedSimId = null
         composeRecipient = null
         composeBody = null
@@ -472,6 +491,25 @@ class MainActivity : AppCompatActivity() {
             val sipState = currentGateway.sipRegistered?.let { if (it) "SIP 已注册" else "SIP 未注册" } ?: "SIP 状态未知"
             val power = currentGateway.batteryPercent?.let { " · 电量 $it%" }.orEmpty()
             overviewPanel.addView(body("$rootState · $sipState$power"))
+        }
+
+        overviewPanel.addView(sectionTitle("已配对主机"))
+        when (pairedHostsAvailable) {
+            false -> overviewPanel.addView(messageCard("当前服务器版本不提供主机列表。"))
+            true -> {
+                if (pairedHosts.isEmpty()) {
+                    overviewPanel.addView(body("当前账号尚无已配对主机。"))
+                } else {
+                    pairedHosts.forEach { host ->
+                        val self = if (host.isSelf) " · 此主机" else ""
+                        val platform = host.platform.takeUnless { it == "unknown" } ?: "平台未知"
+                        overviewPanel.addView(body("${host.name}$self · ${host.pairingStateLabel()}\n$platform"))
+                    }
+                    overviewPanel.addView(body("已配对表示账号授权状态，不代表主机当前在线。"))
+                }
+                pairedHostsRefreshIssue?.let { overviewPanel.addView(body(it)) }
+            }
+            null -> overviewPanel.addView(body(pairedHostsRefreshIssue ?: "刷新后载入此账号已配对的主机。"))
         }
 
         overviewPanel.addView(sectionTitle("远程 SIM 卡"))
@@ -767,7 +805,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (call != null && call.phase in setOf(CallPhase.ENDED, CallPhase.FAILED)) {
             panel.addView(messageCard(
-                "${if (call.phase == CallPhase.FAILED) "通话失败" else "通话已结束"}${call.failure?.let { "：$it" }.orEmpty()}"
+                "${if (call.phase == CallPhase.FAILED) "通话失败" else "通话已结束"}${(call.failure ?: call.endNotice)?.let { "：$it" }.orEmpty()}"
             ))
             val dismiss = smallButton("关闭通话记录")
             dismiss.setOnClickListener { CallRuntime.clearTerminal(call.callId); renderCallPanel() }
@@ -1263,6 +1301,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun syncFromServer(showProgress: Boolean) {
         if (session == null || syncing) return
+        val expectedSession = session ?: return
+        val expectedDatabase = database
         syncing = true
         if (showProgress) {
             statusMessage = "Refreshing server snapshots…"
@@ -1270,21 +1310,58 @@ class MainActivity : AppCompatActivity() {
         }
         executor.execute {
             try {
-                val api = client()
-                val oldRevision = database.loadGateway()?.mappingRevision
+                if (sessionStore.read()?.sameSessionInstance(expectedSession) != true) throw SessionChanged()
+                val api = ApiClient(expectedSession.apiBaseUrl, sessionStore)
+                val oldRevision = expectedDatabase.loadGateway()?.mappingRevision
                 val remoteGateways = api.listGateways()
                 val current = remoteGateways.firstOrNull()
                     ?: throw IOException("No gateway is paired with this account")
                 val (_, remoteSims) = api.listSims(current.gatewayId)
                 val mappingChanged = oldRevision != null && oldRevision != current.mappingRevision
-                database.saveGateway(current)
-                database.replaceSims(remoteSims)
+                expectedDatabase.saveGateway(current)
+                expectedDatabase.replaceSims(remoteSims)
                 syncSms(api)
+                val pairedHostsRefresh = refreshPairedHosts(api)
+                if (sessionStore.read()?.sameSessionInstance(expectedSession) != true) throw SessionChanged()
+                when (pairedHostsRefresh) {
+                    is PairedHostsRefresh.Loaded -> expectedDatabase.saveSyncStateValue(
+                        SYNC_KEY_PAIRED_HOSTS,
+                        encodePairedHosts(pairedHostsRefresh.items)
+                    )
+                    PairedHostsRefresh.Unsupported -> expectedDatabase.saveSyncStateValue(
+                        SYNC_KEY_PAIRED_HOSTS,
+                        PAIRED_HOSTS_UNSUPPORTED
+                    )
+                    PairedHostsRefresh.TemporarilyUnavailable -> Unit
+                }
                 mainHandler.post {
                     syncing = false
+                    if (sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) {
+                        showCurrentSession("The paired account changed. Showing its own saved gateway and message cache.")
+                        return@post
+                    }
                     session = sessionStore.read()
                     gateway = current
                     sims = remoteSims
+                    when (val hostRefresh = pairedHostsRefresh) {
+                        is PairedHostsRefresh.Loaded -> {
+                            pairedHosts = hostRefresh.items
+                            pairedHostsAvailable = true
+                            pairedHostsRefreshIssue = null
+                        }
+                        PairedHostsRefresh.Unsupported -> {
+                            pairedHosts = emptyList()
+                            pairedHostsAvailable = false
+                            pairedHostsRefreshIssue = null
+                        }
+                        PairedHostsRefresh.TemporarilyUnavailable -> {
+                            pairedHostsRefreshIssue = if (pairedHostsAvailable == true) {
+                                "主机列表暂时无法更新，当前显示上次结果。点击刷新重试。"
+                            } else {
+                                "主机列表暂时无法载入。点击刷新重试。"
+                            }
+                        }
+                    }
                     if (mappingChanged) {
                         selectedSimId = null
                         statusMessage = "The gateway SIM mapping changed. Choose a line again before sending."
@@ -1380,6 +1457,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun refreshPairedHosts(api: ApiClient): PairedHostsRefresh = try {
+        PairedHostsRefresh.Loaded(api.listPairedHosts())
+    } catch (failure: ApiFailure) {
+        when (failure.httpStatus) {
+            404 -> PairedHostsRefresh.Unsupported
+            401 -> throw failure
+            else -> PairedHostsRefresh.TemporarilyUnavailable
+        }
+    } catch (failure: SessionChanged) {
+        throw failure
+    } catch (failure: SessionNeedsPairing) {
+        throw failure
+    } catch (_: Exception) {
+        PairedHostsRefresh.TemporarilyUnavailable
+    }
+
     private fun confirmUnpair() {
         MaterialAlertDialogBuilder(this)
             .setTitle("解除此手机配对？")
@@ -1397,6 +1490,9 @@ class MainActivity : AppCompatActivity() {
                             pairingForm.clear()
                             gateway = null
                             sims = emptyList()
+                            pairedHosts = emptyList()
+                            pairedHostsAvailable = null
+                            pairedHostsRefreshIssue = null
                             selectedSimId = null
                             statusMessage = ""
                             showPairing()
@@ -1447,8 +1543,47 @@ class MainActivity : AppCompatActivity() {
         database.markInterruptedSubmissionsUnknown()
         gateway = database.loadGateway()
         sims = database.loadSims()
+        loadPairedHostsFromCache()
         if (selectedSimId != null && sims.none { it.simId == selectedSimId }) selectedSimId = null
     }
+
+    private fun loadPairedHostsFromCache() {
+        val saved = database.syncStateValue(SYNC_KEY_PAIRED_HOSTS)
+        when {
+            saved == null -> {
+                pairedHosts = emptyList()
+                pairedHostsAvailable = null
+                pairedHostsRefreshIssue = null
+            }
+            saved == PAIRED_HOSTS_UNSUPPORTED -> {
+                pairedHosts = emptyList()
+                pairedHostsAvailable = false
+                pairedHostsRefreshIssue = null
+            }
+            else -> runCatching {
+                parsePairedHosts(JSONObject().put("items", JSONArray(saved)))
+            }.onSuccess { hosts ->
+                pairedHosts = hosts
+                pairedHostsAvailable = true
+                pairedHostsRefreshIssue = "显示上次读取的主机列表；刷新后更新。"
+            }.onFailure {
+                pairedHosts = emptyList()
+                pairedHostsAvailable = null
+                pairedHostsRefreshIssue = null
+            }
+        }
+    }
+
+    private fun encodePairedHosts(hosts: List<PairedHost>): String = JSONArray().apply {
+        hosts.forEach { host ->
+            put(JSONObject()
+                .put("id", host.id)
+                .put("name", host.name)
+                .put("platform", host.platform)
+                .put("state", host.state)
+                .put("is_self", host.isSelf))
+        }
+    }.toString()
 
     private fun matchesSearch(message: SmsRecord, query: String): Boolean = query.isBlank() ||
         message.text.lowercase().contains(query) || message.peerAddress().lowercase().contains(query)

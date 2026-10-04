@@ -37,6 +37,31 @@ class CallSessionCoordinatorTest {
     }
 
     @Test
+    fun remoteTerminalNoticeIsKeptForTheEndedCall() {
+        val coordinator = CallSessionCoordinator()
+        assertTrue(coordinator.incomingInvite(invite(), authority(), now))
+
+        assertTrue(coordinator.ended("call-1", "Another host answered this call."))
+        assertEquals("Another host answered this call.", coordinator.current?.endNotice)
+        assertEquals(CallPhase.ENDED, coordinator.current?.phase)
+        assertFalse(coordinator.ended("call-1", "A later snapshot must not replace the winner state."))
+        assertEquals("Another host answered this call.", coordinator.current?.endNotice)
+    }
+
+    @Test
+    fun lateTerminalNoticeCannotOverwriteANewerCall() {
+        val coordinator = CallSessionCoordinator()
+        assertTrue(coordinator.incomingInvite(invite(), authority(), now))
+        assertTrue(coordinator.ended("call-1"))
+        assertTrue(coordinator.clearTerminal("call-1"))
+        assertTrue(coordinator.beginOutbound("sim-1", "+15551234567"))
+
+        assertFalse(coordinator.updateEndedNotice("call-1", "Another host answered this call."))
+        assertEquals("pending", coordinator.current?.callId)
+        assertNull(coordinator.current?.endNotice)
+    }
+
+    @Test
     fun canceledCallCannotBeRecreatedByLateInvite() {
         val coordinator = CallSessionCoordinator()
         assertTrue(coordinator.incomingInvite(invite(), authority(), now))

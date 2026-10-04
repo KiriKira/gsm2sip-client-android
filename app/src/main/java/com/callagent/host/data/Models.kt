@@ -38,6 +38,21 @@ data class GatewaySnapshot(
     val charging: Boolean?
 )
 
+/** A host paired to the same owner account as the current client session. */
+data class PairedHost(
+    val id: String,
+    val name: String,
+    val platform: String,
+    val state: String,
+    val isSelf: Boolean
+)
+
+fun PairedHost.pairingStateLabel(): String = when (state) {
+    "active" -> "已配对"
+    "revoked" -> "已撤销"
+    else -> state.replace('_', ' ').ifBlank { "状态未知" }
+}
+
 data class SimLine(
     val simId: String,
     val slotIndex: Int,

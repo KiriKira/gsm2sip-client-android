@@ -16,6 +16,7 @@ import com.callagent.host.data.ApiClient
 import com.callagent.host.data.ApiFailure
 import com.callagent.host.data.HostSession
 import com.callagent.host.data.RemoteCall
+import com.callagent.host.data.localTerminalNotice
 import com.callagent.host.data.SessionChanged
 import com.callagent.host.data.SessionNeedsPairing
 import com.callagent.host.data.SessionStore
@@ -34,6 +35,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 /** Short-lived service owner for SIP signaling and call control. Idle SIP is never promoted to FGS. */
@@ -69,6 +71,8 @@ class HostCallService : android.app.Service() {
     private var pendingSimId: String? = null
     private val dialStartedForCall = mutableSetOf<String>()
     private val readyWakeIds = mutableSetOf<String>()
+    private val callSyncInFlight = AtomicBoolean(false)
+    private val callSyncWakeHintQueued = AtomicBoolean(false)
     private val inboundEngineIds = mutableMapOf<String, String>()
     private val inboundExpiryCallbacks = ConcurrentHashMap<String, Runnable>()
     private var pendingAnswerCallId: String? = null
@@ -76,8 +80,7 @@ class HostCallService : android.app.Service() {
     private val pollPendingCalls = object : Runnable {
         override fun run() {
             if (!foregroundListening || registrationState != SipRegistrationState.REGISTERED) return
-            if (CallRuntime.currentSessionForService()?.phase?.isInProgress() == true) return
-            executeOnIo { preparePendingInboundCalls() }
+            enqueueCallStateSync()
             mainHandler.postDelayed(this, INBOUND_POLL_MILLIS)
         }
     }
@@ -297,6 +300,16 @@ class HostCallService : android.app.Service() {
         }
     }
 
+    /** A websocket is only a wake hint; poll over the existing SIP service's serial worker. */
+    internal fun requestCallSyncFromWakeHint() {
+        if (!callSyncWakeHintQueued.compareAndSet(false, true)) return
+        mainHandler.post {
+            callSyncWakeHintQueued.set(false)
+            if (!foregroundListening || registrationState != SipRegistrationState.REGISTERED) return@post
+            enqueueCallStateSync()
+        }
+    }
+
     internal fun hangupCall(callId: String) {
         executeOnIo {
             val engineKey = inboundEngineIds[callId] ?: callId
@@ -418,6 +431,7 @@ class HostCallService : android.app.Service() {
         val session = runCatching { requireClientSession() }.getOrNull() ?: return
         val api = runCatching { apiForCurrentSession() }.getOrNull() ?: return
         val calls = runCatching { api.listCalls() }.getOrElse { return }
+        reconcileCurrentCall(session, calls)
         val now = System.currentTimeMillis()
         calls.asSequence()
             .filter { it.direction in INCOMING_DIRECTIONS && it.state == "pending_wakeup" && !it.wakeNonce.isNullOrBlank() }
@@ -514,6 +528,44 @@ class HostCallService : android.app.Service() {
         }
     }
 
+    private fun enqueueCallStateSync() {
+        if (!callSyncInFlight.compareAndSet(false, true)) return
+        executeOnIo {
+            try {
+                preparePendingInboundCalls()
+            } finally {
+                callSyncInFlight.set(false)
+            }
+        }
+    }
+
+    private fun reconcileCurrentCall(session: HostSession, listedCalls: List<RemoteCall>) {
+        val current = CallRuntime.currentSessionForService()?.takeIf {
+            it.phase.isInProgress() && it.phase != CallPhase.DISCONNECTING
+        } ?: return
+        val listed = listedCalls.firstOrNull { it.callId == current.callId } ?: return
+        if (listed.clientId != session.deviceId || listed.state != "ended") return
+        endCallFromServer(listed)
+    }
+
+    private fun endCallFromServer(remote: RemoteCall) {
+        val current = CallRuntime.snapshot(remote.callId) ?: return
+        if (!current.phase.isInProgress() || current.phase == CallPhase.DISCONNECTING) return
+        val engineCallId = inboundEngineIds[remote.callId] ?: remote.callId
+        if (current.direction == CallDirection.INCOMING && current.phase == CallPhase.INCOMING_RINGING) {
+            runCatching { sipEngine?.reject(engineCallId, 603) }
+        } else {
+            runCatching { sipEngine?.hangup(engineCallId) }
+        }
+        val notice = remote.localTerminalNotice()
+        finishCall(
+            remote.callId,
+            failed = false,
+            endNotice = notice,
+            statusText = notice ?: "通话已结束。"
+        )
+    }
+
     private fun handleSipCallState(snapshot: SipCallSnapshot) {
         if (snapshot.direction == SipCallDirection.INBOUND && snapshot.state in setOf(SipCallState.INCOMING, SipCallState.RINGING)) {
             matchIncomingInvite(snapshot)
@@ -546,10 +598,28 @@ class HostCallService : android.app.Service() {
                     CallRuntime.setStatus("通话中。", serverCallId)
                 }
             }
-            SipCallState.DISCONNECTED -> finishCall(serverCallId, failed = false)
+            SipCallState.DISCONNECTED -> finishFromSipTerminal(serverCallId)
             SipCallState.FAILED -> failCall(serverCallId, "通话失败${snapshot.terminalStatusCode?.let { "（$it）" }.orEmpty()}。")
             SipCallState.INCOMING -> Unit
         }
+    }
+
+    private fun finishFromSipTerminal(callId: String) {
+        val before = CallRuntime.snapshot(callId) ?: return
+        if (before.phase in setOf(CallPhase.ENDED, CallPhase.FAILED)) return
+        finishCall(
+            callId,
+            failed = false,
+            statusText = "通话已结束。"
+        )
+        // SIP is already terminal: release Telecom, audio and the call foreground service first.
+        // The optional server reason can arrive afterward and is fenced to this ended call ID.
+        val session = runCatching { requireClientSession() }.getOrNull() ?: return
+        val notice = runCatching { apiForCurrentSession().getCall(callId) }.getOrNull()
+            ?.takeIf { it.callId == callId && it.clientId == session.deviceId && it.state == "ended" }
+            ?.localTerminalNotice()
+            ?: return
+        CallRuntime.updateEndedNotice(callId, notice)
     }
 
     private fun matchIncomingInvite(snapshot: SipCallSnapshot) {
@@ -643,6 +713,7 @@ class HostCallService : android.app.Service() {
         callId: String,
         failed: Boolean,
         failureReason: String = "Call ended",
+        endNotice: String? = null,
         statusText: String? = null
     ) {
         val current = CallRuntime.snapshot(callId) ?: return
@@ -650,7 +721,8 @@ class HostCallService : android.app.Service() {
         networkRecoveryPolicy.invalidate()
         networkLossWindow = null
         cancelNetworkLossTimeout()
-        if (failed) CallRuntime.coordinator.failed(callId, failureReason) else CallRuntime.coordinator.ended(callId)
+        if (failed) CallRuntime.coordinator.failed(callId, failureReason)
+        else CallRuntime.coordinator.ended(callId, endNotice)
         CallTelecomController.disconnect(
             callId,
             if (failed) android.telecom.DisconnectCause.ERROR else android.telecom.DisconnectCause.REMOTE

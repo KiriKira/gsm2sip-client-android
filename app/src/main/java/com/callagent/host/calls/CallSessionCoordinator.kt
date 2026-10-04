@@ -27,7 +27,8 @@ data class CallSession(
     val expiresAtEpochMillis: Long,
     val muted: Boolean = false,
     val speaker: Boolean = false,
-    val failure: String? = null
+    val failure: String? = null,
+    val endNotice: String? = null
 )
 
 /** Values copied from the authenticated server call snapshot. */
@@ -142,8 +143,15 @@ class CallSessionCoordinator {
     }
 
     @Synchronized
-    fun ended(callId: String): Boolean = update(callId) { state ->
-        if (!state.phase.isLive()) null else state.copy(phase = CallPhase.ENDED).also { retiredCallIds += callId }
+    fun ended(callId: String, notice: String? = null): Boolean = update(callId) { state ->
+        if (!state.phase.isLive()) null else state.copy(phase = CallPhase.ENDED, endNotice = notice?.take(180))
+            .also { retiredCallIds += callId }
+    }
+
+    @Synchronized
+    fun updateEndedNotice(callId: String, notice: String): Boolean = update(callId) { state ->
+        if (state.phase != CallPhase.ENDED || notice.isBlank() || state.endNotice == notice) null
+        else state.copy(endNotice = notice.take(180))
     }
 
     @Synchronized
