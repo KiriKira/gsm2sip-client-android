@@ -238,6 +238,132 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    /**
+     * Mark inbound server message IDs as observed for background notification de-duplication.
+     * The IDs live in the existing sync_state table so this does not change the database schema.
+     * When baseline is true, IDs are recorded silently and no IDs are returned for notification.
+     */
+    @Synchronized
+    fun recordBackgroundInboundIds(
+        ids: List<String>,
+        baseline: Boolean,
+        inboundIds: List<String> = ids,
+        limit: Int = 2048
+    ): List<String> {
+        if (ids.isEmpty()) return emptyList()
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val old = db.query("sync_state", arrayOf("value"), "key=?", arrayOf("background_sms_seen"), null, null, null)
+                .use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            val seen = linkedSetOf<String>()
+            runCatching {
+                val json = JSONArray(old ?: "[]")
+                for (index in 0 until json.length()) json.optString(index).takeIf { it.isNotBlank() }?.let(seen::add)
+            }
+            val fresh = if (baseline) emptyList() else inboundIds.filter { it in ids && it !in seen }.distinct()
+            ids.forEach { id -> if (id.isNotBlank()) seen.add(id) }
+            while (seen.size > limit.coerceAtLeast(1)) seen.remove(seen.first())
+            val encoded = JSONArray().also { array -> seen.forEach { array.put(it) } }.toString()
+            db.insertWithOnConflict("sync_state", null, ContentValues().apply {
+                put("key", "background_sms_seen")
+                put("value", encoded)
+            }, SQLiteDatabase.CONFLICT_REPLACE)
+            if (fresh.isNotEmpty()) {
+                val pending = linkedSetOf<String>()
+                readSyncStateValue(db, "background_sms_pending_alerts")?.let { raw ->
+                    runCatching {
+                        val json = JSONArray(raw)
+                        for (index in 0 until json.length()) json.optString(index).takeIf { it.isNotBlank() }?.let(pending::add)
+                    }
+                }
+                fresh.forEach(pending::add)
+                while (pending.size > MAX_PENDING_BACKGROUND_ALERTS) pending.remove(pending.first())
+                val pendingJson = JSONArray().also { array -> pending.forEach { array.put(it) } }.toString()
+                db.insertWithOnConflict("sync_state", null, ContentValues().apply {
+                    put("key", "background_sms_pending_alerts")
+                    put("value", pendingJson)
+                }, SQLiteDatabase.CONFLICT_REPLACE)
+            }
+            db.setTransactionSuccessful()
+            return fresh
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun pendingBackgroundNotificationIds(): List<String> = syncStateValue("background_sms_pending_alerts")
+        ?.let { raw ->
+            runCatching {
+                val json = JSONArray(raw)
+                (0 until json.length()).mapNotNull { index -> json.optString(index).takeIf { it.isNotBlank() } }
+            }.getOrDefault(emptyList())
+        }
+        .orEmpty()
+
+    @Synchronized
+    fun acknowledgeBackgroundNotificationIds(ids: List<String>) {
+        if (ids.isEmpty()) return
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            val pending = readSyncStateValue(db, "background_sms_pending_alerts")
+                ?.let { raw -> runCatching { JSONArray(raw) }.getOrNull() }
+            val remaining = linkedSetOf<String>()
+            if (pending != null) {
+                for (index in 0 until pending.length()) pending.optString(index).takeIf { it.isNotBlank() && it !in ids }?.let(remaining::add)
+            }
+            val encoded = JSONArray().also { array -> remaining.forEach { array.put(it) } }.toString()
+            db.insertWithOnConflict("sync_state", null, ContentValues().apply {
+                put("key", "background_sms_pending_alerts")
+                put("value", encoded)
+            }, SQLiteDatabase.CONFLICT_REPLACE)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun clearBackgroundNotificationQueue() {
+        writableDatabase.insertWithOnConflict("sync_state", null, ContentValues().apply {
+            put("key", "background_sms_pending_alerts")
+            put("value", "[]")
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    @Synchronized
+    fun existingServerMessageIds(ids: List<String>): Set<String> {
+        if (ids.isEmpty()) return emptySet()
+        val found = linkedSetOf<String>()
+        // Stay under SQLite's bind-parameter limit on older Android releases.
+        ids.distinct().chunked(500).forEach { chunk ->
+            val marks = chunk.joinToString(",") { "?" }
+            readableDatabase.query(
+                "messages", arrayOf("server_id"), "server_id IN ($marks)", chunk.toTypedArray(), null, null, null
+            ).use { cursor -> while (cursor.moveToNext()) found += cursor.getString(0) }
+        }
+        return found
+    }
+
+    @Synchronized
+    fun syncStateValue(key: String): String? = readableDatabase.query(
+        "sync_state", arrayOf("value"), "key=?", arrayOf(key), null, null, null
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+
+    @Synchronized
+    fun saveSyncStateValue(key: String, value: String) {
+        writableDatabase.insertWithOnConflict("sync_state", null, ContentValues().apply {
+            put("key", key)
+            put("value", value)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    private fun readSyncStateValue(db: SQLiteDatabase, key: String): String? = db.query(
+        "sync_state", arrayOf("value"), "key=?", arrayOf(key), null, null, null
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+
     @Synchronized
     fun clearAll() {
         val db = writableDatabase
@@ -296,6 +422,10 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         batteryPercent = getNullableInt("battery_percent"),
         charging = getNullableInt("charging")?.let { it != 0 }
     )
+
+    private companion object {
+        const val MAX_PENDING_BACKGROUND_ALERTS = 99
+    }
 
     private fun Cursor.toSimLine() = SimLine(
         simId = getString(getColumnIndexOrThrow("sim_id")),

@@ -29,7 +29,9 @@ class SessionChanged : IOException("SESSION_CHANGED")
 
 class ApiClient(
     private val configuredBaseUrl: String,
-    private val sessionStore: SessionStore
+    private val sessionStore: SessionStore,
+    private val connectTimeoutMillis: Int = 15_000,
+    private val readTimeoutMillis: Int = 20_000
 ) {
     private val apiRoot: String = normalizeBaseUrl(configuredBaseUrl)
     private val boundSession: HostSession? = sessionStore.read()
@@ -232,8 +234,8 @@ class ApiClient(
     ): JSONObject {
         val connection = (URL(apiRoot + path).openConnection() as HttpsURLConnection).apply {
             requestMethod = method
-            connectTimeout = 15_000
-            readTimeout = 20_000
+            connectTimeout = connectTimeoutMillis
+            readTimeout = readTimeoutMillis
             instanceFollowRedirects = false
             useCaches = false
             setRequestProperty("Accept", "application/json")
