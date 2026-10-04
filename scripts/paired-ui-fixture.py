@@ -227,8 +227,10 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
             raise RuntimeError("could not confirm airplane mode and both radio settings are off")
 
     def restore_fixture_network(self) -> None:
-        if self.fixture_prior_airplane is None:
-            self.record("network_restored", "blocked", "prior radio state was not captured")
+        prior_states = (self.fixture_prior_airplane, self.fixture_prior_wifi, self.fixture_prior_mobile_data)
+        if any(state not in {"0", "1"} for state in prior_states):
+            self.record("network_restored", "fail",
+                        f"prior radio states were not fully captured: airplane/wifi/mobile={prior_states}")
             return
         airplane_on = self.fixture_prior_airplane == "1"
         self.command(["shell", "cmd", "connectivity", "airplane-mode",
