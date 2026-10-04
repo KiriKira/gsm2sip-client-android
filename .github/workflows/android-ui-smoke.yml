@@ -96,3 +96,35 @@ jobs:
             app/build/reports/**
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Upload compact UI diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm2sip-host-ui-diagnostics
+          path: |
+            artifacts/android-ui-smoke/**/*.json
+            artifacts/android-ui-smoke/**/*.txt
+            artifacts/android-ui-smoke/**/*.xml
+            artifacts/android-ui-smoke/**/*.log
+            artifacts/android-ui-smoke/**/*.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm2sip-host-ui-key-screenshots
+          path: artifacts/android-ui-smoke/**/*.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload tested host APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm2sip-host-runtime-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: warn
+          retention-days: 14

@@ -532,13 +532,19 @@ class MainActivity : AppCompatActivity() {
                 val status = if (line.canSend) "可发送" else line.stateLabel()
                 val details = listOfNotNull(line.carrierName, line.phoneNumber).joinToString(" · ")
                 val chip = Chip(this).apply {
-                    text = "SIM ${line.slotIndex + 1} · ${line.label}" + if (details.isNotBlank()) "\n$details · $status" else " · $status"
+                    // Chip only supports a single text line. Keep the selector compact;
+                    // the full identity remains visible in the detail row below and in
+                    // this accessible description.
+                    text = "SIM ${line.slotIndex + 1}"
                     isCheckable = true
-                    isSingleLine = false
-                    maxLines = 2
+                    isSingleLine = true
+                    maxLines = 1
                     isChecked = line.simId == selectedSimId
                     minHeight = dp(48)
-                    contentDescription = "${line.label}, $details, $status"
+                    val identity = listOf(line.label, details, status, "映射版本 ${line.mappingRevision}")
+                        .filter { it.isNotBlank() }
+                        .joinToString(", ")
+                    contentDescription = "SIM ${line.slotIndex + 1}, $identity"
                 }
                 simChips.addView(chip)
                 chip.setOnClickListener {

@@ -387,15 +387,26 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                         f"unfold exit={unfold.returncode}; before={before_fold}; unfolded={unfolded}")
 
             root = unfolded_root
-            root = self.fixture_ensure_visible(root, text="SYNTHETIC SIM A", name="select_fixture_sim_a")
-            sim_node = self.find_text_node(root, "SYNTHETIC SIM A")
+            root = self.fixture_ensure_visible(root, text="SIM 1", name="select_fixture_sim_a")
+            sim_node = next((node for node in self.nodes(root)
+                             if node.attrib.get("text") == "SIM 1" and
+                             node.attrib.get("checkable") == "true" and
+                             "SYNTHETIC SIM A" in node.attrib.get("content-desc", "")), None)
             if sim_node is None:
-                self.record("fixture_sim_selection", "fail", "synthetic SIM A chip was not found")
+                self.record("fixture_sim_selection", "fail", "selectable synthetic SIM A chip was not found")
             else:
                 self.tap_node(sim_node, "select_synthetic_sim_a")
                 self.wait(2)
                 root = self.capture("fixture_sim_selected")
-                self.record("fixture_sim_selection", "pass", "selected synthetic SIM A; no SMS action was activated")
+                selected_chips = [node for node in self.nodes(root)
+                                  if node.attrib.get("checkable") == "true" and
+                                  node.attrib.get("checked") == "true" and
+                                  node.attrib.get("text") in {"SIM 1", "SIM 2"}]
+                selected_a = (len(selected_chips) == 1 and
+                              selected_chips[0].attrib.get("text") == "SIM 1")
+                self.record("fixture_sim_selection", "pass" if selected_a else "fail",
+                            "only synthetic SIM A is selected; no SMS action was activated" if selected_a else
+                            "synthetic SIM A exclusive selection was not confirmed")
 
             root = self.fixture_ensure_visible(root, text="SYNTHETIC UI fixture inbox preview", name="sms_inbox_message")
             root = self.capture("sms_inbox")
