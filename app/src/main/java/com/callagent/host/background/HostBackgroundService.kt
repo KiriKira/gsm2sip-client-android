@@ -530,6 +530,7 @@ class HostBackgroundService : Service() {
         private val lock = Any()
         private var scheduled = false
         private var scheduledFlush: java.util.concurrent.ScheduledFuture<*>? = null
+        private var lastUnacknowledgedPostIds: List<String> = emptyList()
 
         init {
             if (readIds(PENDING_IDS).isNotEmpty()) scheduleFlushLocked()
@@ -538,13 +539,21 @@ class HostBackgroundService : Service() {
         fun record(ids: List<String>): Boolean {
             if (ids.isEmpty()) return true
             return synchronized(lock) {
-                val pending = readIds(PENDING_IDS).toMutableList()
-                val recentlyNotified = readIds(NOTIFIED_IDS).toMutableList()
-                val additions = ids.distinct().filter { it !in pending && it !in recentlyNotified }
-                if (additions.isEmpty()) return@synchronized true
-                pending.addAll(additions)
-                while (pending.size > MAX_COALESCED_IDS) pending.removeAt(0)
-                val saved = preferences.edit().putString(PENDING_IDS, encodeIds(pending)).commit()
+                val pending = readIds(PENDING_IDS)
+                val recentlyNotified = readIds(NOTIFIED_IDS)
+                val nextPending = InboundNotificationDelivery.appendPendingIds(
+                    pending, recentlyNotified, ids, MAX_COALESCED_IDS
+                ) ?: return@synchronized false
+                if (nextPending == pending) {
+                    // A prior SharedPreferences commit may have failed after
+                    // changing its in-memory view. Recommit pending IDs before
+                    // allowing the SQLite journal to be acknowledged.
+                    if (ids.none { it in pending }) return@synchronized true
+                    val saved = preferences.edit().putString(PENDING_IDS, encodeIds(pending)).commit()
+                    if (saved) scheduleFlushLocked()
+                    return@synchronized saved
+                }
+                val saved = preferences.edit().putString(PENDING_IDS, encodeIds(nextPending)).commit()
                 if (saved) scheduleFlushLocked()
                 saved
             }
@@ -587,20 +596,47 @@ class HostBackgroundService : Service() {
                         .setVisibility(Notification.VISIBILITY_PUBLIC)
                     .build())
                     .setAutoCancel(true)
+                    .setOnlyAlertOnce(pending == lastUnacknowledgedPostIds)
                     .build()
-                val recentlyNotified = (readIds(NOTIFIED_IDS) + pending).distinct().takeLast(MAX_SEEN_NOTIFICATION_IDS)
-                val persisted = preferences.edit()
-                    .putString(PENDING_IDS, "[]")
-                    .putString(NOTIFIED_IDS, encodeIds(recentlyNotified))
-                    .putLong(LAST_POSTED_AT, System.currentTimeMillis())
-                    .commit()
-                if (!persisted) {
-                    scheduleFlushLocked(FALLBACK_SYNC_MS)
-                    return
+                val oldPending = pending
+                val oldNotified = readIds(NOTIFIED_IDS)
+                val oldPostedAt = preferences.getLong(LAST_POSTED_AT, 0L)
+                val result = InboundNotificationDelivery.postThenAcknowledge(
+                    post = { manager.notify(sessionStamp(boundSession), INBOUND_NOTIFICATION_ID, summary) },
+                    acknowledge = {
+                        val recentlyNotified = (oldNotified + pending).distinct().takeLast(MAX_SEEN_NOTIFICATION_IDS)
+                        val persisted = preferences.edit()
+                            .putString(PENDING_IDS, "[]")
+                            .putString(NOTIFIED_IDS, encodeIds(recentlyNotified))
+                            .putLong(LAST_POSTED_AT, System.currentTimeMillis())
+                            .commit()
+                        persisted
+                    },
+                    restorePending = {
+                        restorePreferenceSnapshot(oldPending, oldNotified, oldPostedAt)
+                    }
+                )
+                when (result) {
+                    InboundNotificationDelivery.Result.ACKNOWLEDGED -> lastUnacknowledgedPostIds = emptyList()
+                    InboundNotificationDelivery.Result.POST_FAILED -> {
+                        RuntimeState.update(context, issue = "Android could not post the inbound SMS notification.")
+                        scheduleFlushLocked(FALLBACK_SYNC_MS)
+                    }
+                    InboundNotificationDelivery.Result.ACK_FAILED -> {
+                        lastUnacknowledgedPostIds = pending
+                        RuntimeState.update(context, issue = "The inbound SMS notification will be retried.")
+                        scheduleFlushLocked(FALLBACK_SYNC_MS)
+                    }
                 }
-                runCatching { manager.notify(sessionStamp(boundSession), INBOUND_NOTIFICATION_ID, summary) }
-                    .onFailure { RuntimeState.update(context, issue = "Android could not post the inbound SMS notification.") }
             }
+        }
+
+        private fun restorePreferenceSnapshot(pending: List<String>, notified: List<String>, postedAt: Long) {
+            val editor = preferences.edit()
+                .putString(PENDING_IDS, encodeIds(pending))
+                .putString(NOTIFIED_IDS, encodeIds(notified))
+                .putLong(LAST_POSTED_AT, postedAt)
+            if (!editor.commit()) editor.apply()
         }
 
         fun isForSession(session: HostSession): Boolean = boundSession.sameSessionInstance(session)
@@ -610,6 +646,7 @@ class HostBackgroundService : Service() {
                 scheduledFlush?.cancel(false)
                 scheduledFlush = null
                 scheduled = false
+                lastUnacknowledgedPostIds = emptyList()
                 preferences.edit().putString(PENDING_IDS, "[]").commit()
                 clearPending(context, databaseName, sessionStamp(boundSession))
             }

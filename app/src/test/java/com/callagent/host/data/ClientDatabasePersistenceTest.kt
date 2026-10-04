@@ -3,6 +3,7 @@ package com.callagent.host.data
 import android.content.Context
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -98,6 +99,115 @@ class ClientDatabasePersistenceTest {
     }
 
     @Test
+    fun eventPageCommitReopensWithMessageCursorAndPendingAlertAndRejectsStaleHelper() {
+        val name = testDatabaseName()
+        val first = openDatabase(name)
+        val historic = remoteMessage("historic-1")
+        first.beginHistoricalBaseline()
+        assertTrue(first.applyRemoteSnapshotPage(listOf(historic)).isEmpty())
+        assertTrue(first.pendingBackgroundNotificationIds().isEmpty())
+        assertTrue(first.applyRemoteEventPage(listOf(historic), null, "cursor-1").committed)
+        first.finishHistoricalBaseline()
+
+        val incoming = remoteMessage("incoming-1")
+        val committed = first.applyRemoteEventPage(listOf(incoming), "cursor-1", "cursor-2")
+        assertTrue(committed.committed)
+        assertEquals(listOf("incoming-1"), committed.newInboundNotificationIds)
+
+        val staleHelper = openDatabase(name)
+        val stale = staleHelper.applyRemoteEventPage(
+            listOf(remoteMessage("stale-1")),
+            expectedCursor = "cursor-1",
+            cursorValue = "cursor-stale"
+        )
+        assertFalse(stale.committed)
+        assertEquals("cursor-2", first.eventCursor())
+        assertTrue(first.loadMessages("sim-1").any { it.serverId == "incoming-1" })
+        assertFalse(first.loadMessages("sim-1").any { it.serverId == "stale-1" })
+
+        first.close()
+        staleHelper.close()
+        val reopened = openDatabase(name)
+        assertEquals("cursor-2", reopened.eventCursor())
+        assertEquals(listOf("incoming-1"), reopened.pendingBackgroundNotificationIds())
+
+        val replay = reopened.applyRemoteEventPage(listOf(incoming), "cursor-2", "cursor-2")
+        assertTrue(replay.committed)
+        assertTrue(replay.newInboundNotificationIds.isEmpty())
+        assertEquals(listOf("incoming-1"), reopened.pendingBackgroundNotificationIds())
+    }
+
+    @Test
+    fun failedSessionFenceRollsBackMessageJournalAndCursorTogether() {
+        val db = openDatabase(testDatabaseName())
+        var checks = 0
+        val result = runCatching {
+            db.applyRemoteEventPage(
+                messages = listOf(remoteMessage("rolled-back-1")),
+                expectedCursor = null,
+                cursorValue = "must-not-commit",
+                sessionIsCurrent = { ++checks == 1 }
+            )
+        }
+
+        assertTrue(result.isFailure)
+        assertNull(db.eventCursor())
+        assertTrue(db.loadMessages("sim-1").isEmpty())
+        assertTrue(db.pendingBackgroundNotificationIds().isEmpty())
+        assertTrue(db.isHistoricalBaseline())
+    }
+
+    @Test
+    fun postBootstrapSnapshotJournalsNewInboundMessages() {
+        val db = openDatabase(testDatabaseName())
+        db.beginHistoricalBaseline()
+        db.finishHistoricalBaseline()
+
+        assertEquals(listOf("snapshot-incoming"), db.applyRemoteSnapshotPage(listOf(remoteMessage("snapshot-incoming"))))
+        assertEquals(listOf("snapshot-incoming"), db.pendingBackgroundNotificationIds())
+    }
+
+    @Test
+    fun firstSnapshotStaysSilentWhenAnotherHelperFinishesBaselineMidPagination() {
+        val name = testDatabaseName()
+        val first = openDatabase(name)
+        val second = openDatabase(name)
+        first.beginHistoricalBaseline()
+        assertTrue(first.applyRemoteSnapshotPage(
+            messages = listOf(remoteMessage("historic-page-1")),
+            forceHistoricalBaseline = true
+        ).isEmpty())
+
+        assertTrue(second.applyRemoteEventPage(listOf(remoteMessage("historic-page-1")), null, "cursor-1").committed)
+        second.finishHistoricalBaseline()
+
+        assertTrue(first.applyRemoteSnapshotPage(
+            messages = listOf(remoteMessage("historic-page-2")),
+            forceHistoricalBaseline = true
+        ).isEmpty())
+        assertTrue(first.pendingBackgroundNotificationIds().isEmpty())
+    }
+
+    @Test
+    fun eventJournalRetainsMoreThanOneNotificationBatchAcrossReopen() {
+        val name = testDatabaseName()
+        val db = openDatabase(name)
+        db.beginHistoricalBaseline()
+        db.finishHistoricalBaseline()
+        val records = (0 until 120).map { index -> remoteMessage("incoming-$index") }
+
+        val result = db.applyRemoteEventPage(records, expectedCursor = null, cursorValue = "cursor-120")
+        assertTrue(result.committed)
+        assertEquals(120, result.newInboundNotificationIds.size)
+        assertEquals(120, db.pendingBackgroundNotificationIds().size)
+
+        db.close()
+        val reopened = openDatabase(name)
+        assertEquals(120, reopened.pendingBackgroundNotificationIds().size)
+        assertEquals("cursor-120", reopened.eventCursor())
+    }
+
+    @Test
     fun aDifferentServerOwnerOrDeviceCannotReadPreviousDraftOrTask() {
         val firstName = clientDatabaseName("https://api.example.test/v1", "owner-a", "client-a")
         val secondName = clientDatabaseName("https://api.example.test/v1", "owner-b", "client-a")
@@ -132,5 +242,25 @@ class ClientDatabasePersistenceTest {
         text = "中文与 emoji 🙂",
         createdAt = "2026-10-03T10:00:00Z",
         status = SmsStatus.SUBMITTING
+    )
+
+    private fun remoteMessage(id: String) = SmsRecord(
+        localId = "remote:$id",
+        serverId = id,
+        commandId = null,
+        simId = "sim-1",
+        mappingRevision = 1L,
+        direction = "inbound",
+        from = "+8613800000000",
+        to = null,
+        text = "message $id",
+        status = SmsStatus.RECEIVED,
+        createdAt = "2026-10-04T10:00:00Z",
+        expiresAt = null,
+        partCount = null,
+        parts = emptyList(),
+        taskKey = null,
+        gatewayId = "gateway-1",
+        idempotencyBody = null
     )
 }

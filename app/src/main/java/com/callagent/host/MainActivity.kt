@@ -839,13 +839,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncSms(api: ApiClient) {
-        val existingCursor = database.eventCursor()
+        val expectedSession = sessionStore.read() ?: throw SessionChanged()
+        val syncDatabase = database
+        val sessionIsCurrent = {
+            val latest = sessionStore.read()
+            latest != null && expectedSession.sameSessionInstance(latest) && syncDatabase === database
+        }
+        if (!sessionIsCurrent()) throw SessionChanged()
+        val historicalBaseline = syncDatabase.isHistoricalBaseline()
+        if (historicalBaseline) syncDatabase.beginHistoricalBaseline()
+        val existingCursor = syncDatabase.eventCursor()
         if (existingCursor == null) {
             var snapshotCursor: String? = null
             var pages = 0
             do {
                 val page = api.listMessages(cursor = snapshotCursor)
-                page.items.forEach(database::upsertRemoteMessage)
+                syncDatabase.applyRemoteSnapshotPage(page.items, sessionIsCurrent,
+                    forceHistoricalBaseline = historicalBaseline)
                 snapshotCursor = page.nextCursor
                 pages++
             } while (snapshotCursor != null && pages < 10)
@@ -855,33 +865,39 @@ class MainActivity : AppCompatActivity() {
         var pageCount = 0
         do {
             val page = api.listEvents(cursor)
-            page.messages.forEach(database::upsertRemoteMessage)
             if (page.resyncRequired) {
                 var snapshotCursor: String? = null
                 var snapshots = 0
+                val snapshotBaseline = syncDatabase.isHistoricalBaseline()
                 do {
                     val snapshot = api.listMessages(cursor = snapshotCursor)
-                    snapshot.items.forEach(database::upsertRemoteMessage)
+                    syncDatabase.applyRemoteSnapshotPage(snapshot.items, sessionIsCurrent,
+                        forceHistoricalBaseline = snapshotBaseline)
                     snapshotCursor = snapshot.nextCursor
                     snapshots++
                 } while (snapshotCursor != null && snapshots < 10)
             }
             val advance = page.nextCursor ?: page.lastItemCursor
-            if (advance != null) {
-                database.saveEventCursor(advance)
-                cursor = if (page.nextCursor != null && page.nextCursor != cursor) page.nextCursor else null
+            val result = syncDatabase.applyRemoteEventPage(
+                page.messages, cursor, advance, sessionIsCurrent
+            )
+            if (!sessionIsCurrent()) throw SessionChanged()
+            if (!result.committed) {
+                cursor = syncDatabase.eventCursor()
             } else {
-                cursor = null
+                cursor = if (page.nextCursor != null && page.nextCursor != cursor) page.nextCursor else null
             }
             pageCount++
         } while (cursor != null && pageCount < 10)
 
-        database.loadOutboundTasks()
+        if (cursor == null && historicalBaseline && sessionIsCurrent()) syncDatabase.finishHistoricalBaseline()
+        syncDatabase.loadOutboundTasks()
             .filter { it.serverId != null && it.status !in setOf(SmsStatus.DELIVERED, SmsStatus.FAILED, SmsStatus.EXPIRED) }
             .takeLast(50)
             .forEach { task ->
                 val detail = api.getMessage(task.serverId!!)
-                if (detail != null) database.upsertRemoteMessage(detail)
+                if (!sessionIsCurrent()) throw SessionChanged()
+                if (detail != null) syncDatabase.upsertRemoteMessage(detail)
             }
     }
 

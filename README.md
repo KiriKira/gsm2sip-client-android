@@ -1,6 +1,6 @@
 # gsm2sip-client-android
 
-Android host app for controlling SMS through the two SIMs in a separate rooted gateway phone. The first implementation provides HTTPS pairing and token refresh, a Material 3 Expressive UI, a cached two-SIM status screen, per-line inboxes and replies, SMS submission and delivery status, and a local task ledger for safe recovery after timeouts.
+Android host app for controlling SMS through the two SIMs in a separate Android gateway phone (SMS-only operation needs no root). The first implementation provides HTTPS pairing and token refresh, a Material 3 Expressive UI, a cached two-SIM status screen, per-line inboxes and replies, SMS submission and delivery status, and a local task ledger for safe recovery after timeouts.
 
 Calls stay visibly unavailable while gateway audio and server call routing are being verified. The app does not read or send SMS through the host phone, request the default SMS or dialer role, or invoke the system dialer.
 
@@ -30,4 +30,11 @@ Optional user-enabled background SMS sync now uses an authenticated WSS wake cha
 - [SIP SDK probe gate](docs/sdk-probe.md)
 - [Three-party protocol](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/protocol-v1.md)
 - [Joint roadmap](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/roadmap.md)
-- [Rooted gateway](https://github.com/KiriKira/gsm2sip)
+- [Android gateway](https://github.com/KiriKira/gsm2sip)
+
+SMS cache merges, inbound alert journaling and event-cursor advances share a SQLite transaction;
+foreground and background readers fence stale pages against the committed cursor. Pending alerts
+are acknowledged after Android accepts the notification, so a process interruption may replay
+a notification instead of silently losing it. First history remains silent; summaries are coalesced
+and notification delivery still requires user opt-in, permissions and network/OS availability.
+See the [feature gaps and weak-network audit](https://github.com/KiriKira/gsm2sip-server/blob/codex/control-plane-foundation/docs/network-and-feature-status.md).

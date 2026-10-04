@@ -101,7 +101,10 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
 
     @Synchronized
     fun upsertRemoteMessage(message: SmsRecord) {
-        val db = writableDatabase
+        upsertRemoteMessage(writableDatabase, message)
+    }
+
+    private fun upsertRemoteMessage(db: SQLiteDatabase, message: SmsRecord) {
         val existing = message.serverId?.let { findByServerId(db, it) }
         if (existing != null) {
             db.update("messages", ContentValues().apply {
@@ -232,10 +235,139 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
 
     @Synchronized
     fun saveEventCursor(cursorValue: String) {
-        writableDatabase.insertWithOnConflict("sync_state", null, ContentValues().apply {
+        saveEventCursor(writableDatabase, cursorValue)
+    }
+
+    private fun saveEventCursor(db: SQLiteDatabase, cursorValue: String) {
+        db.insertWithOnConflict("sync_state", null, ContentValues().apply {
             put("key", "events_cursor")
             put("value", cursorValue)
         }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    /** True while the first event-history pass is intentionally silent. */
+    @Synchronized
+    fun isHistoricalBaseline(): Boolean = isHistoricalBaseline(writableDatabase)
+
+    @Synchronized
+    fun beginHistoricalBaseline() {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            // Another ClientDatabase instance may have completed the initial
+            // history pass after this caller observed the old state.
+            if (!isHistoricalBaseline(db)) return
+            saveSyncStateValue(db, BASELINE_IN_PROGRESS_KEY, "1")
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun finishHistoricalBaseline() {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            saveSyncStateValue(db, BASELINE_IN_PROGRESS_KEY, "0")
+            saveSyncStateValue(db, BOOTSTRAPPED_KEY, "1")
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /**
+     * Merge one messages snapshot page and journal newly discovered inbound IDs
+     * in one transaction. During the initial historical baseline, the IDs are
+     * remembered silently so the event replay does not alert on old mail.
+     */
+    @Synchronized
+    fun applyRemoteSnapshotPage(
+        messages: List<SmsRecord>,
+        sessionIsCurrent: () -> Boolean = { true },
+        forceHistoricalBaseline: Boolean = false
+    ): List<String> {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            if (!sessionIsCurrent()) throw SessionChanged()
+            val ids = messages.mapNotNull { it.serverId?.takeIf(String::isNotBlank) }.distinct()
+            val previouslyCached = existingServerMessageIds(db, ids)
+            messages.forEach { upsertRemoteMessage(db, it) }
+            val uncached = ids.filterNot(previouslyCached::contains)
+            val inboundIds = messages.asSequence()
+                .filter { it.direction == "inbound" }
+                .mapNotNull { it.serverId }
+                .filterNot(previouslyCached::contains)
+                .toList()
+            val fresh = if (uncached.isEmpty()) emptyList() else recordBackgroundInboundIds(
+                db, uncached, baseline = forceHistoricalBaseline || isHistoricalBaseline(db), inboundIds = inboundIds
+            )
+            if (!sessionIsCurrent()) throw SessionChanged()
+            db.setTransactionSuccessful()
+            return fresh
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    /**
+     * Atomically merge an event page, record its inbound-alert journal, and
+     * advance its cursor. The expected-cursor check fences stale pages when the
+     * activity and foreground service each use their own SQLiteOpenHelper.
+     */
+    @Synchronized
+    fun applyRemoteEventPage(
+        messages: List<SmsRecord>,
+        expectedCursor: String?,
+        cursorValue: String?,
+        sessionIsCurrent: () -> Boolean = { true }
+    ): RemoteEventPageResult {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            if (!sessionIsCurrent()) throw SessionChanged()
+            if (eventCursor(db) != expectedCursor) {
+                db.setTransactionSuccessful()
+                return RemoteEventPageResult(committed = false, newInboundNotificationIds = emptyList())
+            }
+
+            val ids = messages.mapNotNull { it.serverId?.takeIf(String::isNotBlank) }.distinct()
+            val previouslyCached = existingServerMessageIds(db, ids)
+            messages.forEach { upsertRemoteMessage(db, it) }
+
+            val fresh = if (isHistoricalBaseline(db)) {
+                recordBackgroundInboundIds(
+                    db,
+                    ids,
+                    baseline = true,
+                    inboundIds = messages.asSequence()
+                        .filter { it.direction == "inbound" }
+                        .mapNotNull { it.serverId }
+                        .toList()
+                )
+            } else {
+                val cachedIds = ids.filter(previouslyCached::contains)
+                if (cachedIds.isNotEmpty()) recordBackgroundInboundIds(db, cachedIds, baseline = true)
+                val uncachedIds = ids.filterNot(previouslyCached::contains)
+                val inboundIds = messages.asSequence()
+                    .filter { it.direction == "inbound" }
+                    .mapNotNull { it.serverId }
+                    .filterNot(previouslyCached::contains)
+                    .toList()
+                if (uncachedIds.isEmpty()) emptyList() else recordBackgroundInboundIds(
+                    db, uncachedIds, baseline = false, inboundIds = inboundIds
+                )
+            }
+
+            cursorValue?.let { saveEventCursor(db, it) }
+            if (!sessionIsCurrent()) throw SessionChanged()
+            db.setTransactionSuccessful()
+            return RemoteEventPageResult(committed = true, newInboundNotificationIds = fresh)
+        } finally {
+            db.endTransaction()
+        }
     }
 
     /**
@@ -254,42 +386,46 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         val db = writableDatabase
         db.beginTransaction()
         try {
-            val old = db.query("sync_state", arrayOf("value"), "key=?", arrayOf("background_sms_seen"), null, null, null)
-                .use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
-            val seen = linkedSetOf<String>()
-            runCatching {
-                val json = JSONArray(old ?: "[]")
-                for (index in 0 until json.length()) json.optString(index).takeIf { it.isNotBlank() }?.let(seen::add)
-            }
-            val fresh = if (baseline) emptyList() else inboundIds.filter { it in ids && it !in seen }.distinct()
-            ids.forEach { id -> if (id.isNotBlank()) seen.add(id) }
-            while (seen.size > limit.coerceAtLeast(1)) seen.remove(seen.first())
-            val encoded = JSONArray().also { array -> seen.forEach { array.put(it) } }.toString()
-            db.insertWithOnConflict("sync_state", null, ContentValues().apply {
-                put("key", "background_sms_seen")
-                put("value", encoded)
-            }, SQLiteDatabase.CONFLICT_REPLACE)
-            if (fresh.isNotEmpty()) {
-                val pending = linkedSetOf<String>()
-                readSyncStateValue(db, "background_sms_pending_alerts")?.let { raw ->
-                    runCatching {
-                        val json = JSONArray(raw)
-                        for (index in 0 until json.length()) json.optString(index).takeIf { it.isNotBlank() }?.let(pending::add)
-                    }
-                }
-                fresh.forEach(pending::add)
-                while (pending.size > MAX_PENDING_BACKGROUND_ALERTS) pending.remove(pending.first())
-                val pendingJson = JSONArray().also { array -> pending.forEach { array.put(it) } }.toString()
-                db.insertWithOnConflict("sync_state", null, ContentValues().apply {
-                    put("key", "background_sms_pending_alerts")
-                    put("value", pendingJson)
-                }, SQLiteDatabase.CONFLICT_REPLACE)
-            }
+            val fresh = recordBackgroundInboundIds(db, ids, baseline, inboundIds, limit)
             db.setTransactionSuccessful()
             return fresh
         } finally {
             db.endTransaction()
         }
+    }
+
+    private fun recordBackgroundInboundIds(
+        db: SQLiteDatabase,
+        ids: List<String>,
+        baseline: Boolean,
+        inboundIds: List<String> = ids,
+        limit: Int = 2048
+    ): List<String> {
+        if (ids.isEmpty()) return emptyList()
+        val old = readSyncStateValue(db, BACKGROUND_SMS_SEEN_KEY)
+        val seen = linkedSetOf<String>()
+        runCatching {
+            val json = JSONArray(old ?: "[]")
+            for (index in 0 until json.length()) json.optString(index).takeIf { it.isNotBlank() }?.let(seen::add)
+        }
+        val fresh = if (baseline) emptyList() else inboundIds.filter { it in ids && it !in seen }.distinct()
+        ids.forEach { id -> if (id.isNotBlank()) seen.add(id) }
+        while (seen.size > limit.coerceAtLeast(1)) seen.remove(seen.first())
+        val encoded = JSONArray().also { array -> seen.forEach { array.put(it) } }.toString()
+        saveSyncStateValue(db, BACKGROUND_SMS_SEEN_KEY, encoded)
+        if (fresh.isNotEmpty()) {
+            val pending = linkedSetOf<String>()
+            readSyncStateValue(db, BACKGROUND_SMS_PENDING_KEY)?.let { raw ->
+                runCatching {
+                    val json = JSONArray(raw)
+                    for (index in 0 until json.length()) json.optString(index).takeIf { it.isNotBlank() }?.let(pending::add)
+                }
+            }
+            fresh.forEach(pending::add)
+            val pendingJson = JSONArray().also { array -> pending.forEach { array.put(it) } }.toString()
+            saveSyncStateValue(db, BACKGROUND_SMS_PENDING_KEY, pendingJson)
+        }
+        return fresh
     }
 
     @Synchronized
@@ -336,11 +472,16 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
     @Synchronized
     fun existingServerMessageIds(ids: List<String>): Set<String> {
         if (ids.isEmpty()) return emptySet()
+        return existingServerMessageIds(readableDatabase, ids)
+    }
+
+    private fun existingServerMessageIds(db: SQLiteDatabase, ids: List<String>): Set<String> {
+        if (ids.isEmpty()) return emptySet()
         val found = linkedSetOf<String>()
         // Stay under SQLite's bind-parameter limit on older Android releases.
         ids.distinct().chunked(500).forEach { chunk ->
             val marks = chunk.joinToString(",") { "?" }
-            readableDatabase.query(
+            db.query(
                 "messages", arrayOf("server_id"), "server_id IN ($marks)", chunk.toTypedArray(), null, null, null
             ).use { cursor -> while (cursor.moveToNext()) found += cursor.getString(0) }
         }
@@ -354,11 +495,21 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
 
     @Synchronized
     fun saveSyncStateValue(key: String, value: String) {
-        writableDatabase.insertWithOnConflict("sync_state", null, ContentValues().apply {
+        saveSyncStateValue(writableDatabase, key, value)
+    }
+
+    private fun saveSyncStateValue(db: SQLiteDatabase, key: String, value: String) {
+        db.insertWithOnConflict("sync_state", null, ContentValues().apply {
             put("key", key)
             put("value", value)
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
+
+    private fun eventCursor(db: SQLiteDatabase): String? = readSyncStateValue(db, EVENT_CURSOR_KEY)
+
+    private fun isHistoricalBaseline(db: SQLiteDatabase): Boolean =
+        readSyncStateValue(db, BASELINE_IN_PROGRESS_KEY) == "1" ||
+            (eventCursor(db) == null && readSyncStateValue(db, BOOTSTRAPPED_KEY) != "1")
 
     private fun readSyncStateValue(db: SQLiteDatabase, key: String): String? = db.query(
         "sync_state", arrayOf("value"), "key=?", arrayOf(key), null, null, null
@@ -424,7 +575,11 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
     )
 
     private companion object {
-        const val MAX_PENDING_BACKGROUND_ALERTS = 99
+        const val EVENT_CURSOR_KEY = "events_cursor"
+        const val BOOTSTRAPPED_KEY = "background_events_bootstrapped"
+        const val BASELINE_IN_PROGRESS_KEY = "background_events_baseline_in_progress"
+        const val BACKGROUND_SMS_SEEN_KEY = "background_sms_seen"
+        const val BACKGROUND_SMS_PENDING_KEY = "background_sms_pending_alerts"
     }
 
     private fun Cursor.toSimLine() = SimLine(
@@ -483,6 +638,11 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         return if (isNull(index)) null else getLong(index)
     }
 }
+
+data class RemoteEventPageResult(
+    val committed: Boolean,
+    val newInboundNotificationIds: List<String>
+)
 
 data class MessageAccepted(
     val messageId: String,

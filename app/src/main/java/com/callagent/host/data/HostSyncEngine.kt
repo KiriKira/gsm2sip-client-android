@@ -2,7 +2,6 @@ package com.callagent.host.data
 
 import android.content.Context
 import android.os.SystemClock
-import com.callagent.host.background.HostBackgroundPolicy
 import java.io.Closeable
 import java.io.IOException
 
@@ -55,93 +54,62 @@ class HostSyncEngine(
 
     private fun syncSms(deadline: Long): Int {
         val existingCursor = database.eventCursor()
-        val bootstrapped = database.syncStateValue(BOOTSTRAPPED_KEY) == "1"
-        val baselineInProgress = database.syncStateValue(BASELINE_IN_PROGRESS_KEY) == "1"
-        val baseline = HostBackgroundPolicy.isHistoricalBaseline(existingCursor != null, bootstrapped, baselineInProgress)
-        if (baseline) database.saveSyncStateValue(BASELINE_IN_PROGRESS_KEY, "1")
-        if (existingCursor == null) snapshotMessages(deadline)
+        if (database.isHistoricalBaseline()) database.beginHistoricalBaseline()
+        var newInboundCount = 0
+        if (existingCursor == null) newInboundCount += snapshotMessages(deadline)
 
         var cursor = existingCursor
         var pageCount = 0
-        var newInboundCount = 0
         do {
             ensureBudget(deadline)
             val page = api.listEvents(cursor)
             ensureCurrent()
-            if (page.resyncRequired) snapshotMessages(deadline)
-
-            val records = page.messages
-            val ids = records.mapNotNull { it.serverId?.takeIf { id -> id.isNotBlank() } }
-            val previouslyCached = database.existingServerMessageIds(ids)
-            records.forEach { record ->
-                ensureCurrent()
-                database.upsertRemoteMessage(record)
-            }
-
-            if (baseline || page.resyncRequired) {
-                database.recordBackgroundInboundIds(
-                    ids,
-                    baseline = true,
-                    inboundIds = records.asSequence().filter { it.direction == "inbound" }.mapNotNull { it.serverId }.toList()
-                )
-            } else {
-                val cachedIds = ids.filter { it in previouslyCached }
-                if (cachedIds.isNotEmpty()) database.recordBackgroundInboundIds(cachedIds, baseline = true)
-                val uncachedIds = ids.filterNot(previouslyCached::contains)
-                val inboundIds = records.asSequence()
-                    .filter { it.direction == "inbound" }
-                    .mapNotNull { it.serverId }
-                    .filterNot(previouslyCached::contains)
-                    .toList()
-                val newInboundIds = database.recordBackgroundInboundIds(
-                    uncachedIds,
-                    baseline = false,
-                    inboundIds = inboundIds
-                )
-                newInboundCount += HostBackgroundPolicy.newInboundNotificationIds(records, newInboundIds.toSet()).size
-            }
+            if (page.resyncRequired) newInboundCount += snapshotMessages(deadline)
 
             val advance = page.nextCursor ?: page.lastItemCursor
-            if (advance != null) {
-                ensureCurrent()
-                database.saveEventCursor(advance)
-                cursor = if (page.nextCursor != null && page.nextCursor != cursor) page.nextCursor else null
+            val result = database.applyRemoteEventPage(
+                messages = page.messages,
+                expectedCursor = cursor,
+                cursorValue = advance,
+                sessionIsCurrent = { sessionIsCurrent(boundSession) }
+            )
+            ensureCurrent()
+            if (!result.committed) {
+                // A foreground sync or another service helper committed this
+                // page first. Re-read its cursor and fetch from that point;
+                // never replay a stale page into the notification journal.
+                cursor = database.eventCursor()
             } else {
-                cursor = null
+                newInboundCount += result.newInboundNotificationIds.size
+                cursor = if (page.nextCursor != null && page.nextCursor != cursor) page.nextCursor else null
             }
             deliverPendingNotifications()
             pageCount++
         } while (cursor != null && pageCount < MAX_EVENT_PAGES)
-        if (baseline) {
-            if (cursor != null) {
-                database.saveSyncStateValue(BASELINE_IN_PROGRESS_KEY, "1")
-            } else {
-                database.saveSyncStateValue(BASELINE_IN_PROGRESS_KEY, "0")
-                database.saveSyncStateValue(BOOTSTRAPPED_KEY, "1")
-            }
-        }
+        if (cursor == null && database.isHistoricalBaseline()) database.finishHistoricalBaseline()
         return newInboundCount
     }
 
-    private fun snapshotMessages(deadline: Long) {
+    private fun snapshotMessages(deadline: Long): Int {
+        // Pin whether this whole paged read belongs to the first history pass;
+        // another helper may finish that pass while this network request runs.
+        val historicalSnapshot = database.isHistoricalBaseline()
         var snapshotCursor: String? = null
         var pages = 0
+        var newInboundCount = 0
         do {
             ensureBudget(deadline)
             val page = api.listMessages(cursor = snapshotCursor)
             ensureCurrent()
-            page.items.forEach { record ->
-                ensureCurrent()
-                database.upsertRemoteMessage(record)
-            }
-            val inboundIds = page.items.asSequence()
-                .filter { it.direction == "inbound" }
-                .mapNotNull { it.serverId }
-                .toList()
-            database.recordBackgroundInboundIds(inboundIds, baseline = true)
+            newInboundCount += database.applyRemoteSnapshotPage(
+                messages = page.items,
+                sessionIsCurrent = { sessionIsCurrent(boundSession) },
+                forceHistoricalBaseline = historicalSnapshot
+            ).size
             snapshotCursor = page.nextCursor
             pages++
         } while (snapshotCursor != null && pages < MAX_SNAPSHOT_PAGES)
+        return newInboundCount
     }
 
     private fun ensureCurrent() {
@@ -149,7 +117,7 @@ class HostSyncEngine(
     }
 
     private fun deliverPendingNotifications() {
-        val pending = database.pendingBackgroundNotificationIds()
+        val pending = database.pendingBackgroundNotificationIds().take(MAX_COALESCED_NOTIFICATION_IDS)
         if (pending.isEmpty()) return
         ensureCurrent()
         if (persistInboundNotificationIds(pending)) {
@@ -171,7 +139,6 @@ class HostSyncEngine(
         private const val BUDGET_MARGIN_MS = 1_000L
         private const val MAX_SNAPSHOT_PAGES = 4
         private const val MAX_EVENT_PAGES = 5
-        private const val BOOTSTRAPPED_KEY = "background_events_bootstrapped"
-        private const val BASELINE_IN_PROGRESS_KEY = "background_events_baseline_in_progress"
+        private const val MAX_COALESCED_NOTIFICATION_IDS = 99
     }
 }
