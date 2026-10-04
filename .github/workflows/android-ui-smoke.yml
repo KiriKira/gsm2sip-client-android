@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - '.github/workflows/android-ui-smoke.yml'
+      - 'app/**'
       - 'scripts/android-ui-smoke.py'
       - 'scripts/run-native-smoke.sh'
       - 'scripts/native-smoke/**'
@@ -40,8 +41,26 @@ jobs:
 
       - name: Build debug APK
         run: |
+          set -o pipefail
           mkdir -p artifacts/android-ui-smoke
-          ./gradlew :app:assembleDebug --no-daemon --max-workers=2
+          ./gradlew :app:assembleDebug :app:signingReport --no-daemon --max-workers=2 --console=plain \
+            | tee artifacts/android-ui-smoke/gradle-signing-report.txt
+          debug_keystore="$(awk '
+            /^Variant: debug[[:space:]]*$/ { in_debug=1; next }
+            /^Variant:/ { in_debug=0 }
+            in_debug && /^Store:[[:space:]]*/ { sub(/^Store:[[:space:]]*/, ""); print; exit }
+          ' artifacts/android-ui-smoke/gradle-signing-report.txt)"
+          if [[ -z "$debug_keystore" || ! -f "$debug_keystore" ]]; then
+            echo "Gradle signingReport did not resolve an existing debug keystore: ${debug_keystore:-missing Store path}" >&2
+            exit 1
+          fi
+          if [[ -z "${RUNNER_TEMP:-}" || -z "${GITHUB_ENV:-}" ]]; then
+            echo 'RUNNER_TEMP and GITHUB_ENV are required to preserve the signing key for the emulator step' >&2
+            exit 1
+          fi
+          smoke_keystore="$RUNNER_TEMP/gsm2sip-host-debug.keystore"
+          install -m 600 "$debug_keystore" "$smoke_keystore"
+          echo "PJSUA_SMOKE_KEYSTORE=$smoke_keystore" >> "$GITHUB_ENV"
           sha256sum app/build/outputs/apk/debug/app-debug.apk | tee artifacts/android-ui-smoke/apk.sha256
 
       - name: Install and exercise the host app on a foldable emulator

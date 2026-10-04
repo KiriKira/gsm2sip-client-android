@@ -209,7 +209,17 @@ CURRENT_CHECK=""
 
 HOST_APK="${PJSUA_SMOKE_HOST_APK:-$ROOT/app/build/outputs/apk/debug/app-debug.apk}"
 if [[ "$HOST_APK" != /* ]]; then HOST_APK="$ROOT/$HOST_APK"; fi
-KEYSTORE="${PJSUA_SMOKE_KEYSTORE:-${HOME:-}/.android/debug.keystore}"
+KEYSTORE="${PJSUA_SMOKE_KEYSTORE:-}"
+if [[ -z "$KEYSTORE" && -n "${ANDROID_USER_HOME:-}" && -f "$ANDROID_USER_HOME/debug.keystore" ]]; then
+    KEYSTORE="$ANDROID_USER_HOME/debug.keystore"
+fi
+if [[ -z "$KEYSTORE" && -n "${ANDROID_SDK_HOME:-}" && -f "$ANDROID_SDK_HOME/.android/debug.keystore" ]]; then
+    KEYSTORE="$ANDROID_SDK_HOME/.android/debug.keystore"
+fi
+if [[ -z "$KEYSTORE" && -n "${HOME:-}" && -f "$HOME/.android/debug.keystore" ]]; then
+    KEYSTORE="$HOME/.android/debug.keystore"
+fi
+if [[ -z "$KEYSTORE" ]]; then KEYSTORE="${HOME:-}/.android/debug.keystore"; fi
 if [[ "$KEYSTORE" != /* ]]; then KEYSTORE="$ROOT/$KEYSTORE"; fi
 SMOKE_APK="$OUT/pjsua2-native-smoke.apk"
 MANIFEST="$ROOT/scripts/native-smoke/AndroidManifest.xml"
