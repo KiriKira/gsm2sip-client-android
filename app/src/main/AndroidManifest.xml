@@ -8,6 +8,13 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:name=".HostApp"
@@ -22,12 +29,45 @@
         tools:targetApi="31">
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".calls.CallActionActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true" />
+        <service
+            android:name=".calls.HostCallConnectionService"
+            android:exported="true"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+        <service
+            android:name=".calls.HostCallService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled encrypted SIP signaling and authenticated call status checks for remote SIM telephone calls." />
+        </service>
+        <service
+            android:name=".calls.CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone"
+            android:stopWithTask="false" />
+        <receiver
+            android:name=".calls.CallActionReceiver"
+            android:exported="false" />
         <service
             android:name=".background.HostBackgroundService"
             android:exported="false"

@@ -10,8 +10,8 @@ data class HostSyncOutcome(val inboundNotificationCount: Int)
 class SyncBudgetExhausted : IOException("Background sync time budget exhausted")
 
 /**
- * A read-only-to-the-server sync loop bound to one paired session and one database file.
- * It only writes authoritative gateway/SIM/message snapshots and event cursors. It never submits SMS.
+ * A sync loop bound to one paired session and one database file. Durable
+ * reception receipts are sent only after SQLite commit; it never submits SMS.
  */
 class HostSyncEngine(
     context: Context,
@@ -49,6 +49,14 @@ class HostSyncEngine(
 
         val inboundCount = syncSms(deadlineElapsedRealtime)
         ensureCurrent()
+        // Receipt failures are retried from the persisted cursor next round.
+        // They never roll back local data or the separate notification journal.
+        database.eventCursor()?.let { cursor ->
+            if (SystemClock.elapsedRealtime() + HTTP_TIMEOUT_MS + BUDGET_MARGIN_MS < deadlineElapsedRealtime) {
+                runCatching { api.acknowledgeEventCursor(cursor) }
+                ensureCurrent()
+            }
+        }
         return HostSyncOutcome(inboundCount)
     }
 

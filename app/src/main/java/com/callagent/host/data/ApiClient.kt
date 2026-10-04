@@ -48,7 +48,6 @@ class ApiClient(
         )
         val result = sessionFromPairing(response)
         if (result.role != "client") throw IOException("Pairing code is not for a host client")
-        if (result.sipAvailable) throw IOException("Unexpected SIP capability response")
         if (!sessionStore.writeIfCurrent(expectedSession, result)) throw SessionChanged()
         return result
     }
@@ -109,7 +108,7 @@ class ApiClient(
         simId?.let { query += "sim_id=${Uri.encode(it)}" }
         val json = authenticatedRequest("GET", "/messages?${query.joinToString("&")}")
         return MessagePage(
-            items = parseMessageArray(json.optJSONArray("items")),
+            items = parseMessageArray(MessageWireValidation.messageItems(json)),
             nextCursor = json.optNullableString("next_cursor"),
             resyncRequired = false
         )
@@ -118,12 +117,12 @@ class ApiClient(
     fun listEvents(cursor: String?): EventPage {
         val suffix = cursor?.let { "?cursor=${Uri.encode(it)}&limit=100" } ?: "?limit=100"
         val json = authenticatedRequest("GET", "/events$suffix")
-        val items = json.optJSONArray("items") ?: JSONArray()
+        val items = MessageWireValidation.eventItems(json, cursor)
         val messages = buildList {
             for (index in 0 until items.length()) {
-                val item = items.optJSONObject(index) ?: continue
-                val message = item.optJSONObject("message") ?: continue
-                parseMessage(message)?.let(::add)
+                val item = items.getJSONObject(index)
+                val message = item.getJSONObject("message")
+                add(parseMessage(message) ?: throw IOException("Invalid durable message"))
             }
         }
         return EventPage(
@@ -138,6 +137,62 @@ class ApiClient(
         val json = authenticatedRequest("GET", "/messages/${pathSegment(messageId)}")
         return parseMessage(json)
     }
+
+    /** Call only with ClientDatabase.eventCursor() after its transaction commits. */
+    fun acknowledgeEventCursor(durableCursor: String) {
+        authenticatedRequest("POST", "/events/ack", JSONObject().put("durable_cursor", durableCursor))
+    }
+
+    fun getSipConfiguration(): SipConfiguration = parseSipConfiguration(
+        authenticatedRequest("GET", "/devices/self/sip-config")
+    )
+
+    fun rotateSipCredentials(idempotencyKey: String): SipConfiguration = parseSipConfiguration(
+        authenticatedRequest("POST", "/devices/self/sip-credentials/rotate", JSONObject(), idempotencyKey)
+    )
+
+    fun listCalls(): List<RemoteCall> {
+        val items = authenticatedRequest("GET", "/calls").optJSONArray("items") ?: JSONArray()
+        return (0 until items.length()).map { parseCall(items.getJSONObject(it)) }
+    }
+
+    fun getCall(callId: String): RemoteCall = parseCall(authenticatedRequest("GET", "/calls/${pathSegment(callId)}"))
+
+    fun createCallIntent(gatewayId: String, simId: String, mappingRevision: Long, destination: String, idempotencyKey: String): CallIntent {
+        val json = authenticatedRequest("POST", "/call-intents", JSONObject()
+            .put("gateway_id", gatewayId).put("sim_id", simId)
+            .put("mapping_revision", mappingRevision).put("to", destination), idempotencyKey)
+        return CallIntent(json.getString("intent_id"), json.getString("call_id"), json.getString("sip_uri"), json.getString("expires_at"))
+    }
+
+    fun cancelCallIntent(intentId: String) {
+        authenticatedRequest("DELETE", "/call-intents/${pathSegment(intentId)}")
+    }
+
+    fun ready(callId: String, wakeNonce: String): RemoteCall = parseCall(authenticatedRequest(
+        "POST", "/clients/${pathSegment(currentBoundSession().deviceId)}/ready",
+        JSONObject().put("call_id", callId).put("wake_nonce", wakeNonce)
+    ))
+
+    private fun parseSipConfiguration(json: JSONObject) = SipConfiguration(
+        available = json.optBoolean("available", false), reason = json.optNullableString("reason"),
+        endpointId = json.optNullableString("endpoint_id"), username = json.optNullableString("auth_username"),
+        realm = json.optNullableString("auth_realm"), aor = json.optNullableString("aor"),
+        registrarUri = json.optNullableString("registrar_uri"), outboundProxyUri = json.optNullableString("outbound_proxy_uri"),
+        serverName = json.optNullableString("server_name"), caPem = json.optNullableString("ca_pem"),
+        password = json.optNullableString("password")
+    )
+
+    private fun parseCall(json: JSONObject) = RemoteCall(
+        callId = json.getString("call_id"), gatewayId = json.getString("gateway_id"),
+        clientId = json.optNullableString("client_id"), simId = json.getString("sim_id"),
+        mappingRevision = json.getLong("mapping_revision"), direction = json.getString("direction"),
+        state = json.getString("state"), stateRevision = json.getLong("state_revision"),
+        from = json.optNullableString("from"), to = json.optNullableString("to"),
+        createdAt = json.getString("created_at"), expiresAt = json.optNullableString("expires_at"),
+        wakeNonce = json.optNullableString("wake_nonce"), answeredAt = json.optNullableString("answered_at"),
+        endedAt = json.optNullableString("ended_at"), reason = json.optNullableString("reason")
+    )
 
     fun createMessage(envelope: RetryEnvelope): MessageAccepted {
         val json = authenticatedRequest(
@@ -191,25 +246,22 @@ class ApiClient(
     }
 
     private fun refreshSessionLocked(current: HostSession) {
+        val pending = sessionStore.beginRefresh(current) ?: throw SessionChanged()
+        val key = pending.pendingRefreshKey ?: throw IOException("Could not persist refresh retry key")
         val json = try {
-            publicRequest("POST", "/auth/refresh", JSONObject().put("refresh_token", current.refreshToken))
+            publicRequest("POST", "/auth/refresh", JSONObject().put("refresh_token", pending.refreshToken), idempotencyKey = key)
         } catch (failure: ApiFailure) {
             if (failure.httpStatus != 401) throw failure
-            if (sessionStore.clearIfCurrent(current)) throw SessionNeedsPairing()
+            if (sessionStore.clearIfCurrent(pending)) throw SessionNeedsPairing()
             throw SessionChanged()
         }
-        val updated = try {
-            sessionStore.updateTokens(
-                expected = current,
+        val updated = sessionStore.updateTokens(
+                expected = pending,
                 access = json.getString("access_token"),
                 accessExpiry = json.getString("access_expires_at"),
                 refresh = json.getString("refresh_token"),
                 refreshExpiry = json.getString("refresh_expires_at")
             ) ?: throw SessionChanged()
-        } catch (_: Exception) {
-            if (sessionStore.clearIfCurrent(current)) throw SessionNeedsPairing()
-            throw SessionChanged()
-        }
         if (parseInstant(updated.refreshExpiresAt)?.isBefore(Instant.now()) == true) {
             if (sessionStore.clearIfCurrent(updated)) throw SessionNeedsPairing()
             throw SessionChanged()
@@ -220,8 +272,9 @@ class ApiClient(
         method: String,
         path: String,
         body: JSONObject,
-        expectBody: Boolean = true
-    ): JSONObject = request(method, path, body, token = null, idempotencyKey = null, expectBody = expectBody)
+        expectBody: Boolean = true,
+        idempotencyKey: String? = null
+    ): JSONObject = request(method, path, body, token = null, idempotencyKey = idempotencyKey, expectBody = expectBody)
 
     private fun request(
         method: String,

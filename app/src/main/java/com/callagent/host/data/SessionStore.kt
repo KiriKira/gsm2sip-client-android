@@ -6,6 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import org.json.JSONObject
 import java.security.KeyStore
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -36,7 +37,9 @@ class SessionStore(context: Context) {
                 refreshToken = json.getString("refresh_token"),
                 refreshExpiresAt = json.getString("refresh_expires_at"),
                 sipAvailable = json.optJSONObject("sip")?.optBoolean("available", false) ?: false,
-                sipReason = json.optJSONObject("sip")?.optString("reason")?.takeIf { it.isNotBlank() && it != "null" }
+                sipReason = json.optJSONObject("sip")?.optString("reason")?.takeIf { it.isNotBlank() && it != "null" },
+                pendingRefreshKey = json.optString("pending_refresh_key")
+                    .takeIf { it.isNotBlank() && it != "null" }
             )
         } catch (_: Exception) {
             clearLocked()
@@ -67,10 +70,24 @@ class SessionStore(context: Context) {
             accessToken = access,
             accessExpiresAt = accessExpiry,
             refreshToken = refresh,
-            refreshExpiresAt = refreshExpiry
+            refreshExpiresAt = refreshExpiry,
+            pendingRefreshKey = null
         )
         writeLocked(updated)
         updated
+    }
+
+    /** Persist a retry key before refresh so process death and transport loss
+     * reuse the same key with the still-current refresh token. */
+    fun beginRefresh(expected: HostSession): HostSession? = synchronized(processLock) {
+        val current = readLocked() ?: return@synchronized null
+        if (!current.sameSessionInstance(expected) || current.refreshToken != expected.refreshToken) {
+            return@synchronized null
+        }
+        if (current.pendingRefreshKey != null) return@synchronized current
+        val pending = current.copy(pendingRefreshKey = UUID.randomUUID().toString())
+        writeLocked(pending)
+        pending
     }
 
     fun clearIfCurrent(expected: HostSession): Boolean = synchronized(processLock) {
@@ -92,6 +109,7 @@ class SessionStore(context: Context) {
             .put("refresh_token", session.refreshToken)
             .put("refresh_expires_at", session.refreshExpiresAt)
             .put("sip", JSONObject().put("available", session.sipAvailable).put("reason", session.sipReason))
+        session.pendingRefreshKey?.let { json.put("pending_refresh_key", it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val ciphertext = cipher.doFinal(json.toString().toByteArray(Charsets.UTF_8))

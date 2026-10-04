@@ -1,5 +1,6 @@
 package com.callagent.host
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -7,6 +8,10 @@ import android.content.IntentFilter
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.content.pm.PackageManager
+import android.os.Build
+import android.provider.Settings
+import android.net.Uri
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -21,10 +26,25 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.Insets
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.ViewCompat
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Observer
+import androidx.lifecycle.ViewModelProvider
+import androidx.window.java.layout.WindowInfoTrackerCallbackAdapter
+import androidx.window.layout.FoldingFeature
+import androidx.window.layout.WindowInfoTracker
+import androidx.window.layout.WindowLayoutInfo
+import androidx.window.layout.WindowMetricsCalculator
 import com.callagent.host.background.HostBackgroundRuntime
 import com.callagent.host.background.BackgroundStatus
+import com.callagent.host.calls.CallAudioEndpoint
+import com.callagent.host.calls.CallNotificationManager
+import com.callagent.host.calls.CallPhase
+import com.callagent.host.calls.CallRuntime
+import com.callagent.host.calls.startCallUi
 import com.callagent.host.data.ApiClient
 import com.callagent.host.data.ApiFailure
 import com.callagent.host.data.ClientDatabase
@@ -55,6 +75,13 @@ import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import com.google.android.material.textview.MaterialTextView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.callagent.host.ui.AdaptiveLayoutDecision
+import com.callagent.host.ui.AdaptiveWindowLayoutPolicy
+import com.callagent.host.ui.FoldGeometry
+import com.callagent.host.ui.HorizontalPaneSelection
+import com.callagent.host.ui.PairingOperationState
+import com.callagent.host.ui.PairingFormViewModel
+import androidx.core.util.Consumer
 import java.io.IOException
 import java.time.Instant
 import java.util.UUID
@@ -65,6 +92,7 @@ class MainActivity : AppCompatActivity() {
     private val executor = Executors.newSingleThreadExecutor()
     private lateinit var sessionStore: SessionStore
     private lateinit var preferences: ClientPreferences
+    private lateinit var pairingForm: PairingFormViewModel
     private lateinit var database: ClientDatabase
     private var session: HostSession? = null
     private var gateway: GatewaySnapshot? = null
@@ -73,7 +101,7 @@ class MainActivity : AppCompatActivity() {
     private var statusMessage: String = ""
     private var syncing = false
     private var resumed = false
-    private var pairingBusy = false
+    private var pairingButton: MaterialButton? = null
     private var searchQuery = ""
     private var smsList: LinearLayout? = null
     private var composeRecipient: EditText? = null
@@ -87,11 +115,63 @@ class MainActivity : AppCompatActivity() {
     private var backgroundRestartButton: MaterialButton? = null
     private var lastRenderedBackgroundSyncAt = 0L
     private var backgroundReceiverRegistered = false
+    private var callPanel: LinearLayout? = null
+    private var callDestination: String = ""
+    private var callDestinationEdit: EditText? = null
+    private var searchEdit: EditText? = null
+    private var callServerAvailable: Boolean? = null
+    private var callServerReason: String? = null
+    private var callAvailabilityLoading = false
+    private var callAvailabilityCheckedAt = 0L
+    private var pendingDialAfterMicGrant: (() -> Unit)? = null
+    private var selectedRestoreSimId: String? = null
+    private var savedScrollY = 0
+    private var savedTopScrollY = 0
+    private var savedBottomScrollY = 0
+    private var restoreImeVisible = false
+    private var restoreFocusedInput: String? = null
+    private var safeWindowInsets = Insets.NONE
+    private var imeVisible = false
+    private var foldGeometry: FoldGeometry? = null
+    private var windowLayoutListening = false
+    private var adaptiveHost: FrameLayout? = null
+    private var mainScroll: ScrollView? = null
+    private var currentContent: LinearLayout? = null
+    private var currentPanels: LinearLayout? = null
+    private var primaryPanel: LinearLayout? = null
+    private var secondaryPanel: LinearLayout? = null
+    private var panelSpacer: View? = null
+    private var headerViews: List<View> = emptyList()
+    private var horizontalTopScroll: ScrollView? = null
+    private var horizontalBottomScroll: ScrollView? = null
+    private var horizontalTopContent: LinearLayout? = null
+    private var horizontalBottomContent: LinearLayout? = null
+    private val pairingOperationObserver = Observer<PairingOperationState> { state ->
+        pairingButton?.isEnabled = !pairingForm.hasPendingOrRunningPairing
+        state.outcome?.let(::handlePairingOutcome)
+    }
+    private val windowInfoTracker by lazy { WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(this)) }
+    private val windowLayoutConsumer = Consumer<WindowLayoutInfo> { info ->
+        if (!windowLayoutListening || isDestroyed || isFinishing) return@Consumer
+        val feature = info.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull { it.isSeparating }
+        foldGeometry = feature?.let {
+            FoldGeometry(
+                separating = true,
+                axis = if (it.orientation == FoldingFeature.Orientation.VERTICAL) FoldGeometry.Axis.VERTICAL else FoldGeometry.Axis.HORIZONTAL,
+                startPx = if (it.orientation == FoldingFeature.Orientation.VERTICAL) it.bounds.left else it.bounds.top,
+                endPx = if (it.orientation == FoldingFeature.Orientation.VERTICAL) it.bounds.right else it.bounds.bottom,
+            )
+        }
+        adaptiveHost?.post {
+            if (windowLayoutListening && !isDestroyed && !isFinishing) updateAdaptiveLayout()
+        }
+    }
     private val backgroundReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 ACTION_BACKGROUND_SYNCED -> refreshVisibleCache()
                 ACTION_BACKGROUND_STATUS_CHANGED -> refreshBackgroundStatus()
+                CallRuntime.ACTION_STATE_CHANGED -> renderCallPanel()
             }
         }
     }
@@ -99,6 +179,18 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val ACTION_BACKGROUND_SYNCED = "com.callagent.host.BACKGROUND_SYNCED"
         private const val ACTION_BACKGROUND_STATUS_CHANGED = "com.callagent.host.background.STATUS_CHANGED"
+        private const val REQUEST_CALL_MICROPHONE = 7311
+        private const val REQUEST_CALL_NOTIFICATIONS = 7312
+        private const val STATE_SELECTED_SIM = "adaptive.selectedSim"
+        private const val STATE_SEARCH_QUERY = "adaptive.searchQuery"
+        private const val STATE_CALL_DESTINATION = "adaptive.callDestination"
+        private const val STATE_SCROLL_Y = "adaptive.scrollY"
+        private const val STATE_TOP_SCROLL_Y = "adaptive.topScrollY"
+        private const val STATE_BOTTOM_SCROLL_Y = "adaptive.bottomScrollY"
+        private const val STATE_IME_VISIBLE = "adaptive.imeVisible"
+        private const val STATE_FOCUSED_INPUT = "adaptive.focusedInput"
+        private const val STATE_PAIRING_SERVER = "pairing.server"
+        private const val STATE_PAIRING_DEVICE_NAME = "pairing.deviceName"
     }
 
     private val periodicSync = object : Runnable {
@@ -111,15 +203,79 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        selectedRestoreSimId = savedInstanceState?.getString(STATE_SELECTED_SIM)
+        searchQuery = savedInstanceState?.getString(STATE_SEARCH_QUERY).orEmpty()
+        callDestination = savedInstanceState?.getString(STATE_CALL_DESTINATION).orEmpty()
+        savedScrollY = savedInstanceState?.getInt(STATE_SCROLL_Y) ?: 0
+        savedTopScrollY = savedInstanceState?.getInt(STATE_TOP_SCROLL_Y) ?: 0
+        savedBottomScrollY = savedInstanceState?.getInt(STATE_BOTTOM_SCROLL_Y) ?: 0
+        restoreImeVisible = savedInstanceState?.getBoolean(STATE_IME_VISIBLE) ?: false
+        restoreFocusedInput = savedInstanceState?.getString(STATE_FOCUSED_INPUT)
         sessionStore = SessionStore(this)
         preferences = ClientPreferences(this)
+        pairingForm = ViewModelProvider(this)[PairingFormViewModel::class.java]
+        pairingForm.initialize(
+            defaultServerUrl = preferences.apiBaseUrl,
+            defaultDeviceName = Build.MODEL.orEmpty().take(100),
+            restoredServerUrl = savedInstanceState?.getString(STATE_PAIRING_SERVER),
+            restoredDeviceName = savedInstanceState?.getString(STATE_PAIRING_DEVICE_NAME),
+        )
         session = sessionStore.read()
+        CallRuntime.restoreForegroundPreference(this, session)
         switchDatabase(session)
+        selectedSimId = selectedRestoreSimId
         setUpWindow()
         if (session == null) showPairing() else {
             showDashboard()
             syncFromServer(showProgress = false)
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        pairingForm.pairingOperation.observe(this, pairingOperationObserver)
+        if (!windowLayoutListening) {
+            windowLayoutListening = true
+            windowInfoTracker.addWindowLayoutInfoListener(this, ContextCompat.getMainExecutor(this), windowLayoutConsumer)
+        }
+    }
+
+    override fun onStop() {
+        if (windowLayoutListening) {
+            windowInfoTracker.removeWindowLayoutInfoListener(windowLayoutConsumer)
+            windowLayoutListening = false
+        }
+        super.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        saveVisibleDraft()
+        selectedSimId?.let { outState.putString(STATE_SELECTED_SIM, it) }
+        outState.putString(STATE_SEARCH_QUERY, searchEdit?.text?.toString() ?: searchQuery)
+        outState.putString(STATE_CALL_DESTINATION, callDestinationEdit?.text?.toString() ?: callDestination)
+        val topScrollY = horizontalTopScroll?.scrollY ?: savedTopScrollY
+        val bottomScrollY = horizontalBottomScroll?.scrollY ?: savedBottomScrollY
+        val focusedInput = focusedInputKey()
+        val mergedScrollY = if (horizontalTopScroll != null) {
+            when (focusedInput) {
+                "composeRecipient", "composeBody", "search" -> bottomScrollY
+                "callDestination" -> topScrollY
+                else -> maxOf(topScrollY, bottomScrollY)
+            }
+        } else {
+            mainScroll?.scrollY ?: savedScrollY
+        }
+        outState.putInt(STATE_SCROLL_Y, mergedScrollY)
+        outState.putInt(STATE_TOP_SCROLL_Y, topScrollY)
+        outState.putInt(STATE_BOTTOM_SCROLL_Y, bottomScrollY)
+        val rootInsets = adaptiveHost?.let { ViewCompat.getRootWindowInsets(it) }
+        outState.putBoolean(STATE_IME_VISIBLE, rootInsets?.isVisible(WindowInsetsCompat.Type.ime()) == true)
+        outState.putString(STATE_FOCUSED_INPUT, focusedInput)
+        if (session == null) {
+            outState.putString(STATE_PAIRING_SERVER, pairingForm.serverUrl)
+            outState.putString(STATE_PAIRING_DEVICE_NAME, pairingForm.deviceName)
+        }
+        super.onSaveInstanceState(outState)
     }
 
     override fun onResume() {
@@ -134,11 +290,14 @@ class MainActivity : AppCompatActivity() {
             mainHandler.removeCallbacks(periodicSync)
             mainHandler.post(periodicSync)
         }
+        CallRuntime.setAppVisible(this, true)
+        if (session != null) refreshCallAvailability()
     }
 
     override fun onPause() {
         resumed = false
         mainHandler.removeCallbacks(periodicSync)
+        CallRuntime.setAppVisible(this, false)
         unregisterBackgroundReceiver()
         super.onPause()
     }
@@ -149,16 +308,40 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CALL_MICROPHONE) {
+            val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
+            if (granted) {
+                pendingDialAfterMicGrant?.invoke()
+            } else {
+                pendingDialAfterMicGrant = null
+                showToast("麦克风权限未允许，无法拨出或接听远程通话。")
+            }
+            pendingDialAfterMicGrant = null
+            renderCallPanel()
+        } else if (requestCode == REQUEST_CALL_NOTIFICATIONS) {
+            renderCallPanel()
+        }
+    }
+
     private fun setUpWindow() {
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
     private fun showPairing(message: String? = null) {
+        pairingForm.initialize(preferences.apiBaseUrl, Build.MODEL.orEmpty().take(100))
         session = null
+        selectedSimId = null
+        composeRecipient = null
+        composeBody = null
+        callDestinationEdit = null
+        searchEdit = null
         backgroundSwitch = null
         backgroundSummary = null
         backgroundRestartButton = null
+        pairingButton = null
         val content = verticalRoot()
         content.addView(title("GSM2SIP 主机"))
         content.addView(body("将这台手机与服务器配对，即可查看网关中的远程 SIM 卡并收发短信。"))
@@ -166,22 +349,51 @@ class MainActivity : AppCompatActivity() {
 
         val serverField = inputField("服务器地址", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         val serverInput = serverField.editText as TextInputEditText
-        serverInput.setText(preferences.apiBaseUrl)
+        serverInput.id = R.id.pairing_server
+        serverInput.setText(pairingForm.serverUrl)
         serverInput.setSingleLine(true)
+        serverInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                pairingForm.updateServerUrl(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
         content.addView(serverField)
 
         val codeField = inputField("一次性配对码", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
         val pairingCode = codeField.editText as TextInputEditText
+        pairingCode.id = R.id.pairing_code
+        pairingCode.isSaveEnabled = false
+        pairingCode.isSaveFromParentEnabled = false
+        pairingCode.setText(this.pairingForm.pairingCode)
         pairingCode.maxLines = 1
+        pairingCode.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                this@MainActivity.pairingForm.updatePairingCode(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
         content.addView(codeField)
 
         val nameField = inputField("设备名称", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PERSON_NAME)
         val deviceName = nameField.editText as TextInputEditText
-        deviceName.setText(android.os.Build.MODEL.orEmpty().take(100))
+        deviceName.id = R.id.pairing_device_name
+        deviceName.setText(pairingForm.deviceName)
         deviceName.setSingleLine(true)
+        deviceName.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                pairingForm.updateDeviceName(s?.toString().orEmpty())
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
         content.addView(nameField)
 
         val pairButton = button("配对此手机")
+        pairingButton = pairButton
+        pairButton.isEnabled = !pairingForm.hasPendingOrRunningPairing
         pairButton.setOnClickListener {
             val base = serverInput.text.toString().trim()
             val code = pairingCode.text.toString().trim()
@@ -191,47 +403,23 @@ class MainActivity : AppCompatActivity() {
                 if (base.isBlank()) serverInput.requestFocus() else pairingCode.requestFocus()
                 return@setOnClickListener
             }
-            if (pairingBusy) return@setOnClickListener
-            pairingBusy = true
+            if (!pairingForm.startPairing(applicationContext, base, code, name)) return@setOnClickListener
             pairButton.isEnabled = false
-            statusMessage = "Pairing…"
-            executor.execute {
-                try {
-                    val candidate = ApiClient(base, sessionStore)
-                    val paired = candidate.pair(code, name)
-                    preferences.apiBaseUrl = base
-                    mainHandler.post {
-                        pairingBusy = false
-                        switchDatabase(paired)
-                        session = paired
-                        selectedSimId = null
-                        statusMessage = "Paired. Loading gateway state…"
-                        showDashboard()
-                        syncFromServer(showProgress = true)
-                    }
-                } catch (failure: Exception) {
-                    mainHandler.post {
-                        pairingBusy = false
-                        if (failure is SessionChanged) {
-                            showCurrentSession("Another app screen changed the paired account.")
-                        } else {
-                            val safe = pairingFailureText(failure)
-                            statusMessage = safe
-                            showPairing(safe)
-                        }
-                    }
-                }
-            }
         }
         content.addView(pairButton)
-        content.addView(messageCard("通话功能尚未接入。网关音频链路和服务器通话配置仍需验证。"))
+        content.addView(messageCard("配对后可检查服务器通话配置与远程 SIM 状态。"))
         installContent(content)
     }
 
     private fun showDashboard() {
         val currentSession = session ?: return showPairing()
+        pairingButton = null
         gateway = database.loadGateway() ?: gateway
         if (sims.isEmpty()) sims = database.loadSims()
+        composeRecipient = null
+        composeBody = null
+        callDestinationEdit = null
+        searchEdit = null
         val content = verticalRoot()
 
         val heading = LinearLayout(this).apply {
@@ -253,29 +441,51 @@ class MainActivity : AppCompatActivity() {
             content.addView(messageCard(statusMessage, error = isError))
         }
 
-        content.addView(sectionTitle("网关"))
+        val panelRow = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = fullWidthParams()
+            id = R.id.dashboard_panel_row
+        }
+        val overviewPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            id = R.id.dashboard_overview_panel
+        }
+        val messagesPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            id = R.id.dashboard_messages_panel
+        }
+        val columnSpacer = View(this)
+        panelRow.addView(overviewPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        panelRow.addView(columnSpacer, LinearLayout.LayoutParams(0, 0))
+        panelRow.addView(messagesPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        content.addView(panelRow)
+
+        overviewPanel.addView(sectionTitle("网关"))
         val currentGateway = gateway
         if (currentGateway == null) {
-            content.addView(messageCard("尚无网关缓存。点击刷新以载入已配对的网关。"))
+            overviewPanel.addView(messageCard("尚无网关缓存。点击刷新以载入已配对的网关。"))
         } else {
             val connection = if (currentGateway.online) "在线" else "离线"
             val heartbeat = currentGateway.lastSeenAt?.let { " · 最近心跳 $it" } ?: " · 暂无心跳时间"
-            content.addView(messageCard("${currentGateway.deviceName}: $connection$heartbeat\nSIM 映射版本 ${currentGateway.mappingRevision}"))
+            overviewPanel.addView(messageCard("${currentGateway.deviceName}: $connection$heartbeat\nSIM 映射版本 ${currentGateway.mappingRevision}"))
             val rootState = currentGateway.root?.let { if (it) "Root 可用" else "Root 不可用" } ?: "Root 状态未知"
             val sipState = currentGateway.sipRegistered?.let { if (it) "SIP 已注册" else "SIP 未注册" } ?: "SIP 状态未知"
             val power = currentGateway.batteryPercent?.let { " · 电量 $it%" }.orEmpty()
-            content.addView(body("$rootState · $sipState$power"))
+            overviewPanel.addView(body("$rootState · $sipState$power"))
         }
 
-        content.addView(sectionTitle("远程 SIM 卡"))
+        overviewPanel.addView(sectionTitle("远程 SIM 卡"))
         if (sims.isEmpty()) {
-            content.addView(messageCard("当前没有可用的 SIM 绑定。请先由网关确认 SIM 卡映射。"))
+            overviewPanel.addView(messageCard("当前没有可用的 SIM 绑定。请先由网关确认 SIM 卡映射。"))
         } else {
+            if (selectedSimId == null) selectedSimId = selectedRestoreSimId
             val selectedStillPresent = sims.any { it.simId == selectedSimId }
             if (!selectedStillPresent) selectedSimId = null
+            selectedRestoreSimId = null
             val simChips = ChipGroup(this).apply {
                 isSingleSelection = true
                 isSelectionRequired = false
+                id = R.id.remote_sim_selector
                 chipSpacingHorizontal = dp(8)
                 chipSpacingVertical = dp(8)
                 layoutParams = fullWidthParams(top = 4, bottom = 8)
@@ -301,27 +511,31 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            content.addView(simChips)
+            overviewPanel.addView(simChips)
             sims.sortedBy { it.slotIndex }.forEach { line ->
                 val carrier = line.carrierName?.let { " · $it" }.orEmpty()
                 val number = line.phoneNumber?.let { " · $it" }.orEmpty()
                 val status = if (line.canSend) "已确认" else line.stateLabel()
-                content.addView(body("卡槽 ${line.slotIndex + 1}: ${line.label}$carrier$number · $status · 版本 ${line.mappingRevision}"))
+                overviewPanel.addView(body("卡槽 ${line.slotIndex + 1}: ${line.label}$carrier$number · $status · 版本 ${line.mappingRevision}"))
             }
         }
 
-        addBackgroundCard(content)
+        addBackgroundCard(overviewPanel)
 
-        content.addView(sectionTitle("通话"))
-        content.addView(messageCard("通话待接入。网关音频链路和服务器通话配置仍需验证。"))
+        overviewPanel.addView(sectionTitle("通话"))
+        callPanel = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        overviewPanel.addView(callPanel)
+        renderCallPanel()
 
-        content.addView(sectionTitle("短信收件箱"))
+        messagesPanel.addView(sectionTitle("短信收件箱"))
         val searchField = inputField("搜索短信内容或号码", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT)
         val search = searchField.editText as TextInputEditText
+        search.id = R.id.sms_search
         search.setText(searchQuery)
-        content.addView(searchField)
+        searchEdit = search
+        messagesPanel.addView(searchField)
         smsList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        content.addView(smsList)
+        messagesPanel.addView(smsList)
         search.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -332,18 +546,20 @@ class MainActivity : AppCompatActivity() {
         })
         renderMessages()
 
-        content.addView(sectionTitle("撰写短信"))
+        messagesPanel.addView(sectionTitle("撰写短信"))
         val selected = sims.firstOrNull { it.simId == selectedSimId }
         if (selected == null) {
-            content.addView(body("请选择上方远程 SIM 卡后再撰写短信。若映射已变化，请刷新并重新选择。"))
+            messagesPanel.addView(body("请选择上方远程 SIM 卡后再撰写短信。若映射已变化，请刷新并重新选择。"))
         } else {
             val readiness = if (selected.canSend) "发送线路：${selected.label}${selected.phoneNumber?.let { " · $it" }.orEmpty()}" else "暂不能发送：${selected.label} 当前${selected.stateLabel()}。请刷新 SIM 映射。"
-            content.addView(messageCard(readiness, error = !selected.canSend))
+            messagesPanel.addView(messageCard(readiness, error = !selected.canSend))
             val recipientField = inputField("收件人号码或短码", InputType.TYPE_CLASS_PHONE)
             val recipient = recipientField.editText as TextInputEditText
+            recipient.id = R.id.sms_recipient
             recipient.setSingleLine(true)
             val bodyField = inputField("短信内容", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_MULTI_LINE)
             val body = bodyField.editText as TextInputEditText
+            body.id = R.id.sms_body
             body.minLines = 3
             body.maxLines = 7
             body.gravity = Gravity.TOP or Gravity.START
@@ -363,30 +579,30 @@ class MainActivity : AppCompatActivity() {
             }
             recipient.addTextChangedListener(draftWatcher)
             body.addTextChangedListener(draftWatcher)
-            content.addView(recipientField)
-            content.addView(bodyField)
+            messagesPanel.addView(recipientField)
+            messagesPanel.addView(bodyField)
             val send = button("发送短信")
             send.isEnabled = selected.canSend
             send.setOnClickListener { confirmSend(selected, recipient.text.toString(), body.text.toString()) }
-            content.addView(send)
+            messagesPanel.addView(send)
         }
 
         val pending = database.loadPendingTasks()
         if (pending.isNotEmpty()) {
-            content.addView(sectionTitle("结果待确认的提交"))
-            content.addView(body("这些提交已保存，但服务器结果未知。可以查询状态或继续提交同一条已保存任务。"))
+            messagesPanel.addView(sectionTitle("结果待确认的提交"))
+            messagesPanel.addView(body("这些提交已保存，但服务器结果未知。可以查询状态或继续提交同一条已保存任务。"))
             pending.forEach { record ->
                 val label = if (retryAction(record.taskKey, record.serverId) == RetryAction.RETRY_SAME_KEY) "重试同一任务" else "查询状态"
                 val retry = smallButton("$label · ${record.to.orEmpty()}")
                 retry.setOnClickListener { retryOrCheck(record) }
-                content.addView(retry)
+                messagesPanel.addView(retry)
             }
         }
 
         val unpair = smallButton("解除此手机配对")
         unpair.setOnClickListener { confirmUnpair() }
-        content.addView(unpair)
-        installContent(content)
+        messagesPanel.addView(unpair)
+        installContent(content, panelRow, overviewPanel, messagesPanel, columnSpacer)
     }
 
     private fun addBackgroundCard(parent: LinearLayout) {
@@ -466,6 +682,263 @@ class MainActivity : AppCompatActivity() {
         updateBackgroundCard(backgroundStatus ?: runCatching { HostBackgroundRuntime.snapshot(this) }.getOrNull())
     }
 
+    private fun refreshCallAvailability(force: Boolean = false) {
+        if (session == null || callAvailabilityLoading) return
+        if (!force && System.currentTimeMillis() - callAvailabilityCheckedAt < 60_000L) return
+        callAvailabilityLoading = true
+        renderCallPanel()
+        val expected = session ?: return
+        executor.execute {
+            val result = runCatching { client().getSipConfiguration() }
+            mainHandler.post {
+                callAvailabilityLoading = false
+                callAvailabilityCheckedAt = System.currentTimeMillis()
+                if (session?.sameSessionInstance(expected) != true) return@post
+                result.onSuccess {
+                    callServerAvailable = it.available
+                    callServerReason = it.reason
+                }.onFailure { failure ->
+                    callServerAvailable = false
+                    callServerReason = when (failure) {
+                        is SessionNeedsPairing -> "配对会话已失效，请重新配对。"
+                        is SessionChanged -> "配对账户已变化，请刷新。"
+                        is ApiFailure -> "服务器暂不可用（${failure.code}）。"
+                        else -> "无法读取服务器 SIP 可用状态。"
+                    }
+                }
+                renderCallPanel()
+            }
+        }
+    }
+
+    private fun renderCallPanel() {
+        val panel = callPanel ?: return
+        panel.removeAllViews()
+        val call = CallRuntime.currentSession
+        if (call != null && isLiveCallPhase(call.phase)) {
+            panel.addView(messageCard(
+                "${call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程号码"} · ${call.simId}\n${callPhaseLabel(call.phase)}${CallRuntime.currentStatus.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()}"
+            ))
+            when (call.phase) {
+                CallPhase.INCOMING_RINGING -> {
+                    val answer = button("接听")
+                    answer.setOnClickListener {
+                        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            CallRuntime.answerFromVisibleUser(this, call.callId)
+                        } else {
+                            pendingDialAfterMicGrant = { CallRuntime.answerFromVisibleUser(this, call.callId) }
+                            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CALL_MICROPHONE)
+                        }
+                    }
+                    panel.addView(answer)
+                    val reject = smallButton("拒接")
+                    reject.setOnClickListener { CallRuntime.rejectFromUi(this, call.callId) }
+                    panel.addView(reject)
+                }
+                CallPhase.ACTIVE -> {
+                    val mute = smallButton(if (call.muted) "取消静音" else "静音")
+                    mute.setOnClickListener { CallRuntime.setMuted(this, call.callId, !call.muted) }
+                    panel.addView(mute)
+                    val endpoints = CallRuntime.audioEndpoints(call.callId)
+                    if (endpoints.isNotEmpty()) {
+                        val selected = CallRuntime.selectedAudioEndpoint(call.callId)
+                        val route = smallButton("音频：${selected?.displayName() ?: "自动"}")
+                        route.setOnClickListener { chooseAudioEndpoint(call.callId, endpoints) }
+                        panel.addView(route)
+                    }
+                    val controls = smallButton("打开通话界面 / DTMF")
+                    controls.setOnClickListener { startCallUi(call.callId) }
+                    panel.addView(controls)
+                    val hangup = button("挂断")
+                    hangup.setOnClickListener { CallRuntime.hangupFromUi(this, call.callId) }
+                    panel.addView(hangup)
+                }
+                CallPhase.REGISTERING, CallPhase.DIALING, CallPhase.OUTBOUND_RINGING, CallPhase.ANSWERING -> {
+                    val controls = smallButton("打开通话界面")
+                    controls.setOnClickListener { startCallUi(call.callId) }
+                    panel.addView(controls)
+                    val cancel = button("取消")
+                    cancel.setOnClickListener { CallRuntime.hangupFromUi(this, call.callId) }
+                    panel.addView(cancel)
+                }
+                else -> Unit
+            }
+            return
+        }
+        if (call != null && call.phase in setOf(CallPhase.ENDED, CallPhase.FAILED)) {
+            panel.addView(messageCard(
+                "${if (call.phase == CallPhase.FAILED) "通话失败" else "通话已结束"}${call.failure?.let { "：$it" }.orEmpty()}"
+            ))
+            val dismiss = smallButton("关闭通话记录")
+            dismiss.setOnClickListener { CallRuntime.clearTerminal(call.callId); renderCallPanel() }
+            panel.addView(dismiss)
+        }
+
+        val line = sims.firstOrNull { it.simId == selectedSimId }
+        val currentGateway = gateway
+        val gatewayReady = currentGateway?.online == true
+        val lineReady = line != null && line.canSend && currentGateway != null && line.mappingRevision == currentGateway.mappingRevision
+        val nativeReady = localSipEngineAvailable()
+        val microphoneReady = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val notificationReady = CallNotificationManager.notificationsEnabled(this)
+        val serverReady = callServerAvailable == true
+        val canDial = serverReady && nativeReady && gatewayReady && lineReady && microphoneReady
+
+        val serverText = when {
+            callAvailabilityLoading -> "正在检查服务器呼叫服务…"
+            callServerAvailable == true -> "服务器 SIP 配置可用。"
+            callServerAvailable == false -> callServerReason ?: "服务器呼叫服务不可用。"
+            else -> "服务器呼叫状态尚未检查。"
+        }
+        panel.addView(body(serverText))
+        panel.addView(body(when {
+            !nativeReady -> "此安装中没有可用的 SIP 原生引擎。"
+            !gatewayReady -> "远程网关未在线。"
+            line == null -> "请选择上方一张远程 SIM 卡。"
+            !lineReady -> "所选 SIM 映射未确认或已变化，请刷新并重选。"
+            !microphoneReady -> "拨出或接听前需要允许麦克风权限。"
+            else -> "拨号线路：${line.label}${line.phoneNumber?.let { " · $it" }.orEmpty()} · 映射版本 ${line.mappingRevision}"
+        }))
+        if (!microphoneReady) {
+            val microphone = smallButton("允许麦克风")
+            microphone.setOnClickListener { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CALL_MICROPHONE) }
+            panel.addView(microphone)
+        }
+        if (!notificationReady) {
+            panel.addView(body("系统通知未允许；锁屏来电通知和通话状态可能无法显示。"))
+            val notifications = smallButton(if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) "允许通话通知" else "通知设置")
+            notifications.setOnClickListener {
+                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_CALL_NOTIFICATIONS)
+                } else HostBackgroundRuntime.openNotificationSettings(this)
+            }
+            panel.addView(notifications)
+        }
+        if (Build.VERSION.SDK_INT >= 34 && !CallNotificationManager.fullScreenAllowed(this)) {
+            panel.addView(body("全屏来电权限未允许；来电仍可从高优先级通知打开。"))
+            val fullScreen = smallButton("全屏来电权限设置")
+            fullScreen.setOnClickListener {
+                runCatching {
+                    startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:$packageName")))
+                }.onFailure { HostBackgroundRuntime.openNotificationSettings(this) }
+            }
+            panel.addView(fullScreen)
+        }
+
+        val destinationField = inputField("远程 SIM 拨出号码", InputType.TYPE_CLASS_PHONE)
+        val destinationEdit = destinationField.editText as TextInputEditText
+        destinationEdit.id = R.id.call_destination
+        destinationEdit.setSingleLine(true)
+        destinationEdit.setText(callDestination)
+        callDestinationEdit = destinationEdit
+        destinationEdit.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                callDestination = s?.toString().orEmpty()
+            }
+            override fun afterTextChanged(s: Editable?) = Unit
+        })
+        panel.addView(destinationField)
+        val dial = button("拨出此远程 SIM")
+        dial.isEnabled = canDial
+        dial.setOnClickListener {
+            val recipient = callDestination.trim()
+            if (!validDialAddress(recipient)) {
+                destinationEdit.error = "请输入有效号码"
+                return@setOnClickListener
+            }
+            confirmRemoteDial(line!!, currentGateway!!, recipient)
+        }
+        panel.addView(dial)
+
+        val listen = smallButton(if (CallRuntime.isListeningRequested) "关闭后台来电接收" else "启用后台来电接收")
+        listen.isEnabled = serverReady && nativeReady
+        listen.setOnClickListener {
+            if (CallRuntime.isListeningRequested) {
+                CallRuntime.disableForegroundListening(this)
+                renderCallPanel()
+            } else if (!CallRuntime.enableForegroundListening(this)) {
+                showToast("无法启动 SIP 前台来电接收。")
+            }
+        }
+        panel.addView(listen)
+        panel.addView(body("开启后使用系统可见的专用信令前台服务维持 SIP 注册和 HTTPS 来电检查；不启用麦克风。实际 SIP 来电匹配服务器状态后才交给 Telecom，用户接听后才请求麦克风和通话前台服务。网络中断、强行停止或系统资源限制仍可能延迟来电。"))
+
+        val refresh = smallButton(if (callAvailabilityLoading) "正在检查…" else "刷新通话可用状态")
+        refresh.isEnabled = !callAvailabilityLoading
+        refresh.setOnClickListener { refreshCallAvailability(force = true) }
+        panel.addView(refresh)
+    }
+
+    private fun confirmRemoteDial(line: SimLine, currentGateway: GatewaySnapshot, recipient: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("远程 SIM 拨号")
+            .setMessage("将使用 ${line.label}${line.phoneNumber?.let { "（$it）" }.orEmpty()} 拨打 $recipient。\nSIM 映射版本 ${line.mappingRevision}。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("拨号") { _, _ ->
+                val start = {
+                    val accepted = CallRuntime.startOutbound(
+                        this,
+                        gatewayId = currentGateway.gatewayId,
+                        simId = line.simId,
+                        simLabel = line.label,
+                        mappingRevision = line.mappingRevision,
+                        destination = recipient
+                    )
+                    if (!accepted) showToast("呼叫未启动。请检查麦克风权限和通话服务状态。")
+                    renderCallPanel()
+                }
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) start()
+                else {
+                    pendingDialAfterMicGrant = start
+                    requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CALL_MICROPHONE)
+                }
+            }
+            .show()
+    }
+
+    private fun chooseAudioEndpoint(callId: String, endpoints: List<CallAudioEndpoint>) {
+        val labels = endpoints.map { it.displayName() }.toTypedArray()
+        MaterialAlertDialogBuilder(this)
+            .setTitle("通话音频设备")
+            .setItems(labels) { _, which ->
+                endpoints.getOrNull(which)?.let { CallRuntime.selectAudioEndpoint(this, callId, it) }
+                renderCallPanel()
+            }
+            .setNegativeButton("取消", null)
+            .show()
+    }
+
+    private fun validDialAddress(value: String): Boolean =
+        value.length in 2..40 && value.firstOrNull()?.let { it.isDigit() || it == '+' || it == '*' || it == '#' } == true &&
+            value.all { it.isDigit() || it in "+*#()-. " }
+
+    private fun localSipEngineAvailable(): Boolean = runCatching {
+        val factory = Class.forName("com.callagent.host.sip.SipEngineFactory")
+        val singleton = runCatching { factory.getField("INSTANCE").get(null) }.getOrNull()
+        val method = if (singleton != null) singleton.javaClass.getMethod("isAvailable", Context::class.java)
+        else factory.getMethod("isAvailable", Context::class.java)
+        method.invoke(singleton, this) as? Boolean ?: false
+    }.getOrDefault(false)
+
+    private fun callPhaseLabel(phase: CallPhase): String = when (phase) {
+        CallPhase.AUTHORIZING_OUTBOUND -> "正在申请呼叫授权"
+        CallPhase.REGISTERING -> "正在连接 SIP"
+        CallPhase.DIALING -> "正在呼叫"
+        CallPhase.OUTBOUND_RINGING -> "等待远端接听"
+        CallPhase.INCOMING_MATCHING -> "验证来电"
+        CallPhase.INCOMING_RINGING -> "来电"
+        CallPhase.ANSWERING -> "正在接听"
+        CallPhase.ACTIVE -> "通话中"
+        CallPhase.DISCONNECTING -> "正在挂断"
+        CallPhase.ENDED -> "通话结束"
+        CallPhase.FAILED -> "通话失败"
+        CallPhase.IDLE -> "空闲"
+    }
+
+    private fun isLiveCallPhase(phase: CallPhase): Boolean = phase !in setOf(CallPhase.IDLE, CallPhase.ENDED, CallPhase.FAILED)
+
+
     private fun refreshBackgroundStatus() {
         val current = runCatching { HostBackgroundRuntime.snapshot(this) }.getOrNull()
         backgroundStatus = current
@@ -515,6 +988,7 @@ class MainActivity : AppCompatActivity() {
         val filter = IntentFilter().apply {
             addAction(ACTION_BACKGROUND_SYNCED)
             addAction(ACTION_BACKGROUND_STATUS_CHANGED)
+            addAction(CallRuntime.ACTION_STATE_CHANGED)
         }
         ContextCompat.registerReceiver(this, backgroundReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         backgroundReceiverRegistered = true
@@ -816,7 +1290,7 @@ class MainActivity : AppCompatActivity() {
                         statusMessage = "The gateway SIM mapping changed. Choose a line again before sending."
                     }
                     if (statusMessage.isBlank() || statusMessage.startsWith("Refreshing")) {
-                        statusMessage = "Updated. Calling is not enabled yet."
+                        statusMessage = "Updated. Check the calling panel for live readiness."
                     }
                     showDashboard()
                 }
@@ -899,6 +1373,11 @@ class MainActivity : AppCompatActivity() {
                 if (!sessionIsCurrent()) throw SessionChanged()
                 if (detail != null) syncDatabase.upsertRemoteMessage(detail)
             }
+        if (sessionIsCurrent()) {
+            syncDatabase.eventCursor()?.let { committedCursor ->
+                runCatching { api.acknowledgeEventCursor(committedCursor) }
+            }
+        }
     }
 
     private fun confirmUnpair() {
@@ -915,6 +1394,7 @@ class MainActivity : AppCompatActivity() {
                         mainHandler.post {
                             session = null
                             switchDatabase(null)
+                            pairingForm.clear()
                             gateway = null
                             sims = emptyList()
                             selectedSimId = null
@@ -957,6 +1437,10 @@ class MainActivity : AppCompatActivity() {
             clientDatabaseName(ownerSession.apiBaseUrl, ownerSession.ownerId, ownerSession.deviceId)
         }
         if (databaseName == nextName && ::database.isInitialized) return
+        if (databaseName.isNotBlank() && databaseName != nextName) {
+            CallRuntime.disableForegroundListening(this)
+        }
+        CallRuntime.restoreForegroundPreference(this, ownerSession)
         if (::database.isInitialized) database.close()
         databaseName = nextName
         database = ClientDatabase(this, nextName)
@@ -976,6 +1460,43 @@ class MainActivity : AppCompatActivity() {
         else -> "Pairing failed. Check the HTTPS URL and pairing code."
     }
 
+    private fun handlePairingOutcome(outcome: com.callagent.host.ui.PairingOperationOutcome) {
+        pairingForm.consumeOutcome(outcome.requestId)
+        val failure = outcome.failure
+        if (failure == null) {
+            pairingForm.clear()
+            val paired = outcome.session ?: sessionStore.read()
+            if (paired == null) {
+                statusMessage = "Pairing completed without a saved client session. Please try pairing again."
+                showPairing(statusMessage)
+                return
+            }
+            if (session?.sameSessionInstance(paired) != true) {
+                switchDatabase(paired)
+                session = paired
+                CallRuntime.restoreForegroundPreference(this, paired)
+                selectedSimId = null
+                statusMessage = "Paired. Loading gateway state…"
+                showDashboard()
+                if (sessionStore.read()?.sameSessionInstance(paired) == true) {
+                    syncFromServer(showProgress = true)
+                }
+            }
+            return
+        }
+
+        if (failure is SessionChanged) {
+            showCurrentSession("Another app screen changed the paired account.")
+            return
+        }
+        if (failure is ApiFailure && failure.code == "INVALID_PAIRING_CODE") {
+            pairingForm.clearPairingCode()
+        }
+        val safe = pairingFailureText(failure)
+        statusMessage = safe
+        showPairing(safe)
+    }
+
     private fun apiFailureText(failure: Exception): String = when (failure) {
         is SessionNeedsPairing -> "Session revoked; pair this phone again."
         is SessionChanged -> "The active account changed."
@@ -990,8 +1511,24 @@ class MainActivity : AppCompatActivity() {
         setPadding(dp(20), dp(16), dp(20), dp(28))
     }
 
-    private fun installContent(content: LinearLayout) {
+    private fun installContent(
+        content: LinearLayout,
+        panels: LinearLayout? = null,
+        primary: LinearLayout? = null,
+        secondary: LinearLayout? = null,
+        spacer: View? = null,
+    ) {
+        val previousScrollY = mainScroll?.scrollY ?: savedScrollY
+        val previousTopY = horizontalTopScroll?.scrollY ?: savedTopScrollY
+        val previousBottomY = horizontalBottomScroll?.scrollY ?: savedBottomScrollY
+        val host = FrameLayout(this).apply {
+            id = R.id.adaptive_content_host
+            setBackgroundColor(materialColor(com.google.android.material.R.attr.colorSurface))
+            clipChildren = false
+            clipToPadding = false
+        }
         val scroll = ScrollView(this).apply {
+            id = R.id.main_content_scroll
             isFillViewport = true
             clipToPadding = false
             contentDescription = "GSM2SIP 主机页面"
@@ -1001,13 +1538,394 @@ class MainActivity : AppCompatActivity() {
             content,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL)
         )
-        scroll.addView(centered, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        scroll.post {
-            val available = (scroll.width - dp(32)).coerceAtLeast(dp(280))
-            val width = minOf(dp(760), available)
-            content.layoutParams = FrameLayout.LayoutParams(width, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL)
+        scroll.addView(centered, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        scroll.setOnScrollChangeListener { _, _, scrollY, _, _ -> savedScrollY = scrollY }
+        host.addView(scroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        ViewCompat.setOnApplyWindowInsetsListener(host) { view, windowInsets ->
+            val bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val cutout = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime())
+            imeVisible = windowInsets.isVisible(WindowInsetsCompat.Type.ime())
+            safeWindowInsets = Insets.of(
+                maxOf(bars.left, cutout.left, ime.left),
+                maxOf(bars.top, cutout.top, ime.top),
+                maxOf(bars.right, cutout.right, ime.right),
+                maxOf(bars.bottom, cutout.bottom, ime.bottom),
+            )
+            if (view.paddingLeft != safeWindowInsets.left || view.paddingTop != safeWindowInsets.top ||
+                view.paddingRight != safeWindowInsets.right || view.paddingBottom != safeWindowInsets.bottom
+            ) {
+                view.setPadding(safeWindowInsets.left, safeWindowInsets.top, safeWindowInsets.right, safeWindowInsets.bottom)
+            }
+            view.post { updateAdaptiveLayout() }
+            windowInsets
         }
-        setContentView(scroll)
+
+        adaptiveHost = host
+        mainScroll = scroll
+        currentContent = content
+        currentPanels = panels
+        primaryPanel = primary
+        secondaryPanel = secondary
+        panelSpacer = spacer
+        headerViews = if (panels == null) emptyList() else (0 until content.childCount)
+            .map { content.getChildAt(it) }
+            .filter { it !== panels }
+        horizontalTopScroll = null
+        horizontalBottomScroll = null
+        horizontalTopContent = null
+        horizontalBottomContent = null
+        savedScrollY = previousScrollY
+        savedTopScrollY = previousTopY
+        savedBottomScrollY = previousBottomY
+
+        setContentView(host)
+        ViewCompat.requestApplyInsets(host)
+        host.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                updateAdaptiveLayout()
+            }
+        }
+        host.post {
+            updateAdaptiveLayout()
+            host.post {
+                mainScroll?.scrollTo(0, savedScrollY)
+                horizontalTopScroll?.scrollTo(0, savedTopScrollY)
+                horizontalBottomScroll?.scrollTo(0, savedBottomScrollY)
+                restoreInputFocusIfNeeded()
+            }
+        }
+    }
+
+    private fun updateAdaptiveLayout() {
+        if (isDestroyed || isFinishing) return
+        val host = adaptiveHost ?: return
+        if (host.width <= 0 || host.height <= 0) return
+        val metricsBounds = runCatching {
+            WindowMetricsCalculator.getOrCreate().computeCurrentWindowMetrics(this).bounds
+        }.getOrNull()
+        // FoldingFeature bounds and child coordinates are window-local. Prefer WindowMetrics when
+        // its extent matches the measured host; a differing absolute window rect must not skew hinge math.
+        val windowWidth = metricsBounds?.width()?.takeIf { it == host.width } ?: host.width
+        val windowHeight = metricsBounds?.height()?.takeIf { it == host.height } ?: host.height
+        val density = resources.displayMetrics.density
+        val decision = AdaptiveWindowLayoutPolicy.calculate(
+            windowWidthPx = windowWidth,
+            windowHeightPx = windowHeight,
+            density = density,
+            safeLeftPx = safeWindowInsets.left,
+            safeTopPx = safeWindowInsets.top,
+            safeRightPx = safeWindowInsets.right,
+            safeBottomPx = safeWindowInsets.bottom,
+            fold = foldGeometry,
+        )
+        var singleFoldPaneWidth: Int? = null
+        if (decision.mode == AdaptiveLayoutDecision.Mode.HORIZONTAL_FOLD) {
+            if (currentPanels != null && !imeVisible) {
+                moveDashboardIntoHorizontalFold(host, decision, windowHeight)
+                return
+            }
+            val focusToRestore = restoreDashboardToScroll(host)
+            singleFoldPaneWidth = constrainSinglePageToHorizontalPane(host, decision)
+            if (currentPanels != null && focusToRestore != null) {
+                restoreAdaptiveFocusAfterLayout(host, focusToRestore, imeVisible)
+            }
+        } else if (foldGeometry?.let { it.separating && it.axis == FoldGeometry.Axis.VERTICAL } == true && currentPanels == null) {
+            restoreDashboardToScroll(host)
+            singleFoldPaneWidth = constrainSinglePageToVerticalPane(host)
+        } else {
+            restoreDashboardToScroll(host)
+            mainScroll?.let {
+                if (it.visibility != View.VISIBLE) it.visibility = View.VISIBLE
+                setLayoutParamsIfChanged(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            }
+        }
+
+        val availableWidthPx = singleFoldPaneWidth
+            ?: (host.width - safeWindowInsets.left - safeWindowInsets.right).coerceAtLeast(0)
+        val maxContentWidthPx = dp(decision.contentMaxWidthDp)
+        val verticalFoldDashboard = currentPanels != null && foldGeometry?.let {
+            it.separating && it.axis == FoldGeometry.Axis.VERTICAL
+        } == true
+        val contentWidth = if (verticalFoldDashboard) availableWidthPx else minOf(availableWidthPx, maxContentWidthPx)
+        currentContent?.let {
+            setLayoutParamsIfChanged(
+                it,
+                FrameLayout.LayoutParams(
+                    contentWidth,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP or Gravity.CENTER_HORIZONTAL,
+                ),
+            )
+        }
+        val panels = currentPanels
+        val primary = primaryPanel
+        val secondary = secondaryPanel
+        if (panels != null && primary != null && secondary != null) {
+            val twoColumns = decision.mode == AdaptiveLayoutDecision.Mode.TWO_COLUMNS
+            val targetOrientation = if (twoColumns) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+            if (panels.orientation != targetOrientation) panels.orientation = targetOrientation
+            setLayoutParamsIfChanged(
+                panels,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            )
+            if (twoColumns) {
+                val primaryWeight = decision.leadingWeight.coerceAtLeast(1f)
+                val secondaryWeight = decision.trailingWeight.coerceAtLeast(1f)
+                setLayoutParamsIfChanged(primary, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, primaryWeight))
+                setLayoutParamsIfChanged(secondary, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, secondaryWeight))
+                panelSpacer?.let { spacer ->
+                    if (spacer.visibility != View.VISIBLE) spacer.visibility = View.VISIBLE
+                    setLayoutParamsIfChanged(spacer, LinearLayout.LayoutParams(dp(decision.hingeGapDp), 1))
+                }
+            } else {
+                setLayoutParamsIfChanged(primary, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                setLayoutParamsIfChanged(secondary, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+                panelSpacer?.let { spacer ->
+                    if (spacer.visibility != View.GONE) spacer.visibility = View.GONE
+                    setLayoutParamsIfChanged(spacer, LinearLayout.LayoutParams(0, 0))
+                }
+            }
+        }
+    }
+
+    private fun moveDashboardIntoHorizontalFold(host: FrameLayout, decision: AdaptiveLayoutDecision, windowHeight: Int) {
+        val panels = currentPanels ?: return
+        val primary = primaryPanel ?: return
+        val secondary = secondaryPanel ?: return
+        var focusToRestore: String? = null
+        if (horizontalTopScroll == null || horizontalBottomScroll == null) {
+            focusToRestore = focusedInputKey()
+            val mergedScrollY = mainScroll?.scrollY ?: savedScrollY
+            when (focusToRestore) {
+                "composeRecipient", "composeBody", "search" -> savedBottomScrollY = mergedScrollY
+                "callDestination" -> savedTopScrollY = mergedScrollY
+            }
+            mainScroll?.let { host.removeView(it) }
+            val topContent = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(16), dp(20), dp(16))
+            }
+            val bottomContent = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(20), dp(16), dp(20), dp(28))
+            }
+            headerViews.forEach { header ->
+                (header.parent as? ViewGroup)?.removeView(header)
+                topContent.addView(header)
+            }
+            panels.removeView(primary)
+            panelSpacer?.let(panels::removeView)
+            panels.removeView(secondary)
+            topContent.addView(primary, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            bottomContent.addView(secondary, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+            val topScroll = ScrollView(this).apply {
+                id = R.id.horizontal_fold_top_scroll
+                isFillViewport = false
+                clipToPadding = false
+                setOnScrollChangeListener { _, _, scrollY, _, _ -> savedTopScrollY = scrollY }
+            }
+            val bottomScroll = ScrollView(this).apply {
+                id = R.id.horizontal_fold_bottom_scroll
+                isFillViewport = false
+                clipToPadding = false
+                setOnScrollChangeListener { _, _, scrollY, _, _ -> savedBottomScrollY = scrollY }
+            }
+            topScroll.addView(topContent, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            bottomScroll.addView(bottomContent, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            horizontalTopContent = topContent
+            horizontalBottomContent = bottomContent
+            horizontalTopScroll = topScroll
+            horizontalBottomScroll = bottomScroll
+        }
+
+        val topScroll = horizontalTopScroll ?: return
+        val bottomScroll = horizontalBottomScroll ?: return
+        if (mainScroll?.visibility != View.VISIBLE) mainScroll?.visibility = View.VISIBLE
+        if (topScroll.parent == null) host.addView(topScroll)
+        if (bottomScroll.parent == null) host.addView(bottomScroll)
+
+        val fold = foldGeometry?.takeIf { it.separating && it.axis == FoldGeometry.Axis.HORIZONTAL }
+        val safePanes = fold?.let { selectLargestSafeHorizontalPane(windowHeight, decision, it) }
+        val availableHeight = (host.height - safeWindowInsets.top - safeWindowInsets.bottom).coerceAtLeast(0)
+        val topHeight = minOf(availableHeight, safePanes?.topHeightPx ?: 0)
+        val bottomHeight = minOf(availableHeight, safePanes?.bottomHeightPx ?: 0)
+        topScroll.visibility = if (topHeight > 0) View.VISIBLE else View.GONE
+        bottomScroll.visibility = if (bottomHeight > 0) View.VISIBLE else View.GONE
+        setLayoutParamsIfChanged(topScroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, topHeight, Gravity.TOP))
+        setLayoutParamsIfChanged(bottomScroll, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, bottomHeight, Gravity.BOTTOM))
+        host.post {
+            topScroll.scrollTo(0, savedTopScrollY)
+            bottomScroll.scrollTo(0, savedBottomScrollY)
+            focusToRestore?.let { restoreAdaptiveFocusAfterLayout(host, it, imeVisible) }
+        }
+    }
+
+    private fun constrainSinglePageToHorizontalPane(
+        host: FrameLayout,
+        decision: AdaptiveLayoutDecision,
+    ): Int {
+        val fold = foldGeometry ?: return (host.width - safeWindowInsets.left - safeWindowInsets.right).coerceAtLeast(0)
+        val selection = selectLargestSafeHorizontalPane(host.height, decision, fold)
+        val availableHeight = (host.height - safeWindowInsets.top - safeWindowInsets.bottom).coerceAtLeast(0)
+        val scroll = mainScroll ?: return (host.width - safeWindowInsets.left - safeWindowInsets.right).coerceAtLeast(0)
+        val onTop = selection.selectedPane == HorizontalPaneSelection.Pane.TOP
+        val paneHeight = minOf(availableHeight, selection.selectedHeightPx)
+        val paneVisibility = if (paneHeight > 0) View.VISIBLE else View.GONE
+        if (scroll.visibility != paneVisibility) {
+            scroll.visibility = paneVisibility
+        }
+        setLayoutParamsIfChanged(
+            scroll,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                paneHeight,
+                if (onTop) Gravity.TOP else Gravity.BOTTOM,
+            ),
+        )
+        return (host.width - safeWindowInsets.left - safeWindowInsets.right).coerceAtLeast(0)
+    }
+
+    private fun constrainSinglePageToVerticalPane(host: FrameLayout): Int {
+        val fold = foldGeometry ?: return (host.width - safeWindowInsets.left - safeWindowInsets.right).coerceAtLeast(0)
+        val leftWidth = (fold.startPx - safeWindowInsets.left).coerceAtLeast(0)
+        val rightWidth = (host.width - safeWindowInsets.right - fold.endPx).coerceAtLeast(0)
+        val useLeft = leftWidth >= rightWidth
+        val paneWidth = if (useLeft) leftWidth else rightWidth
+        val scroll = mainScroll ?: return paneWidth
+        setLayoutParamsIfChanged(
+            scroll,
+            FrameLayout.LayoutParams(
+                paneWidth.coerceAtLeast(dp(1)),
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                if (useLeft) Gravity.LEFT else Gravity.RIGHT,
+            ),
+        )
+        return paneWidth
+    }
+
+    private fun restoreDashboardToScroll(host: FrameLayout): String? {
+        if (horizontalTopContent == null || horizontalBottomContent == null) return null
+        val content = currentContent ?: return null
+        val panels = currentPanels ?: return null
+        val primary = primaryPanel ?: return null
+        val secondary = secondaryPanel ?: return null
+        val focusKey = focusedInputKey()
+        savedTopScrollY = horizontalTopScroll?.scrollY ?: savedTopScrollY
+        savedBottomScrollY = horizontalBottomScroll?.scrollY ?: savedBottomScrollY
+        savedScrollY = when (focusKey) {
+            "composeRecipient", "composeBody", "search" -> savedBottomScrollY
+            "callDestination" -> savedTopScrollY
+            else -> maxOf(savedTopScrollY, savedBottomScrollY)
+        }
+        headerViews.forEach { header ->
+            (header.parent as? ViewGroup)?.removeView(header)
+            content.addView(header, content.indexOfChild(panels).coerceAtLeast(0))
+        }
+        (primary.parent as? ViewGroup)?.removeView(primary)
+        (secondary.parent as? ViewGroup)?.removeView(secondary)
+        val spacer = panelSpacer
+        panels.removeAllViews()
+        panels.addView(primary, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        if (spacer != null) panels.addView(spacer, LinearLayout.LayoutParams(0, 0))
+        panels.addView(secondary, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        horizontalTopScroll?.let(host::removeView)
+        horizontalBottomScroll?.let(host::removeView)
+        mainScroll?.let { if (it.parent == null) host.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
+        horizontalTopScroll = null
+        horizontalBottomScroll = null
+        horizontalTopContent = null
+        horizontalBottomContent = null
+        mainScroll?.let { scroll ->
+            scroll.visibility = View.VISIBLE
+            scroll.post { scroll.scrollTo(0, savedScrollY) }
+        }
+        return focusKey
+    }
+
+    private fun selectLargestSafeHorizontalPane(
+        windowHeight: Int,
+        decision: AdaptiveLayoutDecision,
+        fold: FoldGeometry,
+    ): HorizontalPaneSelection {
+        val physicalGap = (fold.endPx - fold.startPx).coerceAtLeast(0)
+        val totalClearance = (dp(decision.hingeGapDp) - physicalGap).coerceAtLeast(dp(16))
+        val topClearance = totalClearance / 2
+        return AdaptiveWindowLayoutPolicy.largestSafeHorizontalPane(
+            windowHeightPx = windowHeight,
+            safeTopPx = safeWindowInsets.top,
+            safeBottomPx = safeWindowInsets.bottom,
+            fold = fold,
+            topClearancePx = topClearance,
+            bottomClearancePx = totalClearance - topClearance,
+        )
+    }
+
+    private fun restoreAdaptiveFocusAfterLayout(host: View, key: String, showIme: Boolean) {
+        host.post {
+            val target = when (key) {
+                "composeRecipient" -> composeRecipient
+                "composeBody" -> composeBody
+                "callDestination" -> callDestinationEdit
+                "search" -> searchEdit
+                else -> null
+            } ?: return@post
+            target.requestFocus()
+            if (showIme) target.post { WindowCompat.getInsetsController(window, target).show(WindowInsetsCompat.Type.ime()) }
+        }
+    }
+
+    private fun focusedInputKey(): String? {
+        val focused = currentFocus ?: return null
+        return when {
+            composeRecipient != null && focused === composeRecipient -> "composeRecipient"
+            composeBody != null && focused === composeBody -> "composeBody"
+            callDestinationEdit != null && focused === callDestinationEdit -> "callDestination"
+            searchEdit != null && focused === searchEdit -> "search"
+            else -> null
+        }
+    }
+
+    private fun setLayoutParamsIfChanged(view: View, next: ViewGroup.LayoutParams) {
+        val current = view.layoutParams
+        if (current == null || !sameLayoutParams(current, next)) view.layoutParams = next
+    }
+
+    private fun sameLayoutParams(first: ViewGroup.LayoutParams, second: ViewGroup.LayoutParams): Boolean {
+        if (first.javaClass != second.javaClass || first.width != second.width || first.height != second.height) return false
+        if (first is ViewGroup.MarginLayoutParams && second is ViewGroup.MarginLayoutParams) {
+            if (first.leftMargin != second.leftMargin || first.topMargin != second.topMargin ||
+                first.rightMargin != second.rightMargin || first.bottomMargin != second.bottomMargin ||
+                first.getMarginStart() != second.getMarginStart() || first.getMarginEnd() != second.getMarginEnd()
+            ) return false
+        }
+        return when {
+            first is FrameLayout.LayoutParams && second is FrameLayout.LayoutParams -> first.gravity == second.gravity
+            first is LinearLayout.LayoutParams && second is LinearLayout.LayoutParams ->
+                first.weight == second.weight && first.gravity == second.gravity
+            else -> true
+        }
+    }
+
+    private fun restoreInputFocusIfNeeded() {
+        val key = restoreFocusedInput ?: return
+        val target = when (key) {
+            "composeRecipient" -> composeRecipient
+            "composeBody" -> composeBody
+            "callDestination" -> callDestinationEdit
+            "search" -> searchEdit
+            else -> null
+        }
+        if (target == null) {
+            restoreFocusedInput = null
+            return
+        }
+        restoreFocusedInput = null
+        target.requestFocus()
+        if (restoreImeVisible) {
+            restoreImeVisible = false
+            target.post { WindowCompat.getInsetsController(window, target).show(WindowInsetsCompat.Type.ime()) }
+        }
     }
 
     private fun title(text: String): TextView = MaterialTextView(this).apply {

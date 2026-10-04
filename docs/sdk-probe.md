@@ -1,34 +1,58 @@
-# SIP SDK probe gate
+# Android SIP SDK probe status
 
-The host app's M1/M2 build intentionally contains no SIP native library. Its call screen reports that calling is not enabled until the gateway audio path and server call routing have passed the M3 probe.
+The Android host now packages a locally built PJSUA2 JNI library and its
+generated Java wrapper. `docs/native-sdk-provenance.md` records the exact
+source pin, AAR/native hashes, build inputs, security setup, license closure,
+and the remaining release checks.
 
-## PJSUA2 source status
+`SipEngineFactory.isAvailable(context)` attempts to load the JNI library
+without creating a SIP endpoint or opening audio. The host does not expose a
+separate probe screen. A standalone instrumentation smoke can verify endpoint
+startup and codec enumeration against an installed host APK. The PJSUA2 adapter
+is the app's sole SIP engine; it has no fallback to Android's phone dialer or
+another SIP stack.
 
-PJSIP 2.17 and earlier are not acceptable release pins for this app. The upstream advisories identify DNS response validation and TLS certificate-name validation problems. The upstream `pjproject` commit currently recorded for the probe is `a67b8e81b0024b993f47e463c01c67c25cda116f`; the official upstream history contains fixes at or before that commit:
+## Source and security pin
 
-| Issue | Upstream fix commit |
-|---|---|
-| DNS response validation (GHSA-pvmg-ph43-54r2) | `d9514ce3ef56eb12ce59ec6148cd703ca9fae731` |
-| Embedded NUL in TLS SubjectAltName (GHSA-382p-87mh-r3q8) | `43d3bd77bb6833eab4c493503b8d564a754ddfdd` |
-| TLS CN/SAN name validation correction | `44869567853c2d368d8be5bd20fafdab0c3f1335` |
-| IP SubjectAltName validation correction | `764d73433798ea61a5fb7c1e00440c11958444e3` |
+The official upstream `pjproject` commit is
+`a67b8e81b0024b993f47e463c01c67c25cda116f`. It contains the recorded upstream
+fixes for DNS response validation and TLS certificate-name validation. Run
+`tools/check-pjsip-pin.sh` to verify the exact pin and that each fix is an
+ancestor of that pinned commit.
 
-`tools/check-pjsip-pin.sh` fetches the official repository at the pinned commit, checks the exact source SHA, and verifies that each listed fix is an ancestor of the pin. This is source provenance checking only. It does not claim that TLS is correctly configured in the app, build a native library, or pass the device/security probe.
+The adapter requires a TLS proxy and rejects a configuration where
+`serverName` does not identify that proxy. TLS certificate and hostname
+validation stay enabled. It exports Android's system CA certificates as PEM
+for OpenSSL and appends the optional custom CA returned by the authenticated
+server configuration. SIPS request URIs may retain the logical `gsm2sip`
+host because the configured public proxy is the TLS next hop. The SIP engine
+creates no UDP or TCP signaling transport.
 
-## M3 release gate
+Media requires SRTP with SDES keying and secure SIPS signaling. A plain RTP or
+unsupported secure-media negotiation cannot fall back. Startup and REGISTER
+use PJSUA2's null sound device. Incoming calls receive only provisional 180
+Ringing until the user answers; microphone capture starts only after the
+call service's microphone foreground service is ready. Outgoing audio stays
+gated until the host explicitly authorizes it after that service is ready.
 
-Before enabling calls or packaging PJSUA2, the probe must also establish all of the following on the selected Android NDK and a real target device:
+Incoming snapshots expose the raw dialog `Call-ID`, request URI and
+`X-GSM2SIP-Call-ID` independently. The call coordinator joins that server
+identifier against the authenticated GET `/calls` record before it creates a
+Telecom incoming call. It does not use caller number matching.
 
-- Build arm64-v8a from the pinned official source and record compiler versions, source SHA, build flags, dependency licenses, and native library SHA-256 values. Check Android 16 KB page-size loading where required.
-- Configure server certificate validation explicitly, verify CA chain and SIP hostname/SNI, and prove that an untrusted CA, wrong hostname, expired certificate, and failed handshake all stop registration.
-- Require TLS for SIP signalling and mandatory SDES-SRTP for media. A server offering plain RTP or no supported SRTP suite must fail the call without downgrade.
-- Interoperate with the pinned Asterisk configuration and verify two-way audio, Telecom audio endpoints, lock/unlock, app process recovery, and host cellular-call interruptions.
-- Review the exact PJSIP license path and every native dependency before distributing a release APK.
+## Release gate
 
-Until those checks have recorded results, the SIP capability remains unavailable. No PJSIP 2.17 binary or other unverified native artifact is included in the host app.
-# 网关实现方向补充
+Native arm64-v8a and Java wrapper builds passed, and the packaged library's
+ELF load segments are aligned to 16 KB. The adapter includes the real TLS,
+SRTP and codec configuration. The real-device/server interoperability gate
+is **still incomplete**: no handset run has yet validated native endpoint startup,
+TLS rejection cases, SDES-SRTP negotiation, the full inbound/outbound flow,
+Telecom audio routes, process recovery, and cellular interruptions. The
+standalone instrumentation smoke has been prepared, but has not completed on
+the emulator yet.
 
-旧机端采用 Magisk 模块生命周期、priv-app 权限和受限账户 broker，按实际
-系统能力确认订阅与 PhoneAccount；不要求特定机型或 API 31 才开始语音
-实现。主机保持未 root，无需 Magisk。通用网关适配与主机 SIP SDK、服务端
-ARI 是独立实现项；本端在完整链路就绪前继续清楚报告通话不可用。
+The PJSIP AAR is GPL-2.0-or-later with a static third-party dependency
+closure. Full notices are packaged under
+`app/src/main/assets/licenses/pjsua2/`; the resulting APK must not be described
+as entirely MIT-licensed. See `docs/native-sdk-provenance.md` before any
+distribution.

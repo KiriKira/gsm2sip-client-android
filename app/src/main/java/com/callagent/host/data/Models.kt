@@ -15,7 +15,8 @@ data class HostSession(
     val refreshToken: String,
     val refreshExpiresAt: String,
     val sipAvailable: Boolean,
-    val sipReason: String?
+    val sipReason: String?,
+    val pendingRefreshKey: String? = null
 )
 
 fun HostSession.sameSessionInstance(other: HostSession): Boolean =

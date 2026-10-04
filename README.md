@@ -2,7 +2,7 @@
 
 Android host app for controlling SMS through the two SIMs in a separate Android gateway phone (SMS-only operation needs no root). The first implementation provides HTTPS pairing and token refresh, a Material 3 Expressive UI, a cached two-SIM status screen, per-line inboxes and replies, SMS submission and delivery status, and a local task ledger for safe recovery after timeouts.
 
-Calls stay visibly unavailable while gateway audio and server call routing are being verified. The app does not read or send SMS through the host phone, request the default SMS or dialer role, or invoke the system dialer.
+The app now includes a pinned PJSUA2 SIP SDK, self-managed Telecom calls, CallStyle notifications, mute/DTMF/audio routing and server-authorized remote call intents. Calling requires configured server/gateway voice capability; real dual-SIM audio remains a device acceptance gate. It does not read or send SMS through the host phone or fall back to the host carrier dialer.
 
 ## Build
 
@@ -20,7 +20,7 @@ Install the debug APK, enter the server HTTPS URL and a one-time pairing code cr
 
 If an SMS POST times out, its body, SIM ID, mapping revision and idempotency key are saved in SQLite. The app asks the user to check or continue that same submission. It never creates a replacement key for an uncertain task, and it queries an existing server message rather than POSTing it again.
 
-Optional user-enabled background SMS sync now uses an authenticated WSS wake channel plus HTTPS event-cursor polling, a visible foreground service, reboot recovery and private, deduplicated inbound SMS notifications. FCM and physical-device sleep-state acceptance remain pending. See [Android UI and background operation](docs/android-ui-and-background.md) for permissions and limits. Calling remains disabled until the SDK, gateway audio, and server call route pass the separate probe gate.
+Optional user-enabled background SMS sync now uses an authenticated WSS wake channel plus HTTPS event-cursor polling, a visible foreground service, reboot recovery and private, deduplicated inbound SMS notifications. FCM and physical-device sleep-state acceptance remain pending. See [Android UI and background operation](docs/android-ui-and-background.md) for permissions and limits. Background calling is a separate opt-in SIP service; microphone/phoneCall foreground service permissions are used only for an actual call. FoldingFeature and window metrics adapt inner/outer screens, with saved Activity state and system-bar/cutout/IME insets.
 
 ## Project notes
 

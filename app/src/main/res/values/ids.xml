@@ -1,0 +1,17 @@
+<resources>
+    <item name="pairing_server" type="id" />
+    <item name="pairing_code" type="id" />
+    <item name="pairing_device_name" type="id" />
+    <item name="adaptive_content_host" type="id" />
+    <item name="main_content_scroll" type="id" />
+    <item name="horizontal_fold_top_scroll" type="id" />
+    <item name="horizontal_fold_bottom_scroll" type="id" />
+    <item name="dashboard_panel_row" type="id" />
+    <item name="dashboard_overview_panel" type="id" />
+    <item name="dashboard_messages_panel" type="id" />
+    <item name="remote_sim_selector" type="id" />
+    <item name="sms_search" type="id" />
+    <item name="sms_recipient" type="id" />
+    <item name="sms_body" type="id" />
+    <item name="call_destination" type="id" />
+</resources>
