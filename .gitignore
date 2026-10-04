@@ -4,3 +4,8 @@
 local.properties
 .idea/
 *.iml
+
+# Android runtime verification artifacts
+/artifacts/
+__pycache__/
+*.pyc
