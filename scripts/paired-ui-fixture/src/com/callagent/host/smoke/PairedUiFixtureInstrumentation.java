@@ -17,7 +17,10 @@ import java.util.Collections;
  */
 public final class PairedUiFixtureInstrumentation extends Instrumentation {
     private static final String TAG = "PairedUiFixture";
-    private static final String API_BASE = "https://ui-smoke.invalid";
+    // Production pairing stores ApiClient's canonical API root, including /v1.
+    // Keep this synthetic lease identical so offline refresh reaches the network
+    // failure path rather than being rejected as a changed paired account.
+    private static final String API_BASE = "https://ui-smoke.invalid/v1";
     private static final String OWNER_ID = "synthetic-ui-fixture-owner";
     private static final String DEVICE_ID = "synthetic-ui-fixture-client";
     private static final String SESSION_ID = "synthetic-ui-fixture-session";
