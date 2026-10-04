@@ -276,8 +276,33 @@ class Smoke:
         if existing:
             self.shell("input", "keyevent", *(["KEYCODE_DEL"] * min(len(existing), 120)),
                        check=True, label=f"clear_{resource_id}")
+        # One emulator run returned only a prefix after a complete ADB input
+        # burst, before any rotation. Hide a visible IME while keeping field
+        # focus, read back the fresh value, and finish a missing suffix with
+        # separate character events before the full-value assertions run.
+        visible, _ = self._ime_visible()
+        if visible:
+            self.shell("input", "keyevent", "KEYCODE_BACK", check=True,
+                       label=f"hide_ime_before_type_{resource_id}")
+        self.wait(1)
         self.shell("input", "text", value, check=True, label=f"type_{resource_id}")
         self.wait(1)
+        root = self.capture(f"{resource_id}_typed_ime_hidden")
+        entered = self.field_text(root, resource_id)
+        focused_node = self.find_node(root, resource_id)
+        if (focused_node is not None and focused_node.attrib.get("focused") == "true"
+                and entered is not None and value.startswith(entered) and entered != value):
+            missing = value[len(entered):]
+            for index, character in enumerate(missing):
+                self.shell("input", "text", character, check=True,
+                           label=f"type_{resource_id}_suffix_{index}")
+                self.wait(0.2)
+            self.wait(1)
+            root = self.capture(f"{resource_id}_typed_suffix_ime_hidden")
+        node = self.find_node(root, resource_id)
+        if node is not None and self.node_is_on_screen(node):
+            self.tap_node(node, f"reopen_ime_{resource_id}")
+            self.wait(1)
 
     def field_text(self, root: ET.Element, resource_id: str) -> str | None:
         node = self.find_node(root, resource_id)
