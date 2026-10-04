@@ -90,6 +90,31 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
     def fixture_ensure_visible(self, root: ET.Element, *, resource_id: str | None = None,
                                text: str | None = None, name: str) -> ET.Element:
         selector = resource_id or text or name
+        # A target above the current viewport may be absent from UIAutomator's
+        # tree entirely. Return this pane to its top first, then search forward;
+        # otherwise a missing earlier section (for example settings after SMS
+        # compose) would only be scrolled farther out of reach.
+        node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
+        if node is None:
+            for reset_attempt in range(8):
+                area = self.fixture_scroll_area(root, None, selector)
+                width, height = self.last_image_size or (900, 1800)
+                if area is None:
+                    area = (0, 0, width, height)
+                left, top, right, bottom = area
+                area_height = max(1, bottom - top)
+                x = max(left + 8, min(right - 8, (left + right) // 2))
+                start_y = top + area_height // 3
+                end_y = bottom - min(100, area_height // 5)
+                self.shell("input", "swipe", str(x), str(max(top + 8, start_y)),
+                           str(x), str(max(top + 8, end_y)), "350", check=True,
+                           label=f"fixture_scroll_to_top_{SMOKE_MODULE.safe_name(name)}_{reset_attempt}")
+                self.wait(1)
+                root = self.capture(f"fixture_scroll_to_top_{SMOKE_MODULE.safe_name(name)}_{reset_attempt}")
+                node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
+                if node is not None and self.node_is_on_screen(node):
+                    return root
+
         for attempt in range(7):
             node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
             if node is not None and self.node_is_on_screen(node):
