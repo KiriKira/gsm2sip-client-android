@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.callagent.host.paireduismoke">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+
+    <instrumentation
+        android:name="com.callagent.host.smoke.PairedUiFixtureInstrumentation"
+        android:targetPackage="com.callagent.host"
+        android:label="Synthetic paired UI fixture" />
+
+    <application
+        android:debuggable="true"
+        android:hasCode="true"
+        android:label="Synthetic paired UI fixture" />
+</manifest>

@@ -8,7 +8,10 @@ on:
       - 'app/**'
       - 'scripts/android-ui-smoke.py'
       - 'scripts/run-native-smoke.sh'
+      - 'scripts/run-paired-ui-fixture.sh'
       - 'scripts/native-smoke/**'
+      - 'scripts/paired-ui-fixture/**'
+      - 'scripts/paired-ui-fixture.py'
 
 permissions:
   contents: read
@@ -79,7 +82,8 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: >-
             python3 scripts/android-ui-smoke.py --apk app/build/outputs/apk/debug/app-debug.apk --package com.callagent.host --scenario host --device-profile '7.6in Foldable' --artifact-dir artifacts/android-ui-smoke &&
-            bash scripts/run-native-smoke.sh
+            bash scripts/run-native-smoke.sh &&
+            bash scripts/run-paired-ui-fixture.sh
 
       - name: Upload UI and native smoke evidence
         if: always()
