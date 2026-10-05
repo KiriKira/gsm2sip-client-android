@@ -105,18 +105,50 @@ class Smoke:
         return str(result.stdout).strip()
 
     def keep_contacts_permission_denied(self) -> str:
-        permission = self.shell("pm", "check-permission", self.package,
-                                "android.permission.READ_CONTACTS", "0",
-                                label="check_contacts_permission").strip().lower()
-        if permission in {"granted", "true", "1"}:
-            self.shell("pm", "revoke", self.package, "android.permission.READ_CONTACTS",
-                       check=True, label="revoke_contacts_permission_for_smoke")
-            permission = self.shell("pm", "check-permission", self.package,
-                                    "android.permission.READ_CONTACTS", "0",
-                                    label="verify_contacts_permission_denied").strip().lower()
-        if permission not in {"denied", "false", "0"}:
-            raise RuntimeError(f"could not confirm READ_CONTACTS denied for synthetic UI smoke: {permission!r}")
-        return permission
+        permission_name = "android.permission.READ_CONTACTS"
+
+        def runtime_permission_state() -> bool | None:
+            package_dump = self.shell("dumpsys", "package", self.package,
+                                      label="inspect_contacts_runtime_permission")
+            match = re.search(
+                r"(?m)^[ \t]*android\.permission\.READ_CONTACTS:[ \t]*granted=(true|false)(?:,|[ \t]|$)",
+                package_dump,
+            )
+            return match.group(1) == "true" if match else None
+
+        state = runtime_permission_state()
+        if state is False:
+            return "denied (runtime permission)"
+
+        # An explicit revoke handles a previously granted permission. If the
+        # runtime grant line is absent, still restrict the app-op before
+        # continuing to inspect; absence alone is not proof of denial.
+        self.shell("pm", "revoke", self.package, permission_name,
+                   label="revoke_contacts_permission_for_smoke")
+        state = runtime_permission_state()
+        if state is False:
+            return "denied (runtime permission)"
+
+        self.shell("appops", "set", self.package, "READ_CONTACTS", "ignore",
+                   label="deny_contacts_appop_for_smoke")
+        appops_state = self.shell("appops", "get", self.package, "READ_CONTACTS",
+                                  label="verify_contacts_appop_ignored")
+        state = runtime_permission_state()
+        if state is False:
+            return "denied (runtime permission)"
+
+        appops_ignored = re.search(
+            r"(?i)\b(?:android:)?READ_CONTACTS\s*:\s*ignore\b", appops_state
+        ) is not None
+        if state is None:
+            raise RuntimeError(
+                "could not confirm READ_CONTACTS runtime denial: dumpsys package has no explicit "
+                f"granted=false entry; app-op ignore verified={appops_ignored}; appops={appops_state!r}"
+            )
+        raise RuntimeError(
+            "could not confirm READ_CONTACTS runtime denial: runtime permission remains granted=true "
+            f"after revoke; app-op ignore verified={appops_ignored}; appops={appops_state!r}"
+        )
 
     def wait(self, seconds: float = 2.0) -> None:
         time.sleep(seconds)

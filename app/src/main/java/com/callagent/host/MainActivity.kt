@@ -1038,6 +1038,8 @@ class MainActivity : AppCompatActivity() {
         content.addView(keypad)
         val selector = ChipGroup(this).apply {
             id = R.id.dialer_sim_selector
+            isSaveEnabled = false
+            isSaveFromParentEnabled = false
             isSingleSelection = true
             isSelectionRequired = false
             chipSpacingHorizontal = dp(8)
@@ -1052,6 +1054,8 @@ class MainActivity : AppCompatActivity() {
                 minHeight = dp(48)
                 isChecked = line.simId == selectedSimId
                 contentDescription = "SIM ${line.slotIndex + 1}, ${line.label}${line.phoneNumber?.let { ", $it" }.orEmpty()}"
+                isSaveEnabled = false
+                isSaveFromParentEnabled = false
             }
             selector.addView(chip)
             chip.setOnClickListener {
@@ -1897,7 +1901,7 @@ class MainActivity : AppCompatActivity() {
                 val accepted = expectedApi.createMessage(retryEnvelope)
                 expectedDatabase.updateTask(task.localId, accepted.status, accepted)
                 mainHandler.post {
-                    if (sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) return@post
+                    if (isDestroyed || sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) return@post
                     statusMessage = "短信已提交。"
                     showDashboard()
                 }
@@ -1907,121 +1911,200 @@ class MainActivity : AppCompatActivity() {
                 val state = if (definitelyRejected) SmsStatus.FAILED else SmsStatus.UNKNOWN
                 runCatching { expectedDatabase.updateTask(task.localId, state) }
                 mainHandler.post {
-                    val latest = sessionStore.read()
-                    val sameCurrent = session?.sameSessionInstance(expectedSession) == true && database === expectedDatabase
-                    val revoked = failure is SessionNeedsPairing && latest == null && sameCurrent
-                    if (!sameCurrent && !revoked) return@post
+                    if (isDestroyed || handleRetrySessionFailure(expectedSession, expectedDatabase, failure)) return@post
+                    if (!retryContextIsCurrent(expectedSession, expectedDatabase)) return@post
                     statusMessage = if (definitelyRejected) "短信未被服务器接受。" else "发送结果尚未确认；可在此条短信上查询状态或安全重试。"
-                    if (revoked) {
-                        session = null
-                        switchDatabase(null)
-                        showPairing("配对已失效，请重新配对。未确认的短信仍保留在原账户缓存中。")
-                    } else if (failure is SessionChanged) {
-                        showCurrentSession("配对账户已变化。未确认短信仍保留在原账户缓存中。")
-                    } else {
-                        showDashboard()
-                    }
+                    showDashboard()
                 }
             }
         }
     }
 
     private fun retryOrCheck(record: SmsRecord) {
-        if (retryAction(record.taskKey, record.serverId) == RetryAction.QUERY_EXISTING_MESSAGE) {
-            val serverId = record.serverId ?: return
-            val expectedSession = session ?: return showToast("请先完成配对。")
-            val expectedDatabase = database
-            val expectedApi = SmsSubmissionClients.capture(ApiClient(expectedSession.apiBaseUrl, sessionStore))
-            statusMessage = "正在查询短信状态…"
-            showDashboard()
-            executor.execute {
-                try {
-                    if (sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) throw SessionChanged()
-                    val detail = expectedApi.getMessage(serverId)
-                    if (sessionStore.read()?.sameSessionInstance(expectedSession) == true && database === expectedDatabase && detail != null) {
-                        expectedDatabase.upsertRemoteMessage(detail)
-                    }
-                    mainHandler.post {
-                        if (sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) return@post
-                        statusMessage = if (detail == null) "服务器未返回这条短信。" else "短信状态：${SmsStatus.display(detail.status)}。"
-                        showDashboard()
-                    }
-                } catch (failure: Exception) {
-                    mainHandler.post {
-                        val latest = sessionStore.read()
-                        val sameCurrent = session?.sameSessionInstance(expectedSession) == true && database === expectedDatabase
-                        val revoked = failure is SessionNeedsPairing && latest == null && sameCurrent
-                        if (!sameCurrent && !revoked) return@post
-                        if (revoked) {
-                            session = null
-                            switchDatabase(null)
-                            showPairing("配对已失效，请重新配对。")
-                        } else if (failure is SessionChanged) {
-                            showCurrentSession("配对账户已变化。")
-                        } else {
+        val expectedSession = session ?: return showToast("请先完成配对。")
+        val expectedDatabase = database
+        if (!retryContextIsCurrent(expectedSession, expectedDatabase)) {
+            showToast("配对账户已变化，请重试。")
+            return
+        }
+        val verified = loadVerifiedRetryTask(expectedDatabase, record)
+        if (verified == null) {
+            showToast("这条短信与当前账户保存的任务不一致，无法查询或重试。")
+            return
+        }
+        val (storedRecord, originalEnvelope) = verified
+        when (retryAction(storedRecord.taskKey, storedRecord.serverId)) {
+            RetryAction.QUERY_EXISTING_MESSAGE -> {
+                val serverId = storedRecord.serverId ?: return
+                val expectedApi = SmsSubmissionClients.capture(ApiClient(expectedSession.apiBaseUrl, sessionStore))
+                statusMessage = "正在查询短信状态…"
+                showDashboard()
+                executor.execute {
+                    try {
+                        if (!retryContextIsCurrent(expectedSession, expectedDatabase)) throw SessionChanged()
+                        if (loadVerifiedRetryTask(expectedDatabase, record) == null) {
+                            mainHandler.post { showToast("这条短信任务已变化，请刷新后重试。") }
+                            return@execute
+                        }
+                        val detail = expectedApi.getMessage(serverId)
+                        if (!retryContextIsCurrent(expectedSession, expectedDatabase)) throw SessionChanged()
+                        if (loadVerifiedRetryTask(expectedDatabase, record) == null) {
+                            mainHandler.post { showToast("这条短信任务已变化，请刷新后重试。") }
+                            return@execute
+                        }
+                        if (detail != null) expectedDatabase.upsertRemoteMessage(detail)
+                        mainHandler.post {
+                            if (!retryContextIsCurrent(expectedSession, expectedDatabase)) {
+                                refreshRetryAccountIfChanged(expectedSession, expectedDatabase)
+                                return@post
+                            }
+                            statusMessage = if (detail == null) "服务器未返回这条短信。" else "短信状态：${SmsStatus.display(detail.status)}。"
+                            showDashboard()
+                        }
+                    } catch (failure: Exception) {
+                        mainHandler.post {
+                            if (handleRetrySessionFailure(expectedSession, expectedDatabase, failure)) return@post
+                            if (!retryContextIsCurrent(expectedSession, expectedDatabase)) return@post
                             statusMessage = apiFailureText(failure)
                             showDashboard()
                         }
                     }
                 }
             }
-            return
+            RetryAction.RETRY_SAME_KEY -> {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("重试同一条短信任务？")
+                    .setMessage("将在原 SIM 卡线路上继续这条已保存的提交。如果首次请求已到达服务器，服务器会返回同一条任务，不会重复创建。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("重试同一任务") { _, _ ->
+                        if (!retryContextIsCurrent(expectedSession, expectedDatabase)) {
+                            refreshRetryAccountIfChanged(expectedSession, expectedDatabase)
+                            showToast("配对账户已变化，未提交重试。")
+                            return@setPositiveButton
+                        }
+                        val current = loadVerifiedRetryTask(expectedDatabase, record)
+                        if (current == null || current.second != originalEnvelope ||
+                            retryAction(current.first.taskKey, current.first.serverId) != RetryAction.RETRY_SAME_KEY
+                        ) {
+                            showToast("保存的任务已变化，未提交重试。")
+                            return@setPositiveButton
+                        }
+                        submitExistingTaskForContext(record, current.second, expectedSession, expectedDatabase)
+                    }
+                    .show()
+            }
+            RetryAction.NONE -> showToast("This item has no safe retry action.")
         }
-        if (retryAction(record.taskKey, record.serverId) != RetryAction.RETRY_SAME_KEY) {
-            showToast("This item has no safe retry action.")
-            return
-        }
-        val envelope = runCatching { retryEnvelope(record) }.getOrElse {
-            showToast("Saved task data is incomplete; it cannot be retried safely.")
-            return
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle("重试同一条短信任务？")
-            .setMessage("将在原 SIM 卡线路上继续这条已保存的提交。如果首次请求已到达服务器，服务器会返回同一条任务，不会重复创建。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("重试同一任务") { _, _ -> submitExistingTask(record, envelope) }
-            .show()
     }
 
-    private fun retryEnvelope(record: SmsRecord): RetryEnvelope {
-        return record.toRetryEnvelope()
+    private fun retryEnvelope(record: SmsRecord): RetryEnvelope = record.toRetryEnvelope()
+
+    private fun loadVerifiedRetryTask(expectedDatabase: ClientDatabase, original: SmsRecord): Pair<SmsRecord, RetryEnvelope>? {
+        val stored = runCatching { expectedDatabase.loadTask(original.localId) }.getOrNull() ?: return null
+        val originalEnvelope = runCatching { retryEnvelope(original) }.getOrNull() ?: return null
+        val storedEnvelope = runCatching { retryEnvelope(stored) }.getOrNull() ?: return null
+        val sameBinding = original.localId == stored.localId &&
+            original.serverId == stored.serverId && original.commandId == stored.commandId &&
+            original.simId == stored.simId && original.mappingRevision == stored.mappingRevision &&
+            original.direction == "outbound" && stored.direction == "outbound" &&
+            original.to == stored.to && original.text == stored.text && original.createdAt == stored.createdAt &&
+            original.taskKey == stored.taskKey && original.gatewayId == stored.gatewayId &&
+            original.idempotencyBody == stored.idempotencyBody &&
+            originalEnvelope.idempotencyKey == storedEnvelope.idempotencyKey &&
+            originalEnvelope.requestBody() == storedEnvelope.requestBody()
+        if (!sameBinding) return null
+        return stored to storedEnvelope
+    }
+
+    private fun retryContextIsCurrent(expectedSession: HostSession, expectedDatabase: ClientDatabase): Boolean =
+        !isDestroyed && sessionStore.read()?.sameSessionInstance(expectedSession) == true &&
+            session?.sameSessionInstance(expectedSession) == true && database === expectedDatabase
+
+    private fun refreshRetryAccountIfChanged(expectedSession: HostSession, expectedDatabase: ClientDatabase): Boolean {
+        val latest = sessionStore.read()
+        val activityStillOwnsOldAccount = !isDestroyed && session?.sameSessionInstance(expectedSession) == true && database === expectedDatabase
+        if (activityStillOwnsOldAccount && latest?.sameSessionInstance(expectedSession) != true) {
+            showCurrentSession("配对账户已变化。")
+            return true
+        }
+        return !retryContextIsCurrent(expectedSession, expectedDatabase)
+    }
+
+    private fun handleRetrySessionFailure(
+        expectedSession: HostSession,
+        expectedDatabase: ClientDatabase,
+        failure: Exception,
+    ): Boolean {
+        val latest = sessionStore.read()
+        val activityStillOwnsOldAccount = !isDestroyed && session?.sameSessionInstance(expectedSession) == true && database === expectedDatabase
+        if (failure is SessionNeedsPairing && latest == null && activityStillOwnsOldAccount) {
+            session = null
+            switchDatabase(null)
+            showPairing("配对已失效，请重新配对。")
+            return true
+        }
+        return refreshRetryAccountIfChanged(expectedSession, expectedDatabase)
     }
 
     private fun submitExistingTask(record: SmsRecord, envelope: RetryEnvelope) {
         val expectedSession = session ?: return showToast("请先完成配对。")
-        val expectedDatabase = database
+        submitExistingTaskForContext(record, envelope, expectedSession, database)
+    }
+
+    private fun submitExistingTaskForContext(
+        record: SmsRecord,
+        envelope: RetryEnvelope,
+        expectedSession: HostSession,
+        expectedDatabase: ClientDatabase,
+    ) {
+        if (!retryContextIsCurrent(expectedSession, expectedDatabase)) {
+            refreshRetryAccountIfChanged(expectedSession, expectedDatabase)
+            showToast("配对账户已变化，请重试。")
+            return
+        }
+        val verified = loadVerifiedRetryTask(expectedDatabase, record)
+        if (verified == null || verified.second != envelope ||
+            retryAction(verified.first.taskKey, verified.first.serverId) != RetryAction.RETRY_SAME_KEY
+        ) {
+            showToast("保存的任务与原提交不一致，无法安全重试。")
+            return
+        }
         val expectedApi = SmsSubmissionClients.capture(ApiClient(expectedSession.apiBaseUrl, sessionStore))
-        if (sessionStore.read()?.sameSessionInstance(expectedSession) != true) return showToast("配对账户已变化，请重试。")
         expectedDatabase.updateTask(record.localId, SmsStatus.SUBMITTING)
         statusMessage = "正在安全重试原短信任务…"
         showDashboard()
         executor.execute {
             try {
-                if (sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) throw SessionChanged()
-                val accepted = expectedApi.createMessage(envelope)
+                if (!retryContextIsCurrent(expectedSession, expectedDatabase)) throw SessionChanged()
+                val current = loadVerifiedRetryTask(expectedDatabase, record)
+                if (current == null || current.second != envelope ||
+                    retryAction(current.first.taskKey, current.first.serverId) != RetryAction.RETRY_SAME_KEY
+                ) {
+                    mainHandler.post { showToast("保存的任务已变化，未提交重试。") }
+                    return@execute
+                }
+                val accepted = expectedApi.createMessage(current.second)
+                if (!retryContextIsCurrent(expectedSession, expectedDatabase)) throw SessionChanged()
+                val afterResponse = loadVerifiedRetryTask(expectedDatabase, record)
+                if (afterResponse == null || afterResponse.second != envelope) return@execute
                 expectedDatabase.updateTask(record.localId, accepted.status, accepted)
                 mainHandler.post {
-                    if (sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) return@post
+                    if (!retryContextIsCurrent(expectedSession, expectedDatabase)) {
+                        refreshRetryAccountIfChanged(expectedSession, expectedDatabase)
+                        return@post
+                    }
                     statusMessage = "已确认原短信任务。"
                     showDashboard()
                 }
             } catch (failure: Exception) {
-                runCatching { expectedDatabase.updateTask(record.localId, SmsStatus.UNKNOWN) }
+                if (runCatching { loadVerifiedRetryTask(expectedDatabase, record) }.getOrNull()?.second == envelope) {
+                    runCatching { expectedDatabase.updateTask(record.localId, SmsStatus.UNKNOWN) }
+                }
                 mainHandler.post {
-                    val latest = sessionStore.read()
-                    val sameCurrent = session?.sameSessionInstance(expectedSession) == true && database === expectedDatabase
-                    val revoked = failure is SessionNeedsPairing && latest == null && sameCurrent
-                    if (!sameCurrent && !revoked) return@post
-                    if (revoked) {
-                        session = null
-                        switchDatabase(null)
-                        showPairing("配对已失效，请重新配对。")
-                    } else if (failure is SessionChanged) {
-                        showCurrentSession("账户已变化，未确认提交仍保留在原账户和原SIM。")
-                    } else {
-                        statusMessage = "发送结果仍未确认。任务和原SIM已保留，可稍后安全重试。"
-                        showDashboard()
-                    }
+                    if (handleRetrySessionFailure(expectedSession, expectedDatabase, failure)) return@post
+                    if (!retryContextIsCurrent(expectedSession, expectedDatabase)) return@post
+                    statusMessage = "发送结果仍未确认。任务和原SIM已保留，可稍后安全重试。"
+                    showDashboard()
                 }
             }
         }
@@ -2418,7 +2501,7 @@ class MainActivity : AppCompatActivity() {
             val result = runCatching { ApiClient(expectedSession.apiBaseUrl, sessionStore).listCallHistoryPage(cursor, 100) }
             mainHandler.post {
                 callHistoryLoading = false
-                if (sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) return@post
+                if (isDestroyed || sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) return@post
                 result.onSuccess { (items, nextCursor) ->
                     callHistory = mergeCallHistory(callHistory, items)
                     callHistoryCursor = nextCursor

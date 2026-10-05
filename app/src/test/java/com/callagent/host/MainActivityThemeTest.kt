@@ -191,7 +191,7 @@ class MainActivityThemeTest {
 
         val session = HostSession(
             sessionInstanceId = "robolectric-paired-dashboard-instance",
-            apiBaseUrl = "https://127.0.0.1:1",
+            apiBaseUrl = "https://127.0.0.1:1/v1",
             ownerId = "robolectric-dashboard-owner",
             deviceId = "robolectric-dashboard-client",
             role = "client",
@@ -250,12 +250,15 @@ class MainActivityThemeTest {
             assertTrue("selected SIM should survive Activity recreation", recreatedChips[1].isChecked)
 
             val recreatedActivity = activityController.get()
-            val navigation = recreatedActivity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation)
+            recreatedActivity.findViewById<View>(R.id.screen_back).performClick()
+            var navigation = recreatedActivity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation)
             navigation.selectedItemId = R.id.tab_messages
             recreatedActivity.findViewById<View>(R.id.sms_compose_fab).performClick()
             recreatedActivity.findViewById<TextInputEditText>(R.id.sms_recipient).setText("+15550009999")
             recreatedActivity.findViewById<TextInputEditText>(R.id.sms_body).setText("折叠后仍保留的草稿")
 
+            recreatedActivity.findViewById<View>(R.id.screen_back).performClick()
+            navigation = recreatedActivity.findViewById(R.id.main_bottom_navigation)
             navigation.selectedItemId = R.id.tab_phone
             navigation.selectedItemId = R.id.tab_messages
             recreatedActivity.findViewById<View>(R.id.sms_compose_fab).performClick()
@@ -264,7 +267,7 @@ class MainActivityThemeTest {
 
             activityController.recreate()
             val restoredActivity = activityController.get()
-            assertEquals(R.id.tab_messages, restoredActivity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId)
+            assertTrue("recreation should remain in the dedicated composer", restoredActivity.findViewById<View>(R.id.screen_back) != null)
             assertEquals("+15550009999", restoredActivity.findViewById<TextInputEditText>(R.id.sms_recipient).text.toString())
             assertEquals("折叠后仍保留的草稿", restoredActivity.findViewById<TextInputEditText>(R.id.sms_body).text.toString())
             ClientDatabase(application, databaseName).use { db ->

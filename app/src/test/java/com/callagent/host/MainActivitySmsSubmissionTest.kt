@@ -10,10 +10,12 @@ import com.callagent.host.data.MessageAccepted
 import com.callagent.host.data.RetryEnvelope
 import com.callagent.host.data.SessionStore
 import com.callagent.host.data.SimLine
+import com.callagent.host.data.SmsRecord
 import com.callagent.host.data.SmsStatus
 import com.callagent.host.data.SmsSubmissionClient
 import com.callagent.host.data.SmsSubmissionClients
 import com.callagent.host.data.clientDatabaseName
+import com.callagent.host.data.toRetryEnvelope
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.textfield.TextInputEditText
 import org.junit.Assert.assertEquals
@@ -169,6 +171,93 @@ class MainActivitySmsSubmissionTest {
         }
     }
 
+    @Test
+    fun savedSmsFromOldAccountCannotBeQueriedOrRetriedThroughNewAccount() {
+        val app = RuntimeEnvironment.getApplication()
+        val originalProvider = installTestKeyStore()
+        val oldSession = session("stale-record-old")
+        val newSession = session("stale-record-new")
+        val oldDatabase = clientDatabaseName(oldSession.apiBaseUrl, oldSession.ownerId, oldSession.deviceId)
+        val newDatabase = clientDatabaseName(newSession.apiBaseUrl, newSession.ownerId, newSession.deviceId)
+        val fakeClient = BlockingSubmissionClient()
+        var controller: ActivityController<MainActivity>? = null
+        val previousFactory = SmsSubmissionClients.factoryOverride
+        try {
+            preparePairedAccount(app, oldSession, "Gateway Old", "sim-old")
+            val retryRecord: SmsRecord
+            val queryRecord: SmsRecord
+            ClientDatabase(app, oldDatabase).use { db ->
+                db.insertOutbound(com.callagent.host.data.OutboundTask(
+                    localId = "old-unknown-task",
+                    idempotencyKey = "old-unknown-key",
+                    gatewayId = "gateway-stale-record-old",
+                    simId = "sim-old",
+                    mappingRevision = 42,
+                    to = "+15551230003",
+                    text = "old account retry body",
+                    createdAt = "2026-10-05T10:00:00Z",
+                    status = SmsStatus.UNKNOWN,
+                ))
+                retryRecord = db.loadTask("old-unknown-task")!!
+
+                db.insertOutbound(com.callagent.host.data.OutboundTask(
+                    localId = "old-query-task",
+                    idempotencyKey = "old-query-key",
+                    gatewayId = "gateway-stale-record-old",
+                    simId = "sim-old",
+                    mappingRevision = 42,
+                    to = "+15551230004",
+                    text = "old account query body",
+                    createdAt = "2026-10-05T10:01:00Z",
+                    status = SmsStatus.SUBMITTING,
+                ))
+                db.updateTask("old-query-task", SmsStatus.ACCEPTED, MessageAccepted(
+                    messageId = "old-account-server-message",
+                    commandId = "old-account-command",
+                    status = SmsStatus.ACCEPTED,
+                    expiresAt = "2099-01-01T00:05:00Z",
+                    partCount = 1,
+                ))
+                queryRecord = db.loadTask("old-query-task")!!
+            }
+
+            app.deleteDatabase(newDatabase)
+            seedAccountDatabase(app, newSession, "Gateway New", "sim-new")
+            assertTrue(SessionStore(app).writeIfCurrent(oldSession, newSession))
+            SmsSubmissionClients.factoryOverride = { fakeClient }
+            val activityController = Robolectric.buildActivity(MainActivity::class.java).setup()
+            controller = activityController
+            val activity = activityController.get()
+            assertTrue(readDatabase(app, newDatabase) { db -> db.loadOutboundTasks().isEmpty() })
+            fakeClient.messageToReturn = queryRecord.copy(status = SmsStatus.DELIVERED)
+
+            invokePrivate(activity, "retryOrCheck", queryRecord)
+            settleMainThread(700L)
+            assertEquals("old query records must not use the new account API", 0, fakeClient.getCount.get())
+            assertTrue("querying an old account record must not import it into the new account DB",
+                readDatabase(app, newDatabase) { db ->
+                    db.loadMessages("sim-new").isEmpty() && db.loadMessages("sim-old").isEmpty() &&
+                        db.loadTask("old-query-task") == null && db.loadTask("old-unknown-task") == null && db.loadOutboundTasks().isEmpty()
+                })
+
+            invokePrivate(activity, "submitExistingTask", retryRecord, retryRecord.toRetryEnvelope())
+            settleMainThread(700L)
+            assertEquals("old retry records must not use the new account API", 0, fakeClient.createCount.get())
+            assertTrue("retrying an old account task must leave the new account DB empty",
+                readDatabase(app, newDatabase) { db ->
+                    db.loadMessages("sim-new").isEmpty() && db.loadMessages("sim-old").isEmpty() &&
+                        db.loadTask("old-query-task") == null && db.loadTask("old-unknown-task") == null && db.loadOutboundTasks().isEmpty()
+                })
+        } finally {
+            fakeClient.release.countDown()
+            SmsSubmissionClients.factoryOverride = previousFactory
+            controller?.let { runCatching { it.pause().stop().destroy() } }
+            cleanupAccount(app, oldSession, oldDatabase)
+            cleanupAccount(app, newSession, newDatabase)
+            restoreKeyStore(originalProvider)
+        }
+    }
+
     private fun openComposer(activity: MainActivity) {
         activity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId = R.id.tab_messages
         activity.findViewById<View>(R.id.sms_compose_fab).performClick()
@@ -185,6 +274,23 @@ class MainActivitySmsSubmissionTest {
         }
         mainLooper.idle()
         assertTrue("expected asynchronous SMS submission state was not reached", condition())
+    }
+
+    private fun settleMainThread(durationMillis: Long) {
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        val deadline = System.currentTimeMillis() + durationMillis
+        while (System.currentTimeMillis() < deadline) {
+            mainLooper.idle()
+            Thread.sleep(10)
+        }
+        mainLooper.idle()
+    }
+
+    private fun invokePrivate(activity: MainActivity, name: String, vararg arguments: Any) {
+        val parameterTypes = arguments.map { it.javaClass }.toTypedArray()
+        val method = MainActivity::class.java.getDeclaredMethod(name, *parameterTypes)
+        method.isAccessible = true
+        method.invoke(activity, *arguments)
     }
 
     private fun preparePairedAccount(
@@ -233,7 +339,7 @@ class MainActivitySmsSubmissionTest {
 
     private fun session(id: String) = HostSession(
         sessionInstanceId = id,
-        apiBaseUrl = "https://127.0.0.1:1/$id",
+        apiBaseUrl = "https://127.0.0.1:1/$id/v1",
         ownerId = "owner-$id",
         deviceId = "device-$id",
         role = "client",
@@ -283,6 +389,8 @@ class MainActivitySmsSubmissionTest {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         val createCount = AtomicInteger()
+        val getCount = AtomicInteger()
+        @Volatile var messageToReturn: SmsRecord? = null
         @Volatile var lastEnvelope: RetryEnvelope? = null
 
         override fun createMessage(envelope: RetryEnvelope): MessageAccepted {
@@ -299,6 +407,9 @@ class MainActivitySmsSubmissionTest {
             )
         }
 
-        override fun getMessage(messageId: String) = null
+        override fun getMessage(messageId: String): SmsRecord? {
+            getCount.incrementAndGet()
+            return messageToReturn
+        }
     }
 }
