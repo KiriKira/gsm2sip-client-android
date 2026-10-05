@@ -148,9 +148,17 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
     def record_fixture_stage(self, check: str, name: str, root: ET.Element,
                              required_visible_text: tuple[str, ...], detail: str,
                              status_override: str | None = None,
-                             any_visible_text: tuple[str, ...] = ()) -> None:
-        visible = [item for item in required_visible_text if self.visible_text(root, item)]
-        matched_alternative = next((item for item in any_visible_text if self.visible_text(root, item)), None)
+                             any_visible_text: tuple[str, ...] = (),
+                             require_positive_visible_bounds: bool = False) -> None:
+        def item_is_visible(item: str) -> bool:
+            node = self.find_text_node(root, item)
+            if node is None:
+                return False
+            return (self.node_has_positive_visible_bounds(node) if require_positive_visible_bounds
+                    else self.node_is_on_screen(node))
+
+        visible = [item for item in required_visible_text if item_is_visible(item)]
+        matched_alternative = next((item for item in any_visible_text if item_is_visible(item)), None)
         okay = len(visible) == len(required_visible_text) and (not any_visible_text or matched_alternative is not None)
         status = status_override or ("pass" if okay else "fail")
         missing = [item for item in required_visible_text if item not in visible]
@@ -466,29 +474,33 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                                       "Dashboard background-receive settings; no service or permission was enabled")
 
             unavailable = "无法读取服务器 SIP 可用状态。"
-            deadline = time.monotonic() + self.smoke_module.UI_WAIT_SECONDS
-            call_root: ET.Element | None = None
-            while time.monotonic() < deadline:
-                call_root = self.capture(f"fixture_call_wait_{int(time.time())}")
-                if self.find_text_node(call_root, unavailable) is not None:
-                    break
-                self.wait(2)
-            if call_root is None:
-                raise RuntimeError("could not capture call panel while waiting for offline state")
-            call_root = self.fixture_ensure_visible(call_root, text="拨出此远程 SIM",
-                                                   name="call_controls_disabled")
-            call_root = self.capture("call_panel_unavailable")
-            dial = next((node for node in self.nodes(call_root)
+            gateway_offline = "远程网关未在线。"
+            status_root = self.fixture_ensure_visible(root, text=unavailable,
+                                                      name="call_status_sip_unavailable")
+            status_root = self.fixture_ensure_visible(status_root, text=gateway_offline,
+                                                      name="call_status_gateway_offline")
+            status_root = self.capture("call_panel_unavailable")
+            self.record_fixture_stage("fixture_call_unavailable", "call_panel_unavailable", status_root,
+                                      (unavailable, gateway_offline),
+                                      "SIP service unavailable offline; gateway offline; both status messages have positive bounds; no call was made",
+                                      require_positive_visible_bounds=True)
+
+            dial_root = self.fixture_ensure_visible(status_root, text="拨出此远程 SIM",
+                                                    name="call_controls_disabled")
+            dial_root = self.capture("call_controls_disabled")
+            dial = next((node for node in self.nodes(dial_root)
                          if node.attrib.get("text") == "拨出此远程 SIM" and
                          node.attrib.get("class") == "android.widget.Button"), None)
             call_disabled = (dial is not None and dial.attrib.get("enabled") == "false" and
-                             self.node_is_on_screen(dial))
-            self.record_fixture_stage("fixture_call_unavailable", "call_panel_unavailable", call_root,
-                                      (unavailable, "远程网关未在线。"),
-                                      "SIP service unavailable offline; gateway offline; captured dial-control viewport; no call was made")
-            self.record("fixture_call_controls_disabled", "pass" if call_disabled else "fail",
-                        "exact android.widget.Button text='拨出此远程 SIM' is visible and enabled=false" if call_disabled else
-                        "exact remote dial Button was not confirmed visible with enabled=false")
+                             self.node_has_positive_visible_bounds(dial))
+            dial_detail = ("exact android.widget.Button text='拨出此远程 SIM'; "
+                           f"enabled={dial.attrib.get('enabled') if dial is not None else None}; "
+                           f"positive bounds={dial.attrib.get('bounds') if dial is not None else None}; "
+                           "no call was made")
+            self.record_fixture_stage("fixture_call_controls_disabled", "call_controls_disabled", dial_root,
+                                      ("拨出此远程 SIM",), dial_detail,
+                                      status_override=None if call_disabled else "fail",
+                                      require_positive_visible_bounds=True)
         finally:
             if seed_attempted:
                 try:
@@ -565,6 +577,7 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                 "sms_compose": "sms_compose.png",
                 "settings": "background_receive_settings.png",
                 "call_unavailable": "call_panel_unavailable.png",
+                "call_controls_disabled": "call_controls_disabled.png",
                 "logcat": "logcat.txt",
             },
         }

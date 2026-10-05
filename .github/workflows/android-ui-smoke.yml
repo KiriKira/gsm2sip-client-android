@@ -12,6 +12,7 @@ on:
       - 'scripts/native-smoke/**'
       - 'scripts/paired-ui-fixture/**'
       - 'scripts/paired-ui-fixture.py'
+      - 'scripts/package-ui-review-evidence.py'
 
 permissions:
   contents: read
@@ -84,6 +85,20 @@ jobs:
             python3 scripts/android-ui-smoke.py --apk app/build/outputs/apk/debug/app-debug.apk --package com.callagent.host --scenario host --device-profile '7.6in Foldable' --artifact-dir artifacts/android-ui-smoke &&
             bash scripts/run-native-smoke.sh &&
             bash scripts/run-paired-ui-fixture.sh
+
+      - name: Collect original key UI evidence and tested APK
+        if: always()
+        run: |
+          python3 scripts/package-ui-review-evidence.py --artifact-dir artifacts/android-ui-smoke --apk app/build/outputs/apk/debug/app-debug.apk --output-dir artifacts/ui-review-evidence
+
+      - name: Upload review evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm2sip-host-ui-review-evidence
+          path: artifacts/ui-review-evidence/**
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload UI and native smoke evidence
         if: always()
