@@ -475,17 +475,20 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                 self.wait(2)
             if call_root is None:
                 raise RuntimeError("could not capture call panel while waiting for offline state")
-            call_root = self.fixture_ensure_visible(call_root, text=unavailable, name="call_panel_unavailable")
+            call_root = self.fixture_ensure_visible(call_root, text="拨出此远程 SIM",
+                                                   name="call_controls_disabled")
             call_root = self.capture("call_panel_unavailable")
             dial = next((node for node in self.nodes(call_root)
-                         if "拨出此远程 SIM" in self.node_value(node)), None)
-            call_disabled = dial is not None and dial.attrib.get("enabled") == "false"
+                         if node.attrib.get("text") == "拨出此远程 SIM" and
+                         node.attrib.get("class") == "android.widget.Button"), None)
+            call_disabled = (dial is not None and dial.attrib.get("enabled") == "false" and
+                             self.node_is_on_screen(dial))
             self.record_fixture_stage("fixture_call_unavailable", "call_panel_unavailable", call_root,
                                       (unavailable, "远程网关未在线。"),
-                                      "SIP service unavailable offline; gateway offline; no call was made")
+                                      "SIP service unavailable offline; gateway offline; captured dial-control viewport; no call was made")
             self.record("fixture_call_controls_disabled", "pass" if call_disabled else "fail",
-                        "remote dial control is disabled" if call_disabled else
-                        "remote dial control was not confirmed disabled")
+                        "exact android.widget.Button text='拨出此远程 SIM' is visible and enabled=false" if call_disabled else
+                        "exact remote dial Button was not confirmed visible with enabled=false")
         finally:
             if seed_attempted:
                 try:
