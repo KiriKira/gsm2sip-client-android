@@ -24,6 +24,10 @@ If an SMS POST times out, its body, SIM ID, mapping revision and idempotency key
 
 Optional user-enabled background SMS sync now uses an authenticated WSS wake channel plus HTTPS event-cursor polling, a visible foreground service, reboot recovery and private, deduplicated inbound SMS notifications. FCM and physical-device sleep-state acceptance remain pending. See [Android UI and background operation](docs/android-ui-and-background.md) for permissions and limits. Background calling is a separate opt-in SIP service; microphone/phoneCall foreground service permissions are used only for an actual call. FoldingFeature and window metrics adapt inner/outer screens, with saved Activity state and system-bar/cutout/IME insets.
 
+## SMS backup and archive
+
+The backup screen exports password-encrypted archives, JSON, or SMS Backup & Restore XML. Imports merge into a separate read-only history ledger and never enqueue sends or change the paired account. See [backup and restore instructions](docs/sms-backup.md) and [两端 KVM 验证与关键界面截图](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/ui-verification/README.md).
+
 ## Project notes
 
 - [Implementation plan](PLAN.md)

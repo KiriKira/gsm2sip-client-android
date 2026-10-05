@@ -55,6 +55,7 @@ class MainActivityThemeTest {
     @Test
     fun unpairedScreenInflatesMaterialInputsAndButtonsUnderExpressiveTheme() {
         val application = RuntimeEnvironment.getApplication()
+        application.getSharedPreferences("host-session", 0).edit().clear().commit()
         val receiverPermission = "${application.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
         val declared = application.packageManager.getPackageInfo(application.packageName, PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty()
         assertTrue(receiverPermission in declared)
@@ -63,10 +64,12 @@ class MainActivityThemeTest {
         Shadows.shadowOf(application).grantPermissions(receiverPermission)
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         try {
-            val root = controller.get().findViewById<View>(android.R.id.content)
+            val activity = controller.get()
+            val root = activity.findViewById<View>(android.R.id.content)
             val views = descendants(root).toList()
             assertTrue(views.any { it is TextInputLayout })
             assertTrue(views.any { it is MaterialButton })
+            assertSmsArchiveEntry(activity)
         } finally {
             controller.pause().stop().destroy()
         }
@@ -222,6 +225,7 @@ class MainActivityThemeTest {
             controller = activityController
             activityController.setup()
             assertDashboardSims(activityController.get())
+            assertSmsArchiveEntry(activityController.get())
 
             val initialChips = chips(activityController.get())
             initialChips[1].performClick()
@@ -260,6 +264,12 @@ class MainActivityThemeTest {
             visibleText.any { it.contains("Synthetic primary line with a readable long identity") && it.contains("+15550001001") })
     }
 
+    private fun assertSmsArchiveEntry(activity: MainActivity) {
+        val entry = activity.findViewById<MaterialButton>(R.id.sms_backup_archive_entry)
+        assertEquals("短信备份与归档", entry.text.toString())
+        assertTrue("archive entry must remain reachable on paired and unpaired screens", entry.isEnabled)
+    }
+
     private fun chips(activity: MainActivity): List<Chip> {
         val group = activity.findViewById<ChipGroup>(R.id.remote_sim_selector)
         return (0 until group.childCount).map { group.getChildAt(it) as Chip }
@@ -294,11 +304,11 @@ class MainActivityThemeTest {
     }
 }
 
-private object TestAndroidKeyStoreBacking {
+internal object TestAndroidKeyStoreBacking {
     val keys = ConcurrentHashMap<String, Key>()
 }
 
-private class RobolectricAndroidKeyStoreProvider : Provider(
+internal class RobolectricAndroidKeyStoreProvider : Provider(
     "AndroidKeyStore", 1.0, "In-memory AndroidKeyStore replacement for Robolectric tests"
 ) {
     init {

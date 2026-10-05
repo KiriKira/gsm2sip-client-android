@@ -427,6 +427,7 @@ class MainActivity : AppCompatActivity() {
         }
         content.addView(pairButton)
         content.addView(messageCard("配对后可检查服务器通话配置与远程 SIM 状态。"))
+        content.addView(smsArchiveEntryButton())
         installContent(content)
     }
 
@@ -630,6 +631,10 @@ class MainActivity : AppCompatActivity() {
             send.setOnClickListener { confirmSend(selected, recipient.text.toString(), body.text.toString()) }
             messagesPanel.addView(send)
         }
+
+        // Keep this after the compose form so the unpaired dashboard still opens
+        // directly on the pairing fields while imported archives remain available.
+        messagesPanel.addView(smsArchiveEntryButton())
 
         val pending = database.loadPendingTasks()
         if (pending.isNotEmpty()) {
@@ -1482,7 +1487,7 @@ class MainActivity : AppCompatActivity() {
     private fun confirmUnpair() {
         MaterialAlertDialogBuilder(this)
             .setTitle("解除此手机配对？")
-            .setMessage("服务器将撤销此客户端的登录凭据。服务器确认后，会清除此手机上的短信和网关缓存，并关闭后台接收。")
+            .setMessage("服务器将撤销此客户端的登录凭据。确认后会关闭后台接收，并清除此手机同步的短信和网关缓存。请先导出需要保留的短信；已导入本机归档和外部备份会保留。")
             .setNegativeButton("取消", null)
             .setPositiveButton("解除配对") { _, _ ->
                 executor.execute {
@@ -2150,6 +2155,13 @@ class MainActivity : AppCompatActivity() {
         setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
         backgroundTintList = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorSecondaryContainer))
         setTextColor(materialColor(com.google.android.material.R.attr.colorOnSecondaryContainer))
+    }
+
+    private fun smsArchiveEntryButton(): MaterialButton = smallButton("短信备份与归档").apply {
+        id = R.id.sms_backup_archive_entry
+        setOnClickListener {
+            startActivity(Intent(this@MainActivity, com.callagent.host.backup.HostSmsBackupActivity::class.java))
+        }
     }
 
     private fun fullWidthParams(top: Int = 0, bottom: Int = 0): LinearLayout.LayoutParams =

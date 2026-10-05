@@ -13,5 +13,6 @@
     <item name="sms_search" type="id" />
     <item name="sms_recipient" type="id" />
     <item name="sms_body" type="id" />
+    <item name="sms_backup_archive_entry" type="id" />
     <item name="call_destination" type="id" />
 </resources>
