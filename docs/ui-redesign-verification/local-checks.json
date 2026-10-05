@@ -1,0 +1,31 @@
+{
+  "format": 1,
+  "source_commit": "bd7d99a6985f4ea0fec9822f2a2246609b771948",
+  "app_source_commit": "7d265ee27cfa971afc973745de7c707072726ffe",
+  "command": ":app:assembleDebug :app:testDebugUnitTest :app:lintDebug --max-workers=2",
+  "result": "BUILD SUCCESSFUL",
+  "unit_tests": {
+    "tests": 102,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "errors": 0,
+    "warnings": 38
+  },
+  "gradle_log_sha256": "91d60c80f51f658a50c4d0614d190f9bdfef353d3a14cee1e04d87ae7a003bad",
+  "scope": "Local build, unit tests and lint; runtime screenshots come from the separately linked KVM workflow artifact.",
+  "ui_contrast_regression": {
+    "source_commit": "70a6cd3c6c80f90840e17a4bb7cfd936bc7d6356",
+    "tests": 13,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "build": "successful",
+    "lint_errors": 0,
+    "command": ":app:assembleDebug :app:testDebugUnitTest --tests com.callagent.host.MainActivityThemeTest --tests com.callagent.host.calls.CallActionActivityTest :app:lintDebug",
+    "log_sha256": "6db1ecfd32cd4f9cca9a33c39d038378319e1ae81e19200daf748f1fb71007e9",
+    "change_scope": "Four lines setting icon/text contrast; SMS and call behavior unchanged."
+  }
+}

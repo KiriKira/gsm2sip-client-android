@@ -20,7 +20,7 @@ After pairing, background SMS synchronization starts automatically; there is no 
 
 The `Android KVM UI smoke` workflow builds the debug APK and runs the host smoke on an API 35, 7.6-inch foldable emulator. Pushes that touch the app, fixture, smoke scripts, or workflow start the workflow; `workflow_dispatch` can run it on demand. The fastest supported screenshot route is to push the finished branch, wait for the workflow, and inspect the `gsm2sip-host-android-ui-smoke` artifact.
 
-The workflow runs:
+The workflow attempts all three stages and fails if any stage fails. Evidence upload runs even on failure. The stages are:
 
 1. `scripts/android-ui-smoke.py --scenario host` for first-run prompts, the three tabs, phone/dial-pad navigation, Settings, synthetic pairing form entry, rotation, fold/unfold, cutout, and the shared SMS backup/archive UI.
 2. `scripts/run-native-smoke.sh` for the native engine checks.
@@ -42,3 +42,5 @@ Review the output Markdown and PNGs for these views:
 - Synthetic call-screen views for outgoing setup, active controls, keypad, and incoming ringing. These are layout captures only; no real call is created.
 
 The app's shared SMS backup smoke also checks format warnings, password entry, rotation/fold/cutout layout, import preview, confirmation, imported history, and duplicate-import behavior using synthetic archive data.
+
+Successful main runs save original key PNGs, source/APK/artifact hashes and a Chinese Markdown gallery to [the UI verification report](ui-redesign-verification/README.md). Publication requires all UI checks to pass and the tested app and harness to still match main. The initial partial run remains documented separately.

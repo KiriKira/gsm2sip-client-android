@@ -13,9 +13,10 @@ on:
       - 'scripts/paired-ui-fixture/**'
       - 'scripts/paired-ui-fixture.py'
       - 'scripts/package-ui-review-evidence.py'
+      - 'scripts/publish-ui-verification.py'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   host-ui-smoke:
@@ -103,6 +104,7 @@ jobs:
           retention-days: 14
 
       - name: Upload UI and native smoke evidence
+        id: ui_evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -145,3 +147,28 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Save successful main UI screenshots and Markdown in the repository
+        if: ${{ success() && github.ref == 'refs/heads/main' }}
+        env:
+          UI_ARTIFACT_ID: ${{ steps.ui_evidence.outputs.artifact-id }}
+          UI_ARTIFACT_DIGEST: ${{ steps.ui_evidence.outputs.artifact-digest }}
+        run: |
+          git fetch --depth=1 origin main
+          if ! git diff --quiet "$GITHUB_SHA" origin/main -- app scripts .github/workflows/android-ui-smoke.yml; then
+            echo 'Main app or verification scripts changed after this run; preserving artifacts without replacing the current report.'
+            exit 0
+          fi
+          git checkout --detach origin/main
+          python3 scripts/publish-ui-verification.py \
+            --artifact-dir artifacts/android-ui-smoke \
+            --apk app/build/outputs/apk/debug/app-debug.apk \
+            --output-dir docs/ui-redesign-verification \
+            --source-commit "$GITHUB_SHA" --run-id "$GITHUB_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --artifact-id "$UI_ARTIFACT_ID" --artifact-digest "$UI_ARTIFACT_DIGEST"
+          git add -- docs/ui-redesign-verification
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m "docs: save verified host UI screenshots from run $GITHUB_RUN_ID"
+          git push origin HEAD:main
