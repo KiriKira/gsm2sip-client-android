@@ -3139,6 +3139,7 @@ class MainActivity : AppCompatActivity() {
         setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
         backgroundTintList = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorSecondaryContainer))
         setTextColor(materialColor(com.google.android.material.R.attr.colorOnSecondaryContainer))
+        iconTint = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnSecondaryContainer))
     }
 
     private fun smsArchiveEntryButton(): MaterialButton = smallButton("短信备份与归档").apply {

@@ -334,6 +334,9 @@ class CallActionActivity : AppCompatActivity() {
             contentDescription = text
             isCheckable = true
             isChecked = selected
+            val foreground = color(if (selected) com.google.android.material.R.attr.colorOnPrimaryContainer else com.google.android.material.R.attr.colorOnSurface)
+            iconTint = ColorStateList.valueOf(foreground)
+            setTextColor(foreground)
             backgroundTintList = ColorStateList.valueOf(
                 if (selected) color(com.google.android.material.R.attr.colorPrimaryContainer) else android.graphics.Color.TRANSPARENT
             )

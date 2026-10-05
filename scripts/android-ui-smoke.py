@@ -337,11 +337,85 @@ class Smoke:
         width, height = self.last_image_size
         return 0 <= left < right <= width and 0 <= top < bottom <= height
 
+    def _is_navigation_or_fab(self, root: ET.Element, node: ET.Element) -> bool:
+        resource_id = node.attrib.get("resource-id", "")
+        if resource_id.endswith(("/dialer_open", "/sms_compose_fab")):
+            return True
+
+        navigation = self.find_node(root, "main_bottom_navigation")
+        if navigation is None:
+            return False
+        parents = {child: parent for parent in root.iter() for child in parent}
+        current: ET.Element | None = node
+        while current is not None:
+            if current is navigation:
+                return True
+            current = parents.get(current)
+        return False
+
+    def _scroll_viewport(self, root: ET.Element, node: ET.Element | None) -> tuple[int, int, int, int]:
+        width, height = self.last_image_size or (900, 1800)
+        bounds = (0, 0, width, height)
+
+        parents = {child: parent for parent in root.iter() for child in parent}
+        current = node
+        scroll_bounds = None
+        while current is not None:
+            if (current.attrib.get("scrollable") == "true" or
+                    current.attrib.get("resource-id", "").endswith("/main_content_scroll")):
+                scroll_bounds = self.parse_bounds(current.attrib.get("bounds", ""))
+                if scroll_bounds is not None:
+                    break
+            current = parents.get(current)
+        if scroll_bounds is None:
+            main_scroll = self.find_node(root, "main_content_scroll")
+            if main_scroll is not None:
+                scroll_bounds = self.parse_bounds(main_scroll.attrib.get("bounds", ""))
+        if scroll_bounds is not None:
+            left, top, right, bottom = scroll_bounds
+            bounds = (max(0, left), max(0, top), min(width, right), min(height, bottom))
+
+        if node is None or not self._is_navigation_or_fab(root, node):
+            navigation = self.find_node(root, "main_bottom_navigation")
+            navigation_bounds = (self.parse_bounds(navigation.attrib.get("bounds", ""))
+                                 if navigation is not None else None)
+            if navigation_bounds is not None:
+                left, top, right, bottom = bounds
+                bounds = (left, top, right, min(bottom, navigation_bounds[1]))
+        return bounds
+
+    def _node_in_main_content_viewport(self, root: ET.Element, node: ET.Element) -> bool:
+        if not self.node_has_positive_visible_bounds(node):
+            return False
+        if self._is_navigation_or_fab(root, node):
+            return True
+        node_bounds = self.parse_bounds(node.attrib.get("bounds", ""))
+        if node_bounds is None:
+            return False
+        left, top, right, bottom = node_bounds
+        view_left, view_top, view_right, view_bottom = self._scroll_viewport(root, node)
+        return (view_left <= left < right <= view_right and
+                view_top <= top < bottom <= view_bottom)
+
+    def _scroll_content(self, root: ET.Element, node: ET.Element | None, direction: str,
+                        label: str) -> None:
+        left, top, right, bottom = self._scroll_viewport(root, node)
+        span = bottom - top
+        if right <= left or span < 120:
+            raise RuntimeError(f"No usable scroll viewport for {label}: {(left, top, right, bottom)}")
+        x = (left + right) // 2
+        if direction == "earlier":
+            start_y, end_y = top + span // 3, top + (span * 2) // 3
+        else:
+            start_y, end_y = bottom - max(40, span // 10), top + span // 3
+        self.shell("input", "swipe", str(x), str(start_y), str(x), str(end_y), "350",
+                   check=True, label=label)
+
     def ensure_text_visible(self, root: ET.Element, text: str, *, stage: str,
                             direction_hint: str = "later") -> ET.Element:
         for attempt in range(8):
             node = self.find_text_node(root, text)
-            if node is not None and self.node_has_positive_visible_bounds(node):
+            if node is not None and self._node_in_main_content_viewport(root, node):
                 return root
             if attempt == 0:
                 ime_visible, _ = self._ime_visible()
@@ -350,37 +424,34 @@ class Smoke:
                     self.wait(1)
                     root = self.capture(f"{stage}_ime_hidden")
                     node = self.find_text_node(root, text)
-                    if node is not None and self.node_has_positive_visible_bounds(node):
+                    if node is not None and self._node_in_main_content_viewport(root, node):
                         return root
-            width, height = self.last_image_size or (900, 1800)
+            _, viewport_top, _, viewport_bottom = self._scroll_viewport(root, node)
             bounds = self.parse_bounds(node.attrib.get("bounds", "")) if node is not None else None
             direction = direction_hint
             if bounds is not None:
                 _, top, _, bottom = bounds
-                if bottom <= 0:
+                if bottom <= viewport_top:
                     direction = "earlier"
-                elif top >= height:
+                elif top >= viewport_bottom or bottom > viewport_bottom:
                     direction = "later"
-            if direction == "earlier":
-                start_y, end_y = height // 3, (height * 2) // 3
-            else:
-                start_y, end_y = max(100, (height * 2) // 3), max(100, height // 3)
-            self.shell("input", "swipe", str(width // 2), str(start_y), str(width // 2), str(end_y), "350",
-                       check=True, label=f"scroll_{stage}_{attempt}")
+            self._scroll_content(root, node, direction, f"scroll_{stage}_{attempt}")
             self.wait(1)
             root = self.capture(f"{stage}_scroll_{attempt}")
         node = self.find_text_node(root, text)
         if node is None:
             raise RuntimeError(f"Visible UI text is not present after scrolling: {text!r}")
-        if not self.node_has_positive_visible_bounds(node):
-            raise RuntimeError(f"UI text does not have positive visible screen bounds: {text!r} {node.attrib.get('bounds')!r}")
+        if not self._node_in_main_content_viewport(root, node):
+            raise RuntimeError(
+                f"UI text is outside its unobscured content viewport: {text!r} {node.attrib.get('bounds')!r}"
+            )
         return root
 
     def tap_text(self, root: ET.Element, text: str, *, stage: str,
                  direction_hint: str = "later") -> ET.Element:
         root = self.ensure_text_visible(root, text, stage=stage, direction_hint=direction_hint)
         node = self.find_text_node(root, text)
-        if node is None or not self.node_has_positive_visible_bounds(node):
+        if node is None or not self._node_in_main_content_viewport(root, node):
             raise RuntimeError(f"UI text is not safely tappable: {text!r}")
         self.tap_node(node, stage)
         self.wait(1)
@@ -389,7 +460,7 @@ class Smoke:
     def ensure_node_visible(self, root: ET.Element, resource_id: str) -> ET.Element:
         for attempt in range(5):
             node = self.find_node(root, resource_id)
-            if node is not None and self.node_is_on_screen(node):
+            if node is not None and self._node_in_main_content_viewport(root, node):
                 return root
             if attempt == 0:
                 visible, _ = self._ime_visible()
@@ -398,28 +469,27 @@ class Smoke:
                     self.wait(1)
                     root = self.capture(f"{resource_id}_ime_hidden")
                     node = self.find_node(root, resource_id)
-                    if node is not None and self.node_is_on_screen(node):
+                    if node is not None and self._node_in_main_content_viewport(root, node):
                         return root
-            width, height = self.last_image_size or (900, 1800)
+            _, viewport_top, _, viewport_bottom = self._scroll_viewport(root, node)
             later_field = {"pairing_server": "pairing_device_name",
                            "etControlUrl": "etControlDeviceName"}.get(resource_id)
             later_node = self.find_node(root, later_field) if later_field else None
-            if later_node is not None and self.node_is_on_screen(later_node):
+            if later_node is not None and self._node_in_main_content_viewport(root, later_node):
                 # The URL is above the focused device-name field. A downward
                 # finger gesture reveals earlier content in a ScrollView.
-                start_y, end_y = height // 3, (height * 2) // 3
+                direction = "earlier"
             else:
-                start_y, end_y = max(100, height - 260), max(100, height // 3)
-            self.shell("input", "swipe", str(width // 2), str(start_y),
-                       str(width // 2), str(end_y), "350",
-                       check=True, label=f"scroll_to_{resource_id}_{attempt}")
+                direction = "earlier" if node is not None and (bounds := self.parse_bounds(
+                    node.attrib.get("bounds", ""))) is not None and bounds[3] <= viewport_top else "later"
+            self._scroll_content(root, node, direction, f"scroll_to_{resource_id}_{attempt}")
             self.wait(1)
             root = self.capture(f"scroll_{resource_id}_{attempt}")
         node = self.find_node(root, resource_id)
         if node is None:
             raise RuntimeError(f"UI element is not present after scrolling: {resource_id}")
-        if not self.node_is_on_screen(node):
-            raise RuntimeError(f"UI element is outside the visible screen after bounded scrolling: {resource_id}")
+        if not self._node_in_main_content_viewport(root, node):
+            raise RuntimeError(f"UI element is outside its unobscured content viewport: {resource_id}")
         return root
 
     def input_text(self, root: ET.Element, resource_id: str, value: str) -> None:

@@ -29,6 +29,8 @@ def main() -> None:
         'landscape_after_rotation.png', 'after_portrait_rotation.png',
         'folded_ui.png', 'unfolded_ui.png', 'hole_cutout_enabled.png',
         'main-backup-entry-host.png',
+        'host_call_history.png', 'host_dialpad.png',
+        'host_sms_thread_list.png', 'host_settings_tab.png',
     }
     names.update(stage + '.png' for stage in (
         'backup-overview', 'backup-password', 'backup-json-warning',

@@ -69,6 +69,17 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
 
     def fixture_scroll_area(self, root: ET.Element, target: ET.Element | None,
                             selector: str) -> tuple[int, int, int, int] | None:
+        def without_bottom_navigation(bounds: tuple[int, int, int, int] | None) -> tuple[int, int, int, int] | None:
+            if bounds is None:
+                return None
+            navigation = self.find_node(root, "main_bottom_navigation")
+            navigation_bounds = (self.parse_bounds(navigation.attrib.get("bounds", ""))
+                                 if navigation is not None else None)
+            if navigation_bounds is None:
+                return bounds
+            left, top, right, bottom = bounds
+            return left, top, right, min(bottom, navigation_bounds[1])
+
         parents = {child: parent for parent in root.iter() for child in parent}
         current = target
         while current is not None:
@@ -79,7 +90,7 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                     resource_id.endswith("/horizontal_fold_bottom_scroll")):
                 bounds = self.parse_bounds(current.attrib.get("bounds", ""))
                 if bounds:
-                    return bounds
+                    return without_bottom_navigation(bounds)
             current = parents.get(current)
 
         preferred = ("horizontal_fold_bottom_scroll" if
@@ -89,7 +100,8 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         scroll = self.find_node(root, preferred)
         if scroll is None:
             scroll = self.find_node(root, "main_content_scroll")
-        return self.parse_bounds(scroll.attrib.get("bounds", "")) if scroll is not None else None
+        bounds = self.parse_bounds(scroll.attrib.get("bounds", "")) if scroll is not None else None
+        return without_bottom_navigation(bounds)
 
     def fixture_ensure_visible(self, root: ET.Element, *, resource_id: str | None = None,
                                text: str | None = None, name: str) -> ET.Element:
@@ -99,7 +111,11 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         # otherwise a missing earlier section (for example settings after SMS
         # compose) would only be scrolled farther out of reach.
         node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
-        if node is None:
+        target_bounds = self.parse_bounds(node.attrib.get("bounds", "")) if node is not None else None
+        current_area = self.fixture_scroll_area(root, node, selector) if node is not None else None
+        target_is_above_viewport = (target_bounds is not None and current_area is not None and
+                                    target_bounds[3] <= current_area[1])
+        if node is None or target_is_above_viewport:
             for reset_attempt in range(8):
                 area = self.fixture_scroll_area(root, None, selector)
                 width, height = self.last_image_size or (900, 1800)
@@ -116,12 +132,12 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                 self.wait(1)
                 root = self.capture(f"fixture_scroll_to_top_{SMOKE_MODULE.safe_name(name)}_{reset_attempt}")
                 node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
-                if node is not None and self.node_is_on_screen(node):
+                if node is not None and self._node_in_main_content_viewport(root, node):
                     return root
 
         for attempt in range(7):
             node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
-            if node is not None and self.node_is_on_screen(node):
+            if node is not None and self._node_in_main_content_viewport(root, node):
                 return root
             area = self.fixture_scroll_area(root, node, selector)
             width, height = self.last_image_size or (900, 1800)
@@ -130,7 +146,7 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
             left, top, right, bottom = area
             area_height = max(1, bottom - top)
             bounds = self.parse_bounds(node.attrib.get("bounds", "")) if node is not None else None
-            if bounds is not None and bounds[1] >= bottom:
+            if bounds is not None and (bounds[1] >= bottom or bounds[3] > bottom):
                 start_y, end_y = bottom - min(100, area_height // 5), top + area_height // 3
             elif bounds is not None and bounds[3] <= top:
                 start_y, end_y = top + area_height // 3, bottom - min(100, area_height // 5)
@@ -145,8 +161,8 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
         if node is None:
             raise RuntimeError(f"Fixture UI element was not found: {selector}")
-        if not self.node_is_on_screen(node):
-            raise RuntimeError(f"Fixture UI element did not enter the visible viewport: {selector}")
+        if not self._node_in_main_content_viewport(root, node):
+            raise RuntimeError(f"Fixture UI element did not enter the unobscured content viewport: {selector}")
         return root
 
     def record_fixture_stage(self, check: str, name: str, root: ET.Element,
