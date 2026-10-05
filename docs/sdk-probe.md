@@ -49,11 +49,23 @@ is **still incomplete**: no handset run has yet validated native endpoint startu
 TLS rejection cases, SDES-SRTP negotiation, the full inbound/outbound flow,
 Telecom audio routes, process recovery, and cellular interruptions. The
 standalone instrumentation smoke passed on the API 35 Google APIs foldable
-emulator in [Actions run 37204636606](https://github.com/KiriKira/gsm2sip-client-android/actions/runs/37204636606)
-(source commit `9dc07e9d6151b5fccff917a4e8231311f5433423`). It installed the
+emulator in [Actions run 37248094071](https://github.com/KiriKira/gsm2sip-client-android/actions/runs/37248094071)
+(source commit `bd870b8fceadf61069995e92986851664673c0e3`). It installed the
 arm64 host APK and a harness signed with the same certificate, loaded PJSUA2,
 created/started/destroyed an endpoint with null audio, and enumerated Opus,
 PCMU, PCMA and G.722. It did not capture microphone audio or place a SIP call.
+The latest run passed 19 native checks and 22 unpaired UI checks. Its signed,
+synthetic offline paired fixture passed another 27 checks across nine screenshot
+stages: dashboard/cached hosts, folded/unfolded hosts, SIM selection, inbound and
+queued SMS previews, compose fields, background settings, and unavailable call
+controls. It verified airplane/Wi-Fi/mobile-data state and no default network,
+used only `.invalid` endpoints, and removed the synthetic cache/test harness and
+restored network settings. No real pairing, SMS or SIP/cellular call was made.
+The paired dashboard exposed a Material Chip multiline crash during earlier
+runs; the fix has a seeded Activity regression covering single selection and
+recreation. Startup foreground and off-screen button assertions now read fresh
+state and scroll the actual control into view, retaining their original gates.
+
 The generic foldable UI smoke also checked input and IME restoration after
 rotation, observed CLOSED/OPENED device states, and checked visible buttons
 against a simulated hole cutout. This is preliminary emulator evidence,
