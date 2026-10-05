@@ -54,8 +54,8 @@ emulator in [Actions run 37248094071](https://github.com/KiriKira/gsm2sip-client
 arm64 host APK and a harness signed with the same certificate, loaded PJSUA2,
 created/started/destroyed an endpoint with null audio, and enumerated Opus,
 PCMU, PCMA and G.722. It did not capture microphone audio or place a SIP call.
-The latest run passed 19 native checks and 22 unpaired UI checks. Its signed,
-synthetic offline paired fixture passed another 27 checks across nine screenshot
+That run passed 19 native checks and 22 unpaired UI checks. Its signed,
+synthetic offline paired fixture reported 27 passing checks across nine screenshot
 stages: dashboard/cached hosts, folded/unfolded hosts, SIM selection, inbound and
 queued SMS previews, compose fields, background settings, and unavailable call
 controls. It verified airplane/Wi-Fi/mobile-data state and no default network,
@@ -65,6 +65,18 @@ The paired dashboard exposed a Material Chip multiline crash during earlier
 runs; the fix has a seeded Activity regression covering single selection and
 recreation. Startup foreground and off-screen button assertions now read fresh
 state and scroll the actual control into view, retaining their original gates.
+
+A later screenshot review found two false-positive visibility assertions in
+that paired run: the queued SMS body and the background-settings heading had
+inverted bounds and were clipped out of their stage screenshots. Other settings
+controls were visible. The original JSON/screenshots are preserved as historical
+output, not full paired visual acceptance. The shared visibility predicate now
+rejects inverted/empty rectangles and requires a positive screen intersection;
+a boundary and fixture-scroll check confirms invalid bounds trigger scrolling.
+The complete corrected KVM workflow is
+[run 37250189446](https://github.com/KiriKira/gsm2sip-client-android/actions/runs/37250189446),
+source `9a14a7358ca7976a5c4baa8423559fc4312fea9f`. Use that workflow's original
+results, stage screenshots and hierarchy XML for the corrected acceptance evidence.
 
 The generic foldable UI smoke also checked input and IME restoration after
 rotation, observed CLOSED/OPENED device states, and checked visible buttons
