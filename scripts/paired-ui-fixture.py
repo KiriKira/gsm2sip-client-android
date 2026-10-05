@@ -342,10 +342,10 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                         "SessionStore.writeIfCurrent and production ClientDatabase APIs saved synthetic-only cache data")
 
             self.launch()
-            self.verify_app_foreground()
             root = self.wait_for_app_tree(
                 lambda tree: self.find_text_node(tree, "SYNTHETIC offline gateway") is not None,
                 "synthetic_paired_dashboard")
+            self.verify_app_foreground()
             root = self.capture("paired_dashboard_top")
             self.record_fixture_stage("fixture_dashboard", "paired_dashboard_top", root,
                                       ("SYNTHETIC offline gateway",),

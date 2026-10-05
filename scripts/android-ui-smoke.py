@@ -370,21 +370,75 @@ class Smoke:
                     else "no permission or default-role prompt was visible; none was accepted")
 
     def verify_app_foreground(self) -> None:
-        resumed = self.shell("dumpsys", "activity", "activities", label="activity_state")
-        windows = self.shell("dumpsys", "window", "windows", label="window_state")
-        (self.artifacts / "foreground_state.txt").write_text(
-            "=== activity ===\n" + resumed + "\n=== windows ===\n" + windows + "\n", encoding="utf-8"
-        )
-        foreground_lines = [line for line in (resumed + "\n" + windows).splitlines()
-                            if re.search(r"topResumedActivity|mResumedActivity|mCurrentFocus", line, re.IGNORECASE)]
-        foreground = any(self.package in line for line in foreground_lines)
-        root = self.capture("app_foreground")
+        deadline = time.monotonic() + UI_WAIT_SECONDS
+        max_attempts = 4
+        attempts: list[str] = []
+        foreground = False
+        hierarchy_name = "app_foreground"
+        # Capture once at the start of the deadline. Subsequent polls only
+        # refresh Activity/Window state, so startup null-focus retries cannot
+        # multiply the UIAutomator capture retry budget.
+        root = self.capture(hierarchy_name)
         tree_has_package = any(n.attrib.get("package", "") == self.package for n in self.nodes(root))
+        attempts_made = 0
+
+        def read_fresh_state(*args: str, label: str) -> tuple[str | None, str]:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.1:
+                return None, "state read skipped because the UI wait deadline expired"
+            try:
+                result = self.command(["shell", *args], timeout=min(float(ADB_TIMEOUT_SECONDS), remaining),
+                                      label=label)
+            except RuntimeError as exc:
+                return None, f"ADB state read failed: {exc}"
+            output = str(result.stdout).strip()
+            if result.returncode != 0:
+                error = result.stderr.decode("utf-8", errors="replace").strip()
+                return None, f"ADB state read exited {result.returncode}: {error or output}"
+            return output, ""
+
+        for attempt in range(1, max_attempts + 1):
+            if time.monotonic() >= deadline:
+                break
+            attempts_made = attempt
+            # Take both foreground snapshots after the fresh UI hierarchy.
+            resumed, activity_error = read_fresh_state("dumpsys", "activity", "activities",
+                                                       label=f"activity_state_attempt_{attempt}")
+            windows, windows_error = read_fresh_state("dumpsys", "window", "windows",
+                                                      label=f"window_state_attempt_{attempt}")
+            combined_state = "\n".join(state for state in (resumed, windows) if state)
+            foreground_lines = [line for line in combined_state.splitlines()
+                                if re.search(r"topResumedActivity|mResumedActivity|mCurrentFocus", line, re.IGNORECASE)]
+            foreground = (resumed is not None and windows is not None and
+                          any(self.package in line for line in foreground_lines))
+            evidence = (
+                f"attempt={attempt}\nhierarchy={hierarchy_name}.xml\n"
+                f"hierarchy_has_package={tree_has_package}\nforeground={foreground}\n"
+                f"matched_foreground_lines:\n{chr(10).join(foreground_lines) or '(none)'}\n"
+                f"=== activity ===\n{resumed if resumed is not None else '(unavailable)'}\n{activity_error}\n"
+                f"=== windows ===\n{windows if windows is not None else '(unavailable)'}\n{windows_error}\n"
+            )
+            attempts.append(evidence)
+            (self.artifacts / f"foreground_state_attempt_{attempt}.txt").write_text(evidence, encoding="utf-8")
+            if foreground and tree_has_package:
+                break
+            remaining = deadline - time.monotonic()
+            if attempt < max_attempts and remaining > 0:
+                self.wait(min(2.0, remaining))
+
+        final_state = (
+            f"deadline_seconds={UI_WAIT_SECONDS}\nattempts={attempts_made}\n"
+            f"foreground={foreground}\nhierarchy_has_package={tree_has_package}\n"
+            + "\n".join(attempts)
+        )
+        (self.artifacts / "foreground_state.txt").write_text(final_state, encoding="utf-8")
         if foreground and tree_has_package:
-            self.record("app_visible", "pass", "target app owns the resumed window and appears in UIAutomator hierarchy")
+            self.record("app_visible", "pass",
+                        f"target app owns the resumed window and appears in UIAutomator hierarchy after {attempts_made} attempt(s)")
         else:
             self.record("app_visible", "fail",
-                        f"foreground={foreground}, hierarchy_has_package={tree_has_package}; see foreground_state.txt")
+                        f"foreground={foreground}, hierarchy_has_package={tree_has_package}, attempts={attempts_made}; "
+                        "see foreground_state.txt")
 
     def check_apk_install(self) -> None:
         apk = Path(self.args.apk)
