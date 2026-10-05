@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture cached paired-dashboard UI using a disposable synthetic offline fixture.
+"""Capture paired host navigation using a disposable synthetic offline fixture.
 
 The fixture runner reuses the ADB and screenshot primitives in
 android-ui-smoke.py. It never pairs an account, sends SMS, registers SIP, or
@@ -35,11 +35,15 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
     EXPECTED_CHECKS = (
         "emulator_boot", "emulator_device", "emulator_api_level", "apk_install", "apk_native_abi",
         "fixture_harness_install", "network_disabled", "synthetic_fixture_seeded",
-        "app_visible", "fixture_dashboard", "fixture_paired_hosts", "fixture_sim_selection",
-        "fixture_initial_unfold", "fixture_fold_state_changed", "fixture_unfold_state_restored",
-        "fixture_hosts_folded", "fixture_hosts_unfolded",
-        "fixture_sms_inbox", "fixture_sms_outbound_preview", "fixture_sms_compose", "fixture_sms_compose_fields",
-        "fixture_settings", "fixture_call_unavailable", "fixture_call_controls_disabled",
+        "app_visible", "fixture_three_tabs", "fixture_call_history", "fixture_history_prefill",
+        "fixture_dialpad", "fixture_dialpad_input", "fixture_dialer_contacts",
+        "fixture_sms_thread_list", "fixture_sms_sim_badges",
+        "fixture_initial_unfold", "fixture_fold_state_changed", "fixture_sms_folded",
+        "fixture_unfold_state_restored", "fixture_sms_unfolded", "fixture_sms_conversation",
+        "fixture_sms_reply_fields", "fixture_sms_new_message", "fixture_sms_new_message_fields",
+        "fixture_new_message_sim_selection", "fixture_sms_draft", "fixture_sms_rotation_ime",
+        "fixture_sms_draft_folded", "fixture_sms_draft_unfolded", "fixture_settings",
+        "fixture_settings_devices", "fixture_settings_backup", "fixture_active_call_ui",
         "synthetic_fixture_cleanup", "fixture_harness_uninstall", "network_restored",
     )
 
@@ -65,6 +69,17 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
 
     def fixture_scroll_area(self, root: ET.Element, target: ET.Element | None,
                             selector: str) -> tuple[int, int, int, int] | None:
+        def without_bottom_navigation(bounds: tuple[int, int, int, int] | None) -> tuple[int, int, int, int] | None:
+            if bounds is None:
+                return None
+            navigation = self.find_node(root, "main_bottom_navigation")
+            navigation_bounds = (self.parse_bounds(navigation.attrib.get("bounds", ""))
+                                 if navigation is not None else None)
+            if navigation_bounds is None:
+                return bounds
+            left, top, right, bottom = bounds
+            return left, top, right, min(bottom, navigation_bounds[1])
+
         parents = {child: parent for parent in root.iter() for child in parent}
         current = target
         while current is not None:
@@ -75,7 +90,7 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                     resource_id.endswith("/horizontal_fold_bottom_scroll")):
                 bounds = self.parse_bounds(current.attrib.get("bounds", ""))
                 if bounds:
-                    return bounds
+                    return without_bottom_navigation(bounds)
             current = parents.get(current)
 
         preferred = ("horizontal_fold_bottom_scroll" if
@@ -85,7 +100,8 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         scroll = self.find_node(root, preferred)
         if scroll is None:
             scroll = self.find_node(root, "main_content_scroll")
-        return self.parse_bounds(scroll.attrib.get("bounds", "")) if scroll is not None else None
+        bounds = self.parse_bounds(scroll.attrib.get("bounds", "")) if scroll is not None else None
+        return without_bottom_navigation(bounds)
 
     def fixture_ensure_visible(self, root: ET.Element, *, resource_id: str | None = None,
                                text: str | None = None, name: str) -> ET.Element:
@@ -95,7 +111,11 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         # otherwise a missing earlier section (for example settings after SMS
         # compose) would only be scrolled farther out of reach.
         node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
-        if node is None:
+        target_bounds = self.parse_bounds(node.attrib.get("bounds", "")) if node is not None else None
+        current_area = self.fixture_scroll_area(root, node, selector) if node is not None else None
+        target_is_above_viewport = (target_bounds is not None and current_area is not None and
+                                    target_bounds[3] <= current_area[1])
+        if node is None or target_is_above_viewport:
             for reset_attempt in range(8):
                 area = self.fixture_scroll_area(root, None, selector)
                 width, height = self.last_image_size or (900, 1800)
@@ -112,12 +132,12 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                 self.wait(1)
                 root = self.capture(f"fixture_scroll_to_top_{SMOKE_MODULE.safe_name(name)}_{reset_attempt}")
                 node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
-                if node is not None and self.node_is_on_screen(node):
+                if node is not None and self._node_in_main_content_viewport(root, node):
                     return root
 
         for attempt in range(7):
             node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
-            if node is not None and self.node_is_on_screen(node):
+            if node is not None and self._node_in_main_content_viewport(root, node):
                 return root
             area = self.fixture_scroll_area(root, node, selector)
             width, height = self.last_image_size or (900, 1800)
@@ -126,7 +146,7 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
             left, top, right, bottom = area
             area_height = max(1, bottom - top)
             bounds = self.parse_bounds(node.attrib.get("bounds", "")) if node is not None else None
-            if bounds is not None and bounds[1] >= bottom:
+            if bounds is not None and (bounds[1] >= bottom or bounds[3] > bottom):
                 start_y, end_y = bottom - min(100, area_height // 5), top + area_height // 3
             elif bounds is not None and bounds[3] <= top:
                 start_y, end_y = top + area_height // 3, bottom - min(100, area_height // 5)
@@ -141,8 +161,8 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         node = self.find_node(root, resource_id) if resource_id else self.find_text_node(root, text or "")
         if node is None:
             raise RuntimeError(f"Fixture UI element was not found: {selector}")
-        if not self.node_is_on_screen(node):
-            raise RuntimeError(f"Fixture UI element did not enter the visible viewport: {selector}")
+        if not self._node_in_main_content_viewport(root, node):
+            raise RuntimeError(f"Fixture UI element did not enter the unobscured content viewport: {selector}")
         return root
 
     def record_fixture_stage(self, check: str, name: str, root: ET.Element,
@@ -180,6 +200,444 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
             "evidence": observed,
             "detail": actual_detail if okay else f"{actual_detail}; {missing_detail}",
         })
+
+    def require_node(self, root: ET.Element, resource_id: str, name: str) -> ET.Element:
+        node = self.find_node(root, resource_id)
+        if node is None or not self.node_is_on_screen(node):
+            raise RuntimeError(f"{name} is missing or outside the viewport: {resource_id}")
+        return node
+
+    def tap_tab(self, root: ET.Element, resource_id: str, label: str, name: str) -> ET.Element:
+        tab = self.require_node(root, resource_id, f"{label} tab")
+        text = self.find_text_node(root, label)
+        if text is None or not self.node_is_on_screen(text):
+            raise RuntimeError(f"Bottom navigation label is missing: {label}")
+        self.tap_node(tab, name)
+        self.wait(1)
+        return self.capture(name)
+
+    def visible_sim_badges(self, root: ET.Element) -> set[str]:
+        return {
+            node.attrib.get("text", "").strip()
+            for node in self.nodes(root)
+            if node.attrib.get("resource-id", "").endswith("/sms_thread_sim_badge")
+            and node.attrib.get("text", "").strip() in {"SIM 1", "SIM 2"}
+            and self.node_is_on_screen(node)
+        }
+
+    def verify_sms_thread_list(self, root: ET.Element, name: str, check: str,
+                               record_badges: bool = False) -> ET.Element:
+        root = self.capture(name)
+        thread_list = self.find_node(root, "sms_thread_list")
+        thread_rows = [node for node in self.nodes(root)
+                       if node.attrib.get("resource-id", "").endswith("/sms_thread_item")
+                       and self.node_is_on_screen(node)]
+        inbound_a = self.find_text_containing(root, "SYNTHETIC UI fixture inbox preview")
+        inbound_b = self.find_text_containing(root, "SYNTHETIC SIM B fixture preview")
+        badges = self.visible_sim_badges(root)
+        list_ok = (thread_list is not None and self.node_is_on_screen(thread_list) and len(thread_rows) >= 3 and
+                   inbound_a is not None and self.node_is_on_screen(inbound_a) and
+                   inbound_b is not None and self.node_is_on_screen(inbound_b))
+        self.record_fixture_stage(check, name, root,
+                                  ("SYNTHETIC UI fixture inbox preview", "SYNTHETIC SIM B fixture preview"),
+                                  f"Three cached synthetic SMS threads across both SIMs; visible rows={len(thread_rows)}; no SMS was received or sent",
+                                  status_override=None if list_ok else "fail")
+        if not list_ok:
+            raise RuntimeError("SMS thread list did not show all three synthetic SIM conversations")
+        if record_badges:
+            self.record("fixture_sms_sim_badges", "pass" if badges == {"SIM 1", "SIM 2"} else "fail",
+                        f"visible circular SIM badges={sorted(badges)}; expected one thread on each synthetic SIM")
+        if record_badges and badges != {"SIM 1", "SIM 2"}:
+            raise RuntimeError(f"SMS threads did not expose both SIM badges: {sorted(badges)}")
+        return root
+
+    def exercise_host_navigation(self) -> None:
+        root = self.capture("paired_three_tabs")
+        navigation = self.find_node(root, "main_bottom_navigation")
+        tab_specs = (("tab_phone", "电话"), ("tab_messages", "短信"), ("tab_settings", "设置"))
+        tab_results = []
+        for resource_id, label in tab_specs:
+            tab = self.find_node(root, resource_id)
+            label_node = self.find_text_node(root, label)
+            tab_results.append(
+                tab is not None and self.node_is_on_screen(tab) and
+                label_node is not None and self.node_is_on_screen(label_node)
+            )
+        tabs_ok = navigation is not None and self.node_is_on_screen(navigation) and all(tab_results)
+        self.record_fixture_stage("fixture_three_tabs", "paired_three_tabs", root,
+                                  ("电话", "短信", "设置"),
+                                  f"Three primary navigation destinations are visible; tab ids={[spec[0] for spec in tab_specs]}",
+                                  status_override=None if tabs_ok else "fail")
+        if not tabs_ok:
+            raise RuntimeError("Paired host screen does not show all three bottom tabs")
+
+        root = self.tap_tab(root, "tab_phone", "电话", "paired_call_history")
+        root = self.wait_for_app_tree(
+            lambda tree: self.find_node(tree, "call_history_search") is not None and
+            self.find_node(tree, "call_history_list") is not None and
+            self.find_node(tree, "dialer_open") is not None,
+            "paired_call_history"
+        )
+        root = self.capture("paired_call_history")
+        history_list = self.find_node(root, "call_history_list")
+        history_search = self.find_node(root, "call_history_search")
+        incoming_number = self.find_text_node(root, "+15550102001")
+        outgoing_number = self.find_text_node(root, "+15550102002")
+        history_ok = all(node is not None and self.node_is_on_screen(node)
+                         for node in (history_list, history_search, incoming_number, outgoing_number))
+        self.record_fixture_stage("fixture_call_history", "paired_call_history", root,
+                                  ("+15550102001", "+15550102002"),
+                                  "Two local synthetic call-history rows from SIM 1 and SIM 2 are visible; no call was started",
+                                  status_override=None if history_ok else "fail")
+        if not history_ok:
+            raise RuntimeError("Synthetic call-history list or its two SIM rows are missing")
+
+        first_history_item = self.find_node(root, "call_history_item")
+        if first_history_item is None or not self.node_is_on_screen(first_history_item):
+            raise RuntimeError("Synthetic call-history item is not tappable")
+        self.tap_node(first_history_item, "open_synthetic_history_call")
+        root = self.wait_for_app_tree(
+            lambda tree: self.find_node(tree, "dialer_destination") is not None and
+            self.find_node(tree, "dialer_keypad") is not None,
+            "dialer_from_history"
+        )
+        root = self.capture("paired_dialpad_from_history")
+        prefilled_number = self.field_text(root, "dialer_destination")
+        history_prefill_ok = prefilled_number == "+15550102001"
+        self.record("fixture_history_prefill", "pass" if history_prefill_ok else "fail",
+                    f"history row opens separate dialpad with destination={prefilled_number!r}; call button was not pressed")
+        if not history_prefill_ok:
+            raise RuntimeError("Tapping synthetic call history did not prefill its remote number")
+
+        self.shell("input", "keyevent", "KEYCODE_BACK", check=True, label="return_to_phone_history")
+        root = self.wait_for_app_tree(lambda tree: self.find_node(tree, "dialer_open") is not None,
+                                      "phone_history_after_prefill")
+
+        dialer_open = self.require_node(root, "dialer_open", "Dialpad entry")
+        self.tap_node(dialer_open, "open_paired_dialpad")
+        root = self.wait_for_app_tree(
+            lambda tree: self.find_node(tree, "dialer_destination") is not None and
+            self.find_node(tree, "dialer_keypad") is not None and
+            self.find_node(tree, "dialer_contact_list") is not None,
+            "paired_dialpad"
+        )
+        root = self.capture("paired_dialpad")
+        keypad = self.find_node(root, "dialer_keypad")
+        destination = self.find_node(root, "dialer_destination")
+        keys = [f"keypad_{digit}" for digit in "123456789"] + ["keypad_star", "keypad_0", "keypad_hash"]
+        missing_keys = [key for key in keys
+                        if (node := self.find_node(root, key)) is None or not self.node_is_on_screen(node)]
+        dialpad_ok = (self.find_text_node(root, "拨号") is not None and
+                      keypad is not None and self.node_is_on_screen(keypad) and
+                      destination is not None and self.node_is_on_screen(destination) and not missing_keys)
+        self.record_fixture_stage("fixture_dialpad", "paired_dialpad", root, ("拨号",),
+                                  f"Separate dialpad shows destination and all 12 keys; missing={missing_keys}; no call was made",
+                                  status_override=None if dialpad_ok else "fail")
+        if not dialpad_ok:
+            raise RuntimeError("Paired dialpad destination or one of its 12 keys is missing")
+
+        contacts = self.find_node(root, "dialer_contact_list")
+        contact_hint = self.find_text_containing(root, "允许访问联系人以查找姓名和号码")
+        contacts_ok = (contacts is not None and self.node_is_on_screen(contacts) and
+                       contact_hint is not None and self.node_is_on_screen(contact_hint))
+        self.record("fixture_dialer_contacts", "pass" if contacts_ok else "fail",
+                    "contact candidate container is visible; no contacts permission was granted" if contacts_ok
+                    else "contact permission hint or candidate container is missing")
+        if not contacts_ok:
+            raise RuntimeError("Dialer contact candidates are not represented on screen")
+
+        destination_value = self.field_text(root, "dialer_destination") or ""
+        if destination_value:
+            destination = self.require_node(root, "dialer_destination", "Dialer destination field")
+            self.tap_node(destination, "clear_prefilled_dialer_destination")
+            self.shell("input", "keyevent", "KEYCODE_MOVE_END", check=True,
+                       label="move_to_end_of_history_number")
+            for index in range(len(destination_value)):
+                self.shell("input", "keyevent", "KEYCODE_DEL", check=True,
+                           label=f"delete_history_number_digit_{index}")
+            self.shell("input", "keyevent", "KEYCODE_BACK", label="hide_dialer_ime_before_keypad")
+            root = self.capture("paired_dialpad_cleared")
+            if self.field_text(root, "dialer_destination") != "":
+                raise RuntimeError("Could not clear the synthetic history number before direct keypad test")
+
+        for resource_id in ("keypad_1", "keypad_2", "keypad_3"):
+            self.tap_node(self.require_node(root, resource_id, "dialpad key"), f"tap_{resource_id}")
+        root = self.capture("paired_dialpad_synthetic_digits")
+        digits = self.field_text(root, "dialer_destination")
+        digits_ok = digits == "123"
+        self.record("fixture_dialpad_input", "pass" if digits_ok else "fail",
+                    f"three synthetic keypad digits read back as {digits!r}; call button was not pressed")
+        if not digits_ok:
+            raise RuntimeError("Dialpad did not append synthetic digits to its destination field")
+        self.shell("input", "keyevent", "KEYCODE_BACK", check=True, label="close_paired_dialpad")
+        root = self.wait_for_app_tree(lambda tree: self.find_node(tree, "tab_messages") is not None,
+                                      "paired_home_after_dialpad")
+
+        root = self.tap_tab(root, "tab_messages", "短信", "paired_sms_threads")
+        root = self.wait_for_app_tree(lambda tree: self.find_node(tree, "sms_thread_list") is not None,
+                                      "paired_sms_threads")
+        root = self.verify_sms_thread_list(root, "paired_sms_threads", "fixture_sms_thread_list",
+                                           record_badges=True)
+
+        initial_unfold = self.command(["emu", "unfold"], timeout=self.smoke_module.ADB_TIMEOUT_SECONDS,
+                                      label="fixture_prepare_unfolded_state")
+        self.wait(6)
+        before_fold = self.device_snapshot("fixture_fold_before")
+        self.record("fixture_initial_unfold", "pass" if initial_unfold.returncode == 0 else "blocked",
+                    f"emu unfold exit={initial_unfold.returncode}; state={before_fold}")
+        fold = self.command(["emu", "fold"], timeout=self.smoke_module.ADB_TIMEOUT_SECONDS,
+                            label="fixture_emulator_fold")
+        self.wait(6)
+        folded = self.device_snapshot("fixture_folded")
+        fold_changed = bool((before_fold["size"] and folded["size"] and before_fold["size"] != folded["size"]) or
+                            (before_fold["state"] and folded["state"] and before_fold["state"] != folded["state"]))
+        folded_root = self.verify_sms_thread_list(root, "paired_sms_threads_folded", "fixture_sms_folded")
+        self.record("fixture_fold_state_changed", "pass" if fold.returncode == 0 and fold_changed else "blocked",
+                    f"fold exit={fold.returncode}; before={before_fold}; folded={folded}")
+        unfold = self.command(["emu", "unfold"], timeout=self.smoke_module.ADB_TIMEOUT_SECONDS,
+                              label="fixture_emulator_unfold")
+        self.wait(6)
+        unfolded = self.device_snapshot("fixture_unfolded")
+        unfold_restored = bool((before_fold["size"] and unfolded["size"] == before_fold["size"]) or
+                               (before_fold["state"] and unfolded["state"] == before_fold["state"]))
+        root = self.verify_sms_thread_list(folded_root, "paired_sms_threads_unfolded", "fixture_sms_unfolded")
+        self.record("fixture_unfold_state_restored",
+                    "pass" if initial_unfold.returncode == 0 and unfold.returncode == 0 and unfold_restored else "blocked",
+                    f"unfold exit={unfold.returncode}; before={before_fold}; unfolded={unfolded}")
+
+        inbound = self.find_text_containing(root, "SYNTHETIC UI fixture inbox preview")
+        if inbound is None or not self.node_is_on_screen(inbound):
+            raise RuntimeError("Synthetic SIM 1 thread row is not visible to open")
+        self.tap_node(inbound, "open_synthetic_sms_thread")
+        root = self.wait_for_app_tree(
+            lambda tree: self.find_node(tree, "sms_thread_header") is not None and
+            self.find_node(tree, "sms_conversation_list") is not None,
+            "paired_sms_conversation"
+        )
+        root = self.capture("paired_sms_conversation")
+        thread_header = self.find_node(root, "sms_thread_header")
+        conversation = self.find_node(root, "sms_conversation_list")
+        selector = self.find_node(root, "sms_thread_sim_selector")
+        message = self.find_text_containing(root, "SYNTHETIC UI fixture inbox preview")
+        send = self.find_node(root, "sms_thread_send")
+        conversation_ok = all(node is not None and self.node_is_on_screen(node)
+                              for node in (thread_header, conversation, selector, message, send))
+        self.record_fixture_stage("fixture_sms_conversation", "paired_sms_conversation", root,
+                                  ("SYNTHETIC UI fixture inbox preview",),
+                                  f"Separate SMS conversation/editor exposes its header, SIM selector, body and send control={conversation_ok}; send was not tapped",
+                                  status_override=None if conversation_ok else "fail")
+        if not conversation_ok:
+            raise RuntimeError("SMS thread did not open its separate conversation/editor view")
+
+        reply_recipient = self.node_value(thread_header).strip() if thread_header is not None else ""
+        editable_recipient = self.find_node(root, "sms_recipient")
+        reply_body = self.find_node(root, "sms_body")
+        reply_fields_ok = (reply_recipient == "+15550102001" and editable_recipient is None and
+                           reply_body is not None and self.node_is_on_screen(reply_body) and
+                           selector is not None and self.node_is_on_screen(selector) and
+                           send is not None and self.node_is_on_screen(send))
+        self.record("fixture_sms_reply_fields", "pass" if reply_fields_ok else "fail",
+                    f"existing thread shows read-only recipient heading={reply_recipient!r}, body, SIM selector, and send control; send was not tapped"
+                    if reply_fields_ok else
+                    f"read-only heading/body/SIM/send check failed: heading={reply_recipient!r}, editable_recipient={editable_recipient is not None}")
+        if not reply_fields_ok:
+            raise RuntimeError("Existing SMS conversation does not expose its read-only recipient and reply composer")
+
+        self.shell("input", "keyevent", "KEYCODE_BACK", check=True, label="return_to_sms_thread_list")
+        root = self.wait_for_app_tree(lambda tree: self.find_node(tree, "sms_thread_list") is not None,
+                                      "sms_thread_list_after_conversation")
+        compose = self.require_node(root, "sms_compose_fab", "New message entry")
+        self.tap_node(compose, "open_new_message")
+        root = self.wait_for_app_tree(
+            lambda tree: all(self.find_node(tree, resource_id) is not None
+                             for resource_id in ("sms_recipient", "sms_body", "sms_thread_sim_selector")),
+            "paired_new_message"
+        )
+        root = self.capture("paired_new_message")
+        recipient = self.find_node(root, "sms_recipient")
+        body = self.find_node(root, "sms_body")
+        selector = self.find_node(root, "sms_thread_sim_selector")
+        fields_ok = all(node is not None and self.node_is_on_screen(node) for node in (recipient, body, selector))
+        self.record_fixture_stage("fixture_sms_new_message", "paired_new_message", root,
+                                  (),
+                                  f"New message opens a dedicated editor; fields visible={fields_ok}; no send was activated",
+                                  status_override=None if fields_ok else "fail")
+        self.record("fixture_sms_new_message_fields", "pass" if fields_ok else "fail",
+                    "recipient, message body, and SIM selector are visible" if fields_ok
+                    else "new-message fields are incomplete")
+        if not fields_ok:
+            raise RuntimeError("New message editor is missing recipient, body, or SIM selector")
+
+        self.tap_node(selector, "open_new_message_sim_picker")
+        root = self.wait_for_app_tree(
+            lambda tree: self.find_text_containing(tree, "SIM 1") is not None and
+            self.find_text_containing(tree, "SIM 2") is not None,
+            "new_message_sim_picker"
+        )
+        sim_b_option = self.find_text_containing(root, "SIM 2 · SYNTHETIC SIM B")
+        if sim_b_option is None:
+            sim_b_option = self.find_text_containing(root, "SIM 2")
+        picker_options = (self.find_text_containing(root, "SIM 1") is not None and sim_b_option is not None)
+        if picker_options:
+            self.tap_node(sim_b_option, "select_synthetic_sim_b")
+            root = self.wait_for_app_tree(
+                lambda tree: self.find_node(tree, "sms_thread_sim_selector") is not None and
+                "SIM 2" in self.node_value(self.find_node(tree, "sms_thread_sim_selector")),
+                "new_message_sim_b_selected"
+            )
+        root = self.capture("paired_new_message_sim_b")
+        selector = self.find_node(root, "sms_thread_sim_selector")
+        selected_b = picker_options and selector is not None and "SIM 2" in self.node_value(selector)
+        self.record_fixture_stage("fixture_new_message_sim_selection", "paired_new_message_sim_b", root,
+                                  ("SIM 2",),
+                                  "Synthetic SIM B was selected in the new-message editor; nothing was sent",
+                                  status_override=None if selected_b else "fail")
+        if not selected_b:
+            raise RuntimeError("New-message SIM picker did not select synthetic SIM B")
+
+        self.input_text(root, "sms_recipient", "+15550102003")
+        root = self.capture("paired_new_message_recipient")
+        self.input_text(root, "sms_body", "synthetic_draft_only")
+        root = self.capture("paired_new_message_draft")
+        recipient_value = self.field_text(root, "sms_recipient")
+        body_value = self.field_text(root, "sms_body")
+        draft_ok = recipient_value == "+15550102003" and body_value == "synthetic_draft_only"
+        self.record("fixture_sms_draft", "pass" if draft_ok else "fail",
+                    f"recipient/body draft preserved={draft_ok}; no SMS POST or send action was invoked")
+
+        portrait_before = self.last_image_size
+        self.shell("settings", "put", "system", "accelerometer_rotation", "0", check=True,
+                   label="fixture_disable_auto_rotation")
+        rotation_details = ""
+        try:
+            self.shell("settings", "put", "system", "user_rotation", "1", check=True,
+                       label="fixture_rotate_new_message_landscape")
+            self.wait(5)
+            landscape_root = self.capture("paired_new_message_landscape")
+            landscape_size = self.last_image_size
+            landscape_ime, ime_detail = self._ime_visible()
+            landscape_recipient = self.field_text(landscape_root, "sms_recipient")
+            landscape_body = self.field_text(landscape_root, "sms_body")
+            self.shell("settings", "put", "system", "user_rotation", "0", check=True,
+                       label="fixture_rotate_new_message_portrait")
+            self.wait(5)
+            portrait_root = self.capture("paired_new_message_portrait")
+            portrait_after = self.last_image_size
+            restored_recipient = self.field_text(portrait_root, "sms_recipient")
+            restored_body = self.field_text(portrait_root, "sms_body")
+            actual_rotation = bool(portrait_before and landscape_size and portrait_after and
+                                   portrait_before[0] < portrait_before[1] and
+                                   landscape_size[0] > landscape_size[1] and
+                                   portrait_after[0] < portrait_after[1])
+            rotation_ok = (draft_ok and actual_rotation and landscape_ime and
+                           landscape_recipient == "+15550102003" and landscape_body == "synthetic_draft_only" and
+                           restored_recipient == "+15550102003" and restored_body == "synthetic_draft_only")
+            rotation_details = (f"IME landscape={landscape_ime} ({ime_detail}); size={portrait_before}/{landscape_size}/{portrait_after}; "
+                                f"landscape values={landscape_recipient!r}/{landscape_body!r}; "
+                                f"portrait values={restored_recipient!r}/{restored_body!r}")
+        finally:
+            self.shell("settings", "put", "system", "user_rotation", "0",
+                       label="fixture_restore_portrait")
+            self.shell("settings", "put", "system", "accelerometer_rotation", "1",
+                       label="fixture_restore_auto_rotation")
+        self.record("fixture_sms_rotation_ime", "pass" if rotation_ok else "fail",
+                    f"synthetic draft and open keyboard survive orientation changes; {rotation_details}")
+        self.record_fixture_stage("fixture_sms_rotation_ime", "paired_new_message_landscape",
+                                  landscape_root, (),
+                                  f"Synthetic draft survived rotation with IME visible={landscape_ime}; {rotation_details}",
+                                  status_override=None if rotation_ok else "fail")
+
+        fold_before_draft = self.device_snapshot("fixture_draft_fold_before")
+        fold = self.command(["emu", "fold"], timeout=self.smoke_module.ADB_TIMEOUT_SECONDS,
+                            label="fixture_fold_with_sms_draft")
+        self.wait(6)
+        folded_draft_root = self.capture("paired_new_message_folded")
+        folded_recipient = self.field_text(folded_draft_root, "sms_recipient")
+        folded_body = self.field_text(folded_draft_root, "sms_body")
+        folded_ime, folded_ime_detail = self._ime_visible()
+        folded_state = self.device_snapshot("fixture_draft_folded")
+        folded_changed = bool((fold_before_draft["size"] and folded_state["size"] and
+                               fold_before_draft["size"] != folded_state["size"]) or
+                              (fold_before_draft["state"] and folded_state["state"] and
+                               fold_before_draft["state"] != folded_state["state"]))
+        draft_fold_ok = (fold.returncode == 0 and folded_changed and folded_ime and
+                         folded_recipient == "+15550102003" and folded_body == "synthetic_draft_only")
+        self.record("fixture_sms_draft_folded", "pass" if draft_fold_ok else "fail",
+                    f"fold exit={fold.returncode}; device transition={fold_before_draft}/{folded_state}; "
+                    f"draft={folded_recipient!r}/{folded_body!r}; IME={folded_ime} ({folded_ime_detail})")
+        self.record_fixture_stage("fixture_sms_draft_folded", "paired_new_message_folded",
+                                  folded_draft_root, (),
+                                  "New-message recipient and body survived emulator fold; no message was sent",
+                                  status_override=None if draft_fold_ok else "fail")
+
+        unfold = self.command(["emu", "unfold"], timeout=self.smoke_module.ADB_TIMEOUT_SECONDS,
+                              label="fixture_unfold_with_sms_draft")
+        self.wait(6)
+        unfolded_draft_root = self.capture("paired_new_message_unfolded")
+        unfolded_recipient = self.field_text(unfolded_draft_root, "sms_recipient")
+        unfolded_body = self.field_text(unfolded_draft_root, "sms_body")
+        unfolded_ime, unfolded_ime_detail = self._ime_visible()
+        unfolded_state = self.device_snapshot("fixture_draft_unfolded")
+        draft_unfold_ok = (unfold.returncode == 0 and unfolded_ime and
+                           unfolded_recipient == "+15550102003" and unfolded_body == "synthetic_draft_only")
+        self.record("fixture_sms_draft_unfolded", "pass" if draft_unfold_ok else "fail",
+                    f"unfold exit={unfold.returncode}; draft={unfolded_recipient!r}/{unfolded_body!r}; "
+                    f"IME={unfolded_ime} ({unfolded_ime_detail}); device={unfolded_state}")
+        self.record_fixture_stage("fixture_sms_draft_unfolded", "paired_new_message_unfolded",
+                                  unfolded_draft_root, (),
+                                  "New-message draft survived emulator fold and unfold; no message was sent",
+                                  status_override=None if draft_unfold_ok else "fail")
+
+        visible_ime, _ = self._ime_visible()
+        if visible_ime:
+            self.shell("input", "keyevent", "KEYCODE_BACK", label="fixture_hide_sms_ime")
+            self.wait(1)
+        self.shell("input", "keyevent", "KEYCODE_BACK", check=True, label="fixture_exit_new_message")
+        root = self.wait_for_app_tree(lambda tree: self.find_node(tree, "tab_settings") is not None,
+                                      "settings_after_new_message")
+        root = self.tap_tab(root, "tab_settings", "设置", "paired_settings")
+        root = self.wait_for_app_tree(
+            lambda tree: self.find_text_node(tree, "设置") is not None and
+            self.find_node(tree, "sms_backup_archive_entry") is not None,
+            "paired_settings"
+        )
+        root = self.capture("paired_settings")
+        settings_title = self.find_text_node(root, "设置")
+        paired_label = self.find_text_containing(root, "已配对此手机")
+        settings_ok = settings_title is not None and self.node_is_on_screen(settings_title) and paired_label is not None
+        self.record_fixture_stage("fixture_settings", "paired_settings", root,
+                                  ("设置",),
+                                  "Paired Settings shows this device state; automatic sync has no user toggle",
+                                  status_override=None if settings_ok else "fail")
+        if not settings_ok:
+            raise RuntimeError("Paired settings page does not show the current device state")
+
+        paired_host = self.find_text_containing(root, "SYNTHETIC Tablet Host")
+        if paired_host is None or not self.node_is_on_screen(paired_host):
+            root = self.fixture_ensure_visible(root, text="SYNTHETIC Tablet Host", name="paired_settings_device_list")
+            root = self.capture("paired_settings_devices")
+            paired_host = self.find_text_containing(root, "SYNTHETIC Tablet Host")
+        devices_ok = paired_host is not None and self.node_is_on_screen(paired_host)
+        self.record_fixture_stage("fixture_settings_devices", "paired_settings_devices", root,
+                                  (),
+                                  "Synthetic account-scoped paired device row is cached; no pairing request was made",
+                                  status_override=None if devices_ok else "fail")
+        if not devices_ok:
+            raise RuntimeError("Settings did not display the synthetic paired device list")
+
+        root = self.fixture_ensure_visible(root, resource_id="sms_backup_archive_entry",
+                                           name="paired_settings_backup")
+        root = self.capture("paired_settings_backup")
+        backup_entry = self.find_node(root, "sms_backup_archive_entry")
+        backup_ok = backup_entry is not None and self.node_has_positive_visible_bounds(backup_entry)
+        self.record_fixture_stage("fixture_settings_backup", "paired_settings_backup", root,
+                                  ("短信备份与归档",),
+                                  "SMS archive entry is reachable from Settings",
+                                  status_override=None if backup_ok else "fail")
+        if not backup_ok:
+            raise RuntimeError("Paired Settings did not expose the SMS archive entry")
+
+        self.capture_synthetic_call_screens()
 
     def set_fixture_network_offline(self) -> None:
         self.fixture_prior_airplane = self.shell("settings", "get", "global", "airplane_mode_on",
@@ -296,10 +754,45 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         output = str(result.stdout)
         codes = re.findall(r"^INSTRUMENTATION_CODE:\s*(-?\d+)", output, re.MULTILINE)
         failure = re.search(r"^INSTRUMENTATION_STATUS: failure=", output, re.MULTILINE)
-        expected_state = "seeded" if mode == "seed" else "cleaned"
+        expected_state = {"seed": "seeded", "call-screens": "call_screens_captured",
+                          "cleanup": "cleaned"}.get(mode)
         if result.returncode != 0 or not codes or codes[-1] != "-1" or failure or \
                 f"INSTRUMENTATION_STATUS: fixture={expected_state}" not in output:
             raise RuntimeError(f"Fixture instrumentation mode {mode} failed; see its command log")
+
+    def capture_synthetic_call_screens(self) -> None:
+        screenshots = (
+            "call-synthetic-dialing.png", "call-synthetic-active.png",
+            "call-synthetic-keypad.png", "call-synthetic-incoming.png",
+        )
+        try:
+            self.run_fixture_instrumentation("call-screens")
+            for filename in screenshots:
+                result = self.command(["exec-out", "run-as", self.package, "cat",
+                                       f"cache/host-ui-call-fixture/{filename}"],
+                                      binary=True, label=f"export_{filename}")
+                content = result.stdout
+                if result.returncode != 0 or not isinstance(content, bytes) or not content.startswith(b"\x89PNG"):
+                    raise RuntimeError(f"instrumentation screenshot is missing or not PNG: {filename}")
+                (self.artifacts / filename).write_bytes(content)
+                dimensions = None
+                if len(content) >= 24:
+                    dimensions = [int.from_bytes(content[16:20], "big"), int.from_bytes(content[20:24], "big")]
+                self.fixture_stages.append({
+                    "name": filename.removesuffix(".png"),
+                    "status": "pass",
+                    "screenshot": filename,
+                    "ui_hierarchy": None,
+                    "size": dimensions,
+                    "evidence": ["synthetic local call UI phase"],
+                    "detail": "In-process CallSessionCoordinator render state only; no SIP, Telecom, audio, or carrier call.",
+                })
+        except Exception as exc:
+            detail = f"local-only call screen capture failed: {type(exc).__name__}: {exc}"
+            self.record("fixture_active_call_ui", "fail", detail)
+            raise RuntimeError(detail) from exc
+        self.record("fixture_active_call_ui", "pass",
+                    "saved synthetic outgoing, active controls, keypad, and incoming screens without activating call controls")
 
     def run_fixture(self) -> None:
         self.command(["wait-for-device"], timeout=self.smoke_module.ADB_TIMEOUT_SECONDS,
@@ -327,6 +820,7 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
             self.record("emulator_api_level", "fail", f"expected API 35, observed {sdk!r}")
             raise RuntimeError("paired UI fixture requires API 35")
         self.check_apk_install()
+        self.keep_contacts_permission_denied()
 
         fixture_apk = Path(self.args.fixture_apk)
         if not fixture_apk.is_file():
@@ -351,156 +845,11 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
 
             self.launch()
             root = self.wait_for_app_tree(
-                lambda tree: self.find_text_node(tree, "SYNTHETIC offline gateway") is not None,
-                "synthetic_paired_dashboard")
+                lambda tree: self.find_node(tree, "main_bottom_navigation") is not None,
+                "synthetic_paired_host_navigation")
             self.verify_app_foreground()
-            root = self.capture("paired_dashboard_top")
-            self.record_fixture_stage("fixture_dashboard", "paired_dashboard_top", root,
-                                      ("SYNTHETIC offline gateway",),
-                                      "Cached offline dashboard with a visibly synthetic gateway")
-
-            root = self.fixture_ensure_visible(root, text="SYNTHETIC Tablet Host", name="paired_hosts")
-            root = self.capture("paired_hosts_cached")
-            self.record_fixture_stage("fixture_paired_hosts", "paired_hosts_cached", root,
-                                      ("SYNTHETIC Foldable Host", "SYNTHETIC Tablet Host"),
-                                      "Two synthetic cached host rows",
-                                      any_visible_text=(
-                                          "显示上次读取的主机列表；刷新后更新。",
-                                          "主机列表暂时无法更新，当前显示上次结果。点击刷新重试。",
-                                      ))
-
-            initial_unfold = self.command(["emu", "unfold"], timeout=self.smoke_module.ADB_TIMEOUT_SECONDS,
-                                          label="fixture_prepare_unfolded_state")
-            self.wait(6)
-            before_fold = self.device_snapshot("fixture_fold_before")
-            self.record("fixture_initial_unfold", "pass" if initial_unfold.returncode == 0 else "blocked",
-                        f"emu unfold exit={initial_unfold.returncode}; initial observable state={before_fold}")
-            fold = self.command(["emu", "fold"], timeout=self.smoke_module.ADB_TIMEOUT_SECONDS,
-                                label="fixture_emulator_fold")
-            self.wait(6)
-            folded = self.device_snapshot("fixture_folded")
-            fold_changed = bool((before_fold["size"] and folded["size"] and before_fold["size"] != folded["size"]) or
-                                (before_fold["state"] and folded["state"] and before_fold["state"] != folded["state"]))
-            folded_root = self.capture("fixture_folded_dashboard")
-            folded_root = self.fixture_ensure_visible(folded_root, text="SYNTHETIC Tablet Host",
-                                                       name="paired_hosts_folded")
-            folded_root = self.capture("paired_hosts_folded")
-            folded_visible = all(self.visible_text(folded_root, name)
-                                 for name in ("SYNTHETIC Foldable Host", "SYNTHETIC Tablet Host"))
-            fold_stage_status = "pass" if fold.returncode == 0 and fold_changed and folded_visible else "blocked"
-            self.record_fixture_stage("fixture_hosts_folded", "paired_hosts_folded", folded_root,
-                                      ("SYNTHETIC Foldable Host", "SYNTHETIC Tablet Host"),
-                                      "Synthetic cached host rows after emulator fold",
-                                      status_override=fold_stage_status)
-            self.record("fixture_fold_state_changed",
-                        "pass" if fold.returncode == 0 and fold_changed else "blocked",
-                        f"fold exit={fold.returncode}; before={before_fold}; folded={folded}")
-
-            unfold = self.command(["emu", "unfold"], timeout=self.smoke_module.ADB_TIMEOUT_SECONDS,
-                                  label="fixture_emulator_unfold")
-            self.wait(6)
-            unfolded = self.device_snapshot("fixture_unfolded")
-            unfold_restored = bool((before_fold["size"] and unfolded["size"] == before_fold["size"]) or
-                                   (before_fold["state"] and unfolded["state"] == before_fold["state"]))
-            unfolded_root = self.capture("fixture_unfolded_dashboard")
-            unfolded_root = self.fixture_ensure_visible(unfolded_root, text="SYNTHETIC Tablet Host",
-                                                         name="paired_hosts_unfolded")
-            unfolded_root = self.capture("paired_hosts_unfolded")
-            unfolded_visible = all(self.visible_text(unfolded_root, name)
-                                   for name in ("SYNTHETIC Foldable Host", "SYNTHETIC Tablet Host"))
-            unfold_stage_status = "pass" if (initial_unfold.returncode == 0 and unfold.returncode == 0 and
-                                              unfold_restored and unfolded_visible) else "blocked"
-            self.record_fixture_stage("fixture_hosts_unfolded", "paired_hosts_unfolded", unfolded_root,
-                                      ("SYNTHETIC Foldable Host", "SYNTHETIC Tablet Host"),
-                                      "Synthetic cached host rows after emulator unfold",
-                                      status_override=unfold_stage_status)
-            self.record("fixture_unfold_state_restored",
-                        "pass" if (initial_unfold.returncode == 0 and unfold.returncode == 0 and unfold_restored)
-                        else "blocked",
-                        f"unfold exit={unfold.returncode}; before={before_fold}; unfolded={unfolded}")
-
-            root = unfolded_root
-            root = self.fixture_ensure_visible(root, text="SIM 1", name="select_fixture_sim_a")
-            sim_node = next((node for node in self.nodes(root)
-                             if node.attrib.get("text") == "SIM 1" and
-                             node.attrib.get("checkable") == "true" and
-                             "SYNTHETIC SIM A" in node.attrib.get("content-desc", "")), None)
-            if sim_node is None:
-                self.record("fixture_sim_selection", "fail", "selectable synthetic SIM A chip was not found")
-            else:
-                self.tap_node(sim_node, "select_synthetic_sim_a")
-                self.wait(2)
-                root = self.capture("fixture_sim_selected")
-                selected_chips = [node for node in self.nodes(root)
-                                  if node.attrib.get("checkable") == "true" and
-                                  node.attrib.get("checked") == "true" and
-                                  node.attrib.get("text") in {"SIM 1", "SIM 2"}]
-                selected_a = (len(selected_chips) == 1 and
-                              selected_chips[0].attrib.get("text") == "SIM 1")
-                self.record("fixture_sim_selection", "pass" if selected_a else "fail",
-                            "only synthetic SIM A is selected; no SMS action was activated" if selected_a else
-                            "synthetic SIM A exclusive selection was not confirmed")
-
-            root = self.fixture_ensure_visible(root, text="SYNTHETIC UI fixture inbox preview", name="sms_inbox_message")
-            root = self.capture("sms_inbox")
-            self.record_fixture_stage("fixture_sms_inbox", "sms_inbox", root,
-                                      ("短信收件箱", "SYNTHETIC UI fixture inbox preview"),
-                                      "Synthetic cached inbound preview displayed; no SMS was received")
-
-            root = self.fixture_ensure_visible(root, text="SYNTHETIC UI fixture queued preview",
-                                               name="sms_outbound_preview")
-            root = self.capture("sms_outbound_preview")
-            self.record_fixture_stage("fixture_sms_outbound_preview", "sms_outbound_preview", root,
-                                      ("SYNTHETIC UI fixture queued preview",),
-                                      "Synthetic cached queued preview displayed; no SMS was sent")
-
-            root = self.fixture_ensure_visible(root, resource_id="sms_body", name="sms_compose_body")
-            root = self.capture("sms_compose")
-            recipient = self.find_node(root, "sms_recipient")
-            body = self.find_node(root, "sms_body")
-            compose_visible = bool(recipient is not None and body is not None and
-                                   self.node_is_on_screen(recipient) and self.node_is_on_screen(body))
-            self.record_fixture_stage("fixture_sms_compose", "sms_compose", root,
-                                      ("发送线路：SYNTHETIC SIM A",),
-                                      "Compose fields are visible; send was not tapped")
-            self.record("fixture_sms_compose_fields", "pass" if compose_visible else "fail",
-                        "recipient and body fields are both visible" if compose_visible else
-                        "recipient and body fields were not both visible in the captured viewport")
-
-            root = self.fixture_ensure_visible(root, text="后台接收", name="background_receive_settings")
-            root = self.capture("background_receive_settings")
-            self.record_fixture_stage("fixture_settings", "background_receive_settings", root,
-                                      ("后台接收", "启用后台接收", "通知权限", "电池设置"),
-                                      "Dashboard background-receive settings; no service or permission was enabled")
-
-            unavailable = "无法读取服务器 SIP 可用状态。"
-            gateway_offline = "远程网关未在线。"
-            status_root = self.fixture_ensure_visible(root, text=unavailable,
-                                                      name="call_status_sip_unavailable")
-            status_root = self.fixture_ensure_visible(status_root, text=gateway_offline,
-                                                      name="call_status_gateway_offline")
-            status_root = self.capture("call_panel_unavailable")
-            self.record_fixture_stage("fixture_call_unavailable", "call_panel_unavailable", status_root,
-                                      (unavailable, gateway_offline),
-                                      "SIP service unavailable offline; gateway offline; both status messages have positive bounds; no call was made",
-                                      require_positive_visible_bounds=True)
-
-            dial_root = self.fixture_ensure_visible(status_root, text="拨出此远程 SIM",
-                                                    name="call_controls_disabled")
-            dial_root = self.capture("call_controls_disabled")
-            dial = next((node for node in self.nodes(dial_root)
-                         if node.attrib.get("text") == "拨出此远程 SIM" and
-                         node.attrib.get("class") == "android.widget.Button"), None)
-            call_disabled = (dial is not None and dial.attrib.get("enabled") == "false" and
-                             self.node_has_positive_visible_bounds(dial))
-            dial_detail = ("exact android.widget.Button text='拨出此远程 SIM'; "
-                           f"enabled={dial.attrib.get('enabled') if dial is not None else None}; "
-                           f"positive bounds={dial.attrib.get('bounds') if dial is not None else None}; "
-                           "no call was made")
-            self.record_fixture_stage("fixture_call_controls_disabled", "call_controls_disabled", dial_root,
-                                      ("拨出此远程 SIM",), dial_detail,
-                                      status_override=None if call_disabled else "fail",
-                                      require_positive_visible_bounds=True)
+            self.record("app_visible", "pass", "synthetic paired session opened in the three-tab host UI")
+            self.exercise_host_navigation()
         finally:
             if seed_attempted:
                 try:
@@ -550,7 +899,8 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         blocked = any(item["status"] in {"blocked", "partial"} for item in self.results)
         overall = "fail" if fail else ("partial" if blocked else "pass")
         generated = dt.datetime.now(dt.timezone.utc).isoformat()
-        scope = "synthetic cached offline paired-dashboard UI only; no real pairing, SMS, SIP, or call"
+        scope = ("synthetic cached paired host UI only; airplane mode is enabled and Wi-Fi/mobile data are disabled; "
+                 "no real pairing, SMS, SIP registration, Telecom call, audio session, or carrier call is performed")
         checks = {item["name"]: {"status": item["status"], "detail": item["detail"]} for item in self.results}
         results = {
             "schema_version": 1,
@@ -568,16 +918,19 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
             "results": self.results,
             "artifacts": {
                 "fixture_manifest": "fixture_manifest.json",
-                "dashboard": "paired_dashboard_top.png",
-                "paired_hosts": "paired_hosts_cached.png",
-                "paired_hosts_folded": "paired_hosts_folded.png",
-                "paired_hosts_unfolded": "paired_hosts_unfolded.png",
-                "sms_inbox": "sms_inbox.png",
-                "sms_outbound_preview": "sms_outbound_preview.png",
-                "sms_compose": "sms_compose.png",
-                "settings": "background_receive_settings.png",
-                "call_unavailable": "call_panel_unavailable.png",
-                "call_controls_disabled": "call_controls_disabled.png",
+                "call_history": "paired_call_history.png",
+                "dialpad": "paired_dialpad.png",
+                "sms_threads": "paired_sms_threads.png",
+                "sms_conversation": "paired_sms_conversation.png",
+                "new_message": "paired_new_message.png",
+                "settings": "paired_settings.png",
+                "synthetic_call_screens": [
+                    "call-synthetic-dialing.png", "call-synthetic-active.png",
+                    "call-synthetic-keypad.png", "call-synthetic-incoming.png",
+                ] if all((self.artifacts / filename).is_file() for filename in (
+                    "call-synthetic-dialing.png", "call-synthetic-active.png",
+                    "call-synthetic-keypad.png", "call-synthetic-incoming.png",
+                )) else [],
                 "logcat": "logcat.txt",
             },
         }
@@ -596,7 +949,13 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                 "real_sms_received": False,
                 "sip_registration_attempted": False,
                 "call_started": False,
+                "real_call_started": False,
+                "call_ui_state_is_local_synthetic_coordinator_only": True,
+                "sip_telecom_audio_carrier_call_started": False,
+                "automatic_messaging_service_may_start_offline": True,
+                "wifi_and_mobile_data_disabled": self.fixture_network.get("offline_confirmed", False),
                 "synthetic_cache_removed_after_capture": checks.get("synthetic_fixture_cleanup", {}).get("status") == "pass",
+                "app_services_stopped_after_capture": checks.get("synthetic_fixture_cleanup", {}).get("status") == "pass",
                 "fixture_apk_uninstalled": checks.get("fixture_harness_uninstall", {}).get("status") == "pass",
             },
             "overall": overall,
@@ -611,11 +970,19 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         summary = [
             f"# Paired UI fixture: {overall.upper()}", "", f"- Scope: {scope}",
             "- Screenshots use synthetic cached data; they are not evidence of server pairing or real messaging.",
-            "- The fixture disables airplane-network radios during capture, removes its cache, and uninstalls its CI-only APK.",
+            "- The fixture enables airplane mode and disables Wi-Fi and mobile data during capture. The automatic remote-messaging service may start offline. Call-screen images use local synthetic coordinator states only; SIP, Telecom, audio, carrier calling, and SMS sending are not invoked.",
+            "- Cleanup stops app-owned services, removes its session/database cache, restores prior radio settings, and uninstalls the CI-only fixture APK.",
             "", "| Check | Result | Evidence |", "|---|---|---|",
         ]
         summary.extend(f"| {item['name']} | {item['status']} | {item['detail'].replace('|', '/')} |"
                        for item in self.results)
+        summary.extend(["", "## UI screenshots", ""])
+        for stage in self.fixture_stages:
+            summary.extend([
+                f"### {stage['name']}",
+                f"![{stage['name']}]({stage['screenshot']})",
+                *([f"[UI hierarchy]({stage['ui_hierarchy']})"] if stage.get("ui_hierarchy") else []), "",
+            ])
         summary_text = "\n".join(summary) + "\n"
         (self.artifacts / "summary.md").write_text(summary_text, encoding="utf-8")
         step_summary = os.environ.get("GITHUB_STEP_SUMMARY")

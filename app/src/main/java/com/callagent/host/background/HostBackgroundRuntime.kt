@@ -12,6 +12,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import com.callagent.host.data.SessionStore
 import com.callagent.host.data.HostSession
+import com.callagent.host.data.sameSessionInstance
 import com.callagent.host.data.clientDatabaseName
 import java.security.MessageDigest
 
@@ -28,6 +29,8 @@ data class BackgroundStatus(
 object HostBackgroundRuntime {
     const val STATUS_CHANGED = "com.callagent.host.background.STATUS_CHANGED"
     const val BACKGROUND_SYNCED = "com.callagent.host.BACKGROUND_SYNCED"
+    private val startLock = Any()
+    private val startRequests = BackgroundStartRequests()
 
     fun snapshot(context: Context): BackgroundStatus {
         val app = context.applicationContext
@@ -107,6 +110,87 @@ object HostBackgroundRuntime {
         }
     }
 
+    /**
+     * Bind background sync to the current pairing and start it from a focused Activity.
+     * Calling this repeatedly for an already-running matching session does not rewrite its
+     * binding timestamp or send another service start request.
+     */
+    fun ensureStartedForPairedSession(activity: Activity): Boolean {
+        if (!isVisibleAndFocused(activity)) return false
+        val app = activity.applicationContext
+        return synchronized(startLock) {
+            if (!isVisibleAndFocused(activity)) return@synchronized false
+            observeTaskManagerStop(app)
+
+            val session = runCatching { SessionStore(app).read() }.getOrNull()
+            val pairedClient = session?.role == "client"
+            if (!pairedClient || session == null) return@synchronized false
+
+            val state = RuntimeState.preferences(app)
+            val newSessionStamp = sessionStamp(session)
+            val newDatabaseName = clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
+            val oldSessionStamp = state.getString(RuntimeState.KEY_SESSION_STAMP, null)
+            val oldDatabaseName = state.getString(RuntimeState.KEY_SESSION_DB_NAME, null)
+            val bindingMatches = oldSessionStamp == newSessionStamp && oldDatabaseName == newDatabaseName
+            val systemTaskStopped = state.getBoolean(RuntimeState.KEY_TASK_MANAGER_STOPPED, false)
+            val enabled = state.getBoolean(RuntimeState.KEY_ENABLED, HostBackgroundPolicy.DEFAULT_ENABLED)
+            val serviceRunning = HostBackgroundService.isRunning
+
+            if (!HostBackgroundPolicy.shouldStartForPairedSession(
+                    pairedClient = pairedClient,
+                    activityFocused = activity.hasWindowFocus(),
+                    bindingMatches = bindingMatches,
+                    enabled = enabled,
+                    systemTaskStopped = systemTaskStopped,
+                    serviceRunning = serviceRunning
+                )
+            ) {
+                return@synchronized enabled && bindingMatches && !systemTaskStopped && serviceRunning
+            }
+
+            if (startRequests.isPending(newSessionStamp) && enabled && bindingMatches && !systemTaskStopped) {
+                return@synchronized true
+            }
+
+            if (HostBackgroundPolicy.shouldEnablePairedBinding(pairedClient, bindingMatches, enabled, systemTaskStopped)) {
+                val saved = state.edit()
+                    .putBoolean(RuntimeState.KEY_ENABLED, true)
+                    .putBoolean(RuntimeState.KEY_TASK_MANAGER_STOPPED, false)
+                    .putLong(RuntimeState.KEY_EXPLICIT_ENABLE_AT, System.currentTimeMillis())
+                    .putString(RuntimeState.KEY_SESSION_DB_NAME, newDatabaseName)
+                    .putString(RuntimeState.KEY_SESSION_STAMP, newSessionStamp)
+                    .putString(RuntimeState.KEY_ISSUE, null)
+                    .commit()
+                if (!saved) {
+                    RuntimeState.update(app, issue = "Could not save the paired background session. Open the app to retry.")
+                    return@synchronized false
+                }
+                if (!bindingMatches) {
+                    oldDatabaseName?.let { oldDb -> HostBackgroundService.clearPending(app, oldDb, oldSessionStamp) }
+                }
+            }
+
+            // Pairing can change from another app screen while state is being persisted.
+            val latest = runCatching { SessionStore(app).read() }.getOrNull()
+            if (latest == null || !session.sameSessionInstance(latest) || latest.role != "client") {
+                return@synchronized false
+            }
+            if (bindingMatches && enabled && serviceRunning && !systemTaskStopped) return@synchronized true
+            if (!isVisibleAndFocused(activity)) return@synchronized false
+
+            try {
+                val intent = Intent(app, HostBackgroundService::class.java).setAction(HostBackgroundService.ACTION_START)
+                startRequests.request(newSessionStamp)
+                if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(intent) else app.startService(intent)
+                true
+            } catch (_: RuntimeException) {
+                startRequests.onRejected(newSessionStamp)
+                RuntimeState.update(app, connection = "Stopped", issue = "Android blocked background service startup. Open the app again to resume.")
+                false
+            }
+        }
+    }
+
     fun openBatterySettings(activity: Activity) {
         val request = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${activity.packageName}"))
         try {
@@ -150,10 +234,24 @@ object HostBackgroundRuntime {
             state.getString(RuntimeState.KEY_SESSION_DB_NAME, null) == clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId) &&
             state.getString(RuntimeState.KEY_SESSION_STAMP, null) == sessionStamp(session)
         if (!sessionMatchesOptIn) {
-            RuntimeState.update(app, issue = "The paired account changed. Open the app and enable background sync for this account.")
+            RuntimeState.update(app, issue = "The paired account changed. Open the app to resume background sync for this account.")
             return false
         }
         return true
+    }
+
+    internal fun onServiceStarted(session: HostSession) = synchronized(startLock) {
+        val startedStamp = sessionStamp(session)
+        startRequests.onStarted(startedStamp)
+    }
+
+    internal fun onServiceStartRejected(session: HostSession?) = synchronized(startLock) {
+        startRequests.onRejected(session?.let(::sessionStamp))
+    }
+
+    internal fun onServiceStopped(session: HostSession?) = synchronized(startLock) {
+        val stoppedStamp = session?.let(::sessionStamp)
+        startRequests.onStopped(stoppedStamp)
     }
 
     /** Record system user-stop before an ordinary later process exit can replace it. */
@@ -183,6 +281,9 @@ object HostBackgroundRuntime {
     }
 
     private const val REQUEST_NOTIFICATIONS = 7031
+
+    private fun isVisibleAndFocused(activity: Activity): Boolean =
+        !activity.isFinishing && !activity.isDestroyed && activity.hasWindowFocus()
 }
 
 internal fun sessionStamp(session: HostSession): String = MessageDigest.getInstance("SHA-256")

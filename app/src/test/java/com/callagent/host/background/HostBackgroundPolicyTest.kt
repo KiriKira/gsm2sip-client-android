@@ -27,12 +27,24 @@ class HostBackgroundPolicyTest {
     }
 
     @Test
-    fun restoreRequiresPairingAndAnExplicitOptInAndStopStaysStopped() {
+    fun restoreAndAutomaticStartAreBoundToThePairedSessionAndVisibleActivity() {
         assertFalse(HostBackgroundPolicy.DEFAULT_ENABLED)
         assertFalse(HostBackgroundPolicy.shouldRestore(HostBackgroundPolicy.DEFAULT_ENABLED, pairedClient = true))
         assertTrue(HostBackgroundPolicy.shouldRestore(enabled = true, pairedClient = true))
         assertFalse(HostBackgroundPolicy.shouldRestore(enabled = true, pairedClient = false))
         assertFalse(HostBackgroundPolicy.shouldRestore(enabled = false, pairedClient = true))
+        assertTrue(HostBackgroundPolicy.shouldEnablePairedBinding(pairedClient = true, bindingMatches = false, enabled = false, systemTaskStopped = false))
+        assertTrue(HostBackgroundPolicy.shouldEnablePairedBinding(pairedClient = true, bindingMatches = true, enabled = true, systemTaskStopped = true))
+        assertTrue(HostBackgroundPolicy.shouldEnablePairedBinding(pairedClient = true, bindingMatches = true, enabled = false, systemTaskStopped = false))
+        assertFalse(HostBackgroundPolicy.shouldEnablePairedBinding(pairedClient = true, bindingMatches = true, enabled = true, systemTaskStopped = false))
+        assertFalse(HostBackgroundPolicy.shouldEnablePairedBinding(pairedClient = false, bindingMatches = false, enabled = false, systemTaskStopped = false))
+        assertTrue(HostBackgroundPolicy.shouldStartForPairedSession(true, true, false, false, false, false))
+        assertTrue(HostBackgroundPolicy.shouldStartForPairedSession(true, true, true, true, true, false))
+        assertTrue(HostBackgroundPolicy.shouldStartForPairedSession(true, true, true, true, false, false))
+        assertFalse(HostBackgroundPolicy.shouldStartForPairedSession(true, true, true, true, false, true))
+        assertFalse(HostBackgroundPolicy.shouldStartForPairedSession(true, false, false, false, false, false))
+        assertFalse(HostBackgroundPolicy.shouldStartForPairedSession(false, true, false, false, false, false))
+        assertTrue(HostBackgroundPolicy.shouldStartForPairedSession(true, true, true, false, false, false))
         assertTrue(HostBackgroundPolicy.isHistoricalBaseline(cursorPresent = false, bootstrapped = false, baselineInProgress = false))
         assertTrue(HostBackgroundPolicy.isHistoricalBaseline(cursorPresent = true, bootstrapped = false, baselineInProgress = true))
         assertFalse(HostBackgroundPolicy.isHistoricalBaseline(cursorPresent = true, bootstrapped = true, baselineInProgress = false))
@@ -64,6 +76,26 @@ class HostBackgroundPolicyTest {
             listOf("inbound-1"),
             HostBackgroundPolicy.newInboundNotificationIds(listOf(inbound, outbound), setOf("inbound-1", "outbound-1"))
         )
+    }
+
+    @Test
+    fun serviceStartRequestsAreDeduplicatedAndClearedOnlyByTheirSession() {
+        val requests = BackgroundStartRequests()
+        assertFalse(requests.isPending("session-a"))
+
+        requests.request("session-a")
+        assertTrue(requests.isPending("session-a"))
+        assertFalse(requests.isPending("session-b"))
+        requests.onRejected("session-b")
+        assertTrue(requests.isPending("session-a"))
+        requests.onStopped("session-b")
+        assertTrue(requests.isPending("session-a"))
+
+        requests.onStarted("session-a")
+        assertFalse(requests.isPending("session-a"))
+        requests.request("session-b")
+        requests.onStopped("session-b")
+        assertFalse(requests.isPending("session-b"))
     }
 
     @Test

@@ -1,0 +1,21 @@
+{
+  "repo": "KiriKira/gsm2sip-client-android",
+  "source_commit": "bd7d99a6985f4ea0fec9822f2a2246609b771948",
+  "run_id": 37362657579,
+  "artifact_id": 11367777552,
+  "artifact_name": "gsm2sip-host-ui-key-screenshots",
+  "archive_sha256": "451fcabfe9641760b00ac7f85b011aae9e57b8e39c5122ad4665476a49f3f6fb",
+  "screenshots_sha256": {
+    "host_call_history.png": "d4e38a40752f5ed22da18beae73e31fca92605ed41ee8aa2b8966f846e4f667a",
+    "host_dialpad.png": "e4fa0473e9c6a70d88b3b7a64660a9ce5d7bfaa9b9e973d911d02b963a311db7",
+    "host_sms_thread_list.png": "bd2801f635f0dc31c779daa06ad377fe2d58c1b239053a8c2bb1be8a1bdf72ce",
+    "host_settings_tab.png": "471aeeedb439515f2486346fb415cbd40cf3aafd29da6324678a4c66eafed060",
+    "folded_ui.png": "c27fec7d2348887d80a8e905bc066feb81e869cd2173954810702a2edac5cce0",
+    "unfolded_ui.png": "96daf151f5f6587a27bc1538b4bf92252cda9dc0baf44e441f0249a4f06a6390",
+    "hole_cutout_enabled.png": "36ffa27ca4e585129fe3334a851d069aaf32fa153e1261c98993996bbac89a4e",
+    "landscape_after_rotation.png": "ea5204a330937c5071a6f6d7d1555913ec6231c34955d86ef294dfffcaf0bd01",
+    "input_before_rotation.png": "5c92598bd7bb558b18ed9fa0e5bcb31798fffea146b3925fb67e4c047f485650",
+    "after_portrait_rotation.png": "f2a24a4e4df3957f18c5149e44927090d130d04657921fdf0340ba75e000b079"
+  },
+  "scope": "Actual unpaired API 35 UI captures. Paired and synthetic-call captures await a successful run; these images predate a four-line icon-contrast fix."
+}

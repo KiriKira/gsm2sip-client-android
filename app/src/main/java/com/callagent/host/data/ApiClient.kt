@@ -160,6 +160,15 @@ class ApiClient(
         return (0 until items.length()).map { parseCall(items.getJSONObject(it)) }
     }
 
+    /** Historical pages are separate from the lightweight live-call poll. */
+    fun listCallHistoryPage(cursor: String? = null, limit: Int = 100): Pair<List<RemoteCall>, String?> {
+        require(limit in 1..100) { "Call history page size must be between 1 and 100" }
+        val suffix = cursor?.let { "?limit=$limit&cursor=${Uri.encode(it)}" } ?: "?limit=$limit"
+        val json = authenticatedRequest("GET", "/calls$suffix")
+        val items = json.optJSONArray("items") ?: throw IOException("Invalid call history response")
+        return (0 until items.length()).map { parseCall(items.getJSONObject(it)) } to json.optNullableString("next_cursor")
+    }
+
     fun getCall(callId: String): RemoteCall = parseCall(authenticatedRequest("GET", "/calls/${pathSegment(callId)}"))
 
     fun createCallIntent(gatewayId: String, simId: String, mappingRevision: Long, destination: String, idempotencyKey: String): CallIntent {

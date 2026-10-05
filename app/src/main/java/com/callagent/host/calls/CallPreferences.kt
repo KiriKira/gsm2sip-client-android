@@ -3,7 +3,7 @@ package com.callagent.host.calls
 import android.content.Context
 import com.callagent.host.data.HostSession
 
-/** User opt-in is account-scoped and never restored by BOOT_COMPLETED. */
+/** Incoming call signaling is account-scoped and never restored by BOOT_COMPLETED. */
 internal class CallPreferences(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences("host-call-settings", Context.MODE_PRIVATE)
 
@@ -25,6 +25,14 @@ internal class CallPreferences(context: Context) {
         }
         return editor.commit()
     }
+
+    fun ensureEnabledFor(session: HostSession?): Boolean {
+        if (session == null || session.role != "client") return false
+        return enabledFor(session) || setEnabled(session, true)
+    }
+
+    fun canAutoListenFor(session: HostSession?, signalingAvailable: Boolean): Boolean =
+        session?.role == "client" && signalingAvailable
 
     fun clear() = preferences.edit().clear().commit()
 

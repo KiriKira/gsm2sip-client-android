@@ -15,4 +15,45 @@
     <item name="sms_body" type="id" />
     <item name="sms_backup_archive_entry" type="id" />
     <item name="call_destination" type="id" />
+    <item name="main_bottom_navigation" type="id" />
+    <item name="tab_phone" type="id" />
+    <item name="tab_messages" type="id" />
+    <item name="tab_settings" type="id" />
+    <item name="screen_back" type="id" />
+    <item name="call_history_search" type="id" />
+    <item name="dialer_open" type="id" />
+    <item name="dialer_destination" type="id" />
+    <item name="dialer_contact_list" type="id" />
+    <item name="dialer_sim_selector" type="id" />
+    <item name="dialer_call_button" type="id" />
+    <item name="dialer_backspace" type="id" />
+    <item name="keypad_1" type="id" />
+    <item name="keypad_2" type="id" />
+    <item name="keypad_3" type="id" />
+    <item name="keypad_4" type="id" />
+    <item name="keypad_5" type="id" />
+    <item name="keypad_6" type="id" />
+    <item name="keypad_7" type="id" />
+    <item name="keypad_8" type="id" />
+    <item name="keypad_9" type="id" />
+    <item name="keypad_star" type="id" />
+    <item name="keypad_0" type="id" />
+    <item name="keypad_hash" type="id" />
+    <item name="sms_thread_list" type="id" />
+    <item name="sms_thread_item" type="id" />
+    <item name="sms_thread_sim_badge" type="id" />
+    <item name="sms_compose_fab" type="id" />
+    <item name="sms_thread_header" type="id" />
+    <item name="sms_conversation_list" type="id" />
+    <item name="sms_thread_sim_selector" type="id" />
+    <item name="sms_thread_send" type="id" />
+    <item name="call_history_list" type="id" />
+    <item name="call_history_item" type="id" />
+    <item name="dialer_keypad" type="id" />
+    <item name="settings_pairing_section" type="id" />
+    <item name="settings_device_list" type="id" />
+    <item name="settings_unpair" type="id" />
+    <item name="settings_notifications" type="id" />
+    <item name="settings_battery" type="id" />
+    <item name="settings_contacts" type="id" />
 </resources>

@@ -99,6 +99,7 @@ class HostBackgroundService : Service() {
         val prefs = RuntimeState.preferences(this)
         val session = runCatching { sessionStore.read() }.getOrNull()
         if (intent == null && !HostBackgroundRuntime.restoreAllowed(this)) {
+            HostBackgroundRuntime.onServiceStartRejected(session)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf(startId)
             return START_NOT_STICKY
@@ -106,8 +107,9 @@ class HostBackgroundService : Service() {
         if (!HostBackgroundPolicy.shouldRestore(
                 prefs.getBoolean(RuntimeState.KEY_ENABLED, HostBackgroundPolicy.DEFAULT_ENABLED),
                 session?.role == "client"
-            ) || !isBoundToOptIn(session)
+        ) || !isBoundToOptIn(session)
         ) {
+            HostBackgroundRuntime.onServiceStartRejected(session)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf(startId)
             return START_NOT_STICKY
@@ -117,6 +119,7 @@ class HostBackgroundService : Service() {
             startForegroundCompat()
         } catch (_: RuntimeException) {
             prefs.edit().putBoolean(RuntimeState.KEY_ENABLED, false).commit()
+            HostBackgroundRuntime.onServiceStartRejected(session)
             RuntimeState.update(this, connection = "Stopped", issue = "Android could not display the required background notification. Enable notifications and start background sync again.")
             stopSelf(startId)
             return START_NOT_STICKY
@@ -129,6 +132,7 @@ class HostBackgroundService : Service() {
             cancelPendingNotifications(previousSession)
         }
         activeSession = session
+        HostBackgroundRuntime.onServiceStarted(session!!)
         RuntimeState.update(this, connection = "Connecting", issue = null)
         ensureWebSocket()
         enqueueSync()
@@ -137,7 +141,7 @@ class HostBackgroundService : Service() {
                 {
                     if (isOptedInAndPaired()) enqueueSync()
                     else stopForInvalidSession(
-                        "The paired account changed. Enable background sync for the current account.",
+                        "The paired account changed. Open the app to resume background sync for this account.",
                         generation.get(),
                         runCatching { sessionStore.read() }.getOrNull(),
                         onlyIfStillInvalid = true
@@ -158,6 +162,7 @@ class HostBackgroundService : Service() {
         closeWebSocket()
         unregisterConnectivityCallback()
         scheduler.shutdownNow()
+        HostBackgroundRuntime.onServiceStopped(activeSession)
         synchronized(notificationCoalescers) { notificationCoalescers.clear() }
         synchronized(HostBackgroundService::class.java) {
             if (liveService === this) liveService = null
@@ -241,7 +246,7 @@ class HostBackgroundService : Service() {
             }
         } catch (_: SessionChanged) {
             if (thisRunStillOwnsSession(bound, expectedGeneration)) {
-                stopForInvalidSession("The paired account changed. Enable background sync for the current account.", expectedGeneration, bound)
+                stopForInvalidSession("The paired account changed. Open the app to resume background sync for this account.", expectedGeneration, bound)
             }
         } catch (_: Exception) {
             if (isCurrent(bound, expectedGeneration)) {
@@ -509,10 +514,12 @@ class HostBackgroundService : Service() {
             .build()
     }
 
-    private fun openAppPendingIntent(): PendingIntent = PendingIntent.getActivity(
+    private fun openAppPendingIntent(openSms: Boolean = false): PendingIntent = PendingIntent.getActivity(
         this,
-        OPEN_APP_PENDING_INTENT,
-        Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        if (openSms) OPEN_SMS_PENDING_INTENT else OPEN_APP_PENDING_INTENT,
+        Intent(this, MainActivity::class.java)
+            .apply { if (openSms) action = ACTION_SHOW_SMS }
+            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
@@ -589,7 +596,7 @@ class HostBackgroundService : Service() {
                     .setSmallIcon(R.drawable.host_icon)
                     .setContentTitle("New SMS received")
                     .setContentText(if (pending.size == 1) "Open the app to view the message." else "${pending.size} new messages are available.")
-                    .setContentIntent(openAppPendingIntent())
+                    .setContentIntent(openAppPendingIntent(openSms = true))
                     .setVisibility(Notification.VISIBILITY_PRIVATE)
                     .setPublicVersion(notificationBuilder(CHANNEL_INBOUND)
                         .setSmallIcon(R.drawable.host_icon)
@@ -665,10 +672,12 @@ class HostBackgroundService : Service() {
     companion object {
         const val ACTION_START = "com.callagent.host.background.START"
         const val ACTION_STOP = "com.callagent.host.background.STOP"
+        const val ACTION_SHOW_SMS = "com.callagent.host.SHOW_SMS"
         private const val FOREGROUND_NOTIFICATION_ID = 7101
         private const val INBOUND_NOTIFICATION_ID = 7102
         private const val STOP_PENDING_INTENT = 7103
         private const val OPEN_APP_PENDING_INTENT = 7104
+        private const val OPEN_SMS_PENDING_INTENT = 7105
         internal const val CHANNEL_SERVICE = "host-background-service"
         internal const val CHANNEL_INBOUND = "host-inbound-sms"
         private const val WAKE_LOCK_TIMEOUT_MS = 60_000L

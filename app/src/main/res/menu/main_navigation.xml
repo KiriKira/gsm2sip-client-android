@@ -1,0 +1,14 @@
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@id/tab_phone"
+        android:icon="@drawable/host_nav_phone"
+        android:title="电话" />
+    <item
+        android:id="@id/tab_messages"
+        android:icon="@drawable/host_nav_sms"
+        android:title="短信" />
+    <item
+        android:id="@id/tab_settings"
+        android:icon="@drawable/host_nav_settings"
+        android:title="设置" />
+</menu>

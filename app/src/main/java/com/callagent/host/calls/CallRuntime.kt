@@ -26,6 +26,11 @@ object CallRuntime {
     @Volatile
     private var rememberedSessionInstance: String? = null
 
+    private val signalingStartLock = Any()
+
+    @Volatile
+    private var signalingStartRequestedFor: String? = null
+
     @Volatile
     private var statusText: String = ""
 
@@ -40,11 +45,12 @@ object CallRuntime {
         val previousSessionInstance = rememberedSessionInstance
         if (previousSessionInstance != null && previousSessionInstance != nextSessionInstance) {
             wantsForegroundListening = false
+            signalingStartRequestedFor = null
             CallPreferences(context).clear()
             service?.stopForSessionChange()
         }
         SipCredentialStore(context).clearForDifferentSession(session)
-        wantsForegroundListening = CallPreferences(context).enabledFor(session)
+        wantsForegroundListening = CallPreferences(context).enabledFor(session) && session?.sipAvailable == true
         rememberedSessionInstance = nextSessionInstance
     }
 
@@ -92,24 +98,58 @@ object CallRuntime {
     }
 
     fun enableForegroundListening(activity: Activity): Boolean {
-        if (activity.isFinishing || activity.isDestroyed) return false
-        val session = SessionStore(activity.applicationContext).read() ?: return false
-        if (!CallPreferences(activity).setEnabled(session, true)) return false
-        wantsForegroundListening = true
-        statusText = "正在启动后台 SIP 来电接收…"
-        notifyChanged(currentCallId)
-        val started = HostCallService.setForegroundListening(activity.applicationContext, true)
-        if (!started) {
-            wantsForegroundListening = false
-            CallPreferences(activity).setEnabled(session, false)
+        return ensureIncomingCallSignalingForPairedSession(activity)
+    }
+
+    /** Starts only SIP signaling from a visible pairing screen; audio permissions remain call-scoped. */
+    fun ensureIncomingCallSignalingForPairedSession(
+        activity: Activity,
+        availabilityOverride: Boolean? = null
+    ): Boolean {
+        if (!isVisibleAndFocused(activity)) return false
+        val context = activity.applicationContext
+        val session = runCatching { SessionStore(context).read() }.getOrNull() ?: return false
+        val preferences = CallPreferences(context)
+        if (!preferences.canAutoListenFor(session, availabilityOverride ?: session.sipAvailable)) return false
+
+        synchronized(signalingStartLock) {
+            if (!isVisibleAndFocused(activity)) return false
+            if (rememberedSessionInstance != session.sessionInstanceId) {
+                restoreForegroundPreference(context, session)
+            }
+            if (!preferences.ensureEnabledFor(session)) return false
+            wantsForegroundListening = true
+            rememberedSessionInstance = session.sessionInstanceId
+
+            if (service?.isForegroundListening == true) {
+                signalingStartRequestedFor = null
+                return true
+            }
+            if (signalingStartRequestedFor == session.sessionInstanceId) return true
+
+            statusText = "正在启动后台 SIP 来电接收…"
+            notifyChanged(currentCallId)
+            signalingStartRequestedFor = session.sessionInstanceId
+            val started = if (service != null) {
+                service?.setForegroundListening(true)
+                true
+            } else {
+                HostCallService.setForegroundListening(context, true)
+            }
+            if (!started) {
+                signalingStartRequestedFor = null
+                wantsForegroundListening = false
+                preferences.setEnabled(session, false)
+            }
+            return started
         }
-        return started
     }
 
     fun disableForegroundListening(context: Context) {
         val session = SessionStore(context.applicationContext).read()
         CallPreferences(context).setEnabled(session, false)
         wantsForegroundListening = false
+        signalingStartRequestedFor = null
         if (service != null) service?.setForegroundListening(false)
         else HostCallService.setForegroundListening(context.applicationContext, false)
         statusText = "前台来电接收已关闭。"
@@ -119,8 +159,10 @@ object CallRuntime {
     fun setAppVisible(context: Context, visible: Boolean) {
         appVisible = visible
         if (visible && wantsForegroundListening) {
-            if (service != null) service?.setForegroundListening(true)
-            else HostCallService.setForegroundListening(context.applicationContext, true)
+            val session = runCatching { SessionStore(context.applicationContext).read() }.getOrNull()
+            if (session != null && CallPreferences(context).enabledFor(session)) {
+                startSignalingIfNeeded(context.applicationContext, session)
+            }
         }
     }
 
@@ -250,6 +292,7 @@ object CallRuntime {
         val session = SessionStore(context.applicationContext).read()
         CallPreferences(context).setEnabled(session, false)
         wantsForegroundListening = false
+        signalingStartRequestedFor = null
         statusText = message
         notifyChanged(currentCallId)
     }
@@ -272,8 +315,32 @@ object CallRuntime {
     }
 
     internal fun detach(hostCallService: HostCallService) {
-        if (service === hostCallService) service = null
+        if (service === hostCallService) {
+            service = null
+            signalingStartRequestedFor = null
+        }
     }
+
+    private fun startSignalingIfNeeded(context: Context, session: HostSession): Boolean = synchronized(signalingStartLock) {
+        if (!wantsForegroundListening || CallPreferences(context).enabledFor(session).not()) return@synchronized false
+        if (service?.isForegroundListening == true) {
+            signalingStartRequestedFor = null
+            return@synchronized true
+        }
+        if (signalingStartRequestedFor == session.sessionInstanceId) return@synchronized true
+        signalingStartRequestedFor = session.sessionInstanceId
+        val started = if (service != null) {
+            service?.setForegroundListening(true)
+            true
+        } else {
+            HostCallService.setForegroundListening(context, true)
+        }
+        if (!started) signalingStartRequestedFor = null
+        started
+    }
+
+    private fun isVisibleAndFocused(activity: Activity): Boolean =
+        !activity.isFinishing && !activity.isDestroyed && activity.hasWindowFocus()
 
     internal fun publishCall(call: CallSession, text: String? = null) {
         statusText = text.orEmpty()

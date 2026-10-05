@@ -1,0 +1,224 @@
+{
+  "overall": "fail",
+  "scenario": "host",
+  "scope": "unpaired host tabs, pairing settings and shared SMS backup screen",
+  "device_profile": "7.6in Foldable",
+  "package": "com.callagent.host",
+  "serial": "emulator-5554",
+  "generated_at_utc": "2026-10-05T19:29:33.239136+00:00",
+  "results": [
+    {
+      "name": "emulator_boot",
+      "status": "pass",
+      "detail": "device emulator-5554 boot completed"
+    },
+    {
+      "name": "emulator_api_level",
+      "status": "pass",
+      "detail": "API 35 / 15; profile=7.6in Foldable"
+    },
+    {
+      "name": "apk_install",
+      "status": "pass",
+      "detail": "adb installed package; APK ABIs=['arm64-v8a']; primaryCpuAbi=arm64-v8a"
+    },
+    {
+      "name": "apk_native_abi",
+      "status": "pass",
+      "detail": "native ABI intersects emulator ABIs"
+    },
+    {
+      "name": "system_permission_prompts",
+      "status": "pass",
+      "detail": "no permission or default-role prompt was visible; none was accepted"
+    },
+    {
+      "name": "host_navigation_tabs",
+      "status": "pass",
+      "detail": "bottom navigation=True; \u7535\u8bdd id=tab_phone visible=True; \u77ed\u4fe1 id=tab_messages visible=True; \u8bbe\u7f6e id=tab_settings visible=True"
+    },
+    {
+      "name": "host_call_history",
+      "status": "pass",
+      "detail": "phone tab exposes search/history list and the fresh-install empty state=True; no call was made"
+    },
+    {
+      "name": "host_dialpad",
+      "status": "pass",
+      "detail": "destination and 12 keypad controls visible; missing keys=[]; call was not activated"
+    },
+    {
+      "name": "host_dialer_contacts",
+      "status": "pass",
+      "detail": "contact candidate container is visible; contacts permission is not granted by this smoke"
+    },
+    {
+      "name": "host_sms_list",
+      "status": "pass",
+      "detail": "SMS tab exposes its independent thread-list container"
+    },
+    {
+      "name": "host_settings_tab",
+      "status": "pass",
+      "detail": "settings exposes the simplified pairing form=True"
+    },
+    {
+      "name": "host_settings_backup",
+      "status": "pass",
+      "detail": "SMS backup entry is reachable from Settings"
+    },
+    {
+      "name": "app_visible",
+      "status": "pass",
+      "detail": "target app owns the resumed window and appears in UIAutomator hierarchy after 1 attempt(s)"
+    },
+    {
+      "name": "settings_navigation",
+      "status": "pass",
+      "detail": "host pairing form is visible"
+    },
+    {
+      "name": "unpaired_scope",
+      "status": "pass",
+      "detail": "host HTTPS pairing form"
+    },
+    {
+      "name": "pairing_code_untouched",
+      "status": "pass",
+      "detail": "pairing code is empty and was never focused or changed"
+    },
+    {
+      "name": "synthetic_input",
+      "status": "pass",
+      "detail": "synthetic URL was read back after entry and device name after entry"
+    },
+    {
+      "name": "ime_visible_before_rotation",
+      "status": "pass",
+      "detail": "mInputShown=true"
+    },
+    {
+      "name": "input_before_rotation",
+      "status": "pass",
+      "detail": "server='https://ui-smoke.invalid', device='UI_Smoke_Fold_35'"
+    },
+    {
+      "name": "ime_restored_after_rotation",
+      "status": "pass",
+      "detail": "mInputShown=true"
+    },
+    {
+      "name": "after_landscape_rotation",
+      "status": "pass",
+      "detail": "server='https://ui-smoke.invalid', device='UI_Smoke_Fold_35'"
+    },
+    {
+      "name": "after_portrait_rotation",
+      "status": "pass",
+      "detail": "server='https://ui-smoke.invalid', device='UI_Smoke_Fold_35'"
+    },
+    {
+      "name": "rotation_display_change",
+      "status": "pass",
+      "detail": "actual screenshot dimensions: before=(1768, 2208), landscape=(2208, 1768), portrait=(1768, 2208)"
+    },
+    {
+      "name": "rotation_input_restore",
+      "status": "pass",
+      "detail": "both synthetic fields survived portrait/landscape; IME returned"
+    },
+    {
+      "name": "fold_device_state",
+      "status": "pass",
+      "detail": "observed display/device-state change: {'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"} -> {'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=1, name='CLOSED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=1, name='CLOSED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}"
+    },
+    {
+      "name": "input_after_fold",
+      "status": "pass",
+      "detail": "server='https://ui-smoke.invalid', device='UI_Smoke_Fold_35'"
+    },
+    {
+      "name": "unfold_device_state",
+      "status": "pass",
+      "detail": "unfold restored observable display/device state: {'size': '1768x2208', 'state': \"mCommittedState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mBaseState=Optional[DeviceState{identifier=3, name='OPENED', app_accessible=true, cancel_when_requester_not_on_top=false}] | mOverrideState=Optional.empty\"}"
+    },
+    {
+      "name": "input_after_unfold",
+      "status": "pass",
+      "detail": "server='https://ui-smoke.invalid', device='UI_Smoke_Fold_35'"
+    },
+    {
+      "name": "punch_hole_cutout",
+      "status": "pass",
+      "detail": "live hole cutout rectangles=[(0, 0, 136, 136)]; visible button rectangles checked=10; intersections=[]"
+    },
+    {
+      "name": "backup_entry_visible",
+      "status": "pass",
+      "detail": "scenario=host, id=sms_backup_archive_entry, label='\u77ed\u4fe1\u5907\u4efd\u4e0e\u5f52\u6863', bounds=[52,1986][1716,2112]"
+    },
+    {
+      "name": "backup_screen_controls",
+      "status": "fail",
+      "detail": "backup UI journey failed: RuntimeError: Timed out waiting for sms_backup_activity: expected app elements are missing; a system dialog may still be open"
+    },
+    {
+      "name": "smoke_runner",
+      "status": "fail",
+      "detail": "RuntimeError: Timed out waiting for sms_backup_activity: expected app elements are missing; a system dialog may still be open"
+    },
+    {
+      "name": "backup_format_warnings",
+      "status": "blocked",
+      "detail": "check was not reached before smoke execution stopped"
+    },
+    {
+      "name": "backup_password_dialog",
+      "status": "blocked",
+      "detail": "check was not reached before smoke execution stopped"
+    },
+    {
+      "name": "backup_rotation_safety",
+      "status": "blocked",
+      "detail": "check was not reached before smoke execution stopped"
+    },
+    {
+      "name": "backup_fold_safety",
+      "status": "blocked",
+      "detail": "check was not reached before smoke execution stopped"
+    },
+    {
+      "name": "backup_cutout_safety",
+      "status": "blocked",
+      "detail": "check was not reached before smoke execution stopped"
+    },
+    {
+      "name": "backup_import_saf_preview",
+      "status": "blocked",
+      "detail": "check was not reached before smoke execution stopped"
+    },
+    {
+      "name": "backup_import_confirm",
+      "status": "blocked",
+      "detail": "check was not reached before smoke execution stopped"
+    },
+    {
+      "name": "backup_import_history",
+      "status": "blocked",
+      "detail": "check was not reached before smoke execution stopped"
+    },
+    {
+      "name": "backup_import_dedup",
+      "status": "blocked",
+      "detail": "check was not reached before smoke execution stopped"
+    },
+    {
+      "name": "backup_import_fixture_cleanup",
+      "status": "blocked",
+      "detail": "check was not reached before smoke execution stopped"
+    }
+  ],
+  "artifacts": {
+    "screenshot_manifest": "screenshot_manifest.json"
+  }
+}
