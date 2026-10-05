@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.callagent.host.pjsua2smoke">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
+
+    <instrumentation
+        android:name="com.callagent.host.smoke.PjsuaSmokeInstrumentation"
+        android:targetPackage="com.callagent.host"
+        android:label="PJSUA2 JNI smoke" />
+
+    <application
+        android:debuggable="true"
+        android:hasCode="true"
+        android:label="PJSUA2 native smoke" />
+</manifest>

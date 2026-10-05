@@ -1,6 +1,6 @@
 # PLAN — gsm2sip-client-android 主机 App v1
 
-状态：实施计划；审查时仓库为空（无实现代码），功能尚未实现，SDK pin 待 M0 验证  
+状态：Material 3 Expressive Views 与用户开启的 WSS/HTTPS 后台短信同步已落代码，FCM/锁屏来电仍待实现；M1/M2 主干实现进行中；HTTPS pairing、Keystore token、SQLite cache/outbox、双卡状态与短信 UI 已落代码；真实设备端到端仍待验收。SIP native SDK 不随 M1/M2 打包，M0/M3 probe 仍需按 [sdk-probe.md](docs/sdk-probe.md) 完成。
 日期：2026-10-03  
 目标仓库：`KiriKira/gsm2sip-client-android`
 
@@ -33,7 +33,7 @@ V1 的完成标准：
 
 主机自己的实体 SIM 可继续用于原有蜂窝通话、短信及数据连接。它不决定远端短信或远端蜂窝号码，也不作为呼出 SIM。App 不读取主机本地短信、不申请默认短信应用角色，也不申请默认拨号器角色。VoIP 通话通过 Android Telecom 与主机自己的蜂窝通话、蓝牙耳机和音频焦点协调。
 
-客户端的短信、网关状态、配对及呼叫控制全部走 HTTPS/WSS；只有通话信令与媒体走 SIP。网关目前的 SIP MESSAGE 行为可作为服务端过渡基线，但客户端不能直接连网关，也不应把 SIP MESSAGE 当作客户端短信 API。
+客户端的短信、网关状态、配对及呼叫控制全部走 HTTPS/WSS；只有通话信令与媒体走 SIP。网关旧 SIP MESSAGE 仅作为诊断/迁移参考，生产短信执行通道已关闭，但客户端不能直接连网关，也不应把 SIP MESSAGE 当作客户端短信 API。
 
 ## 3. 双 SIM 身份与选择规则
 
@@ -88,12 +88,12 @@ V1 的完成标准：
 
 ### 后台与唤醒
 
-后台呼入采用推送唤醒，不以永久后台 SIP 注册或自建 TCP/WebSocket 心跳作为可靠方案：
+当前已实现的无 GMS 后台短信同步采用用户开启的 remoteMessaging FGS、WSS 提示和 HTTPS 补齐，见 [Android UI 与后台运行](docs/android-ui-and-background.md)。它不代表后台呼入已经可用。后台呼入后续采用推送唤醒，不以永久后台 SIP 注册或自建 TCP/WebSocket 心跳作为可靠保证：
 
 - GMS Android 用 FCM 处理休眠态呼入。仅对确实需要响铃的入站呼叫使用高优先级推送；收到消息后检查其最终优先级并快速展示/注册，处理前台服务启动失败和超时。
 - Android Doze 会暂停常规网络；高优先级 FCM 可以尝试唤醒并给出短暂处理窗口，但 Google 可能将未对应用户可见通知的高优先级消息降为普通优先级。因此实现必须处理推送迟到、丢失、重复和降级。
 - FCM 是外部推送传输依赖，即使 SIP/API/数据库全部自建，也不能称“完全不依赖第三方”。只发送随机 call_id 和 expiry，权威号码及通话状态由客户端登录后从自建 server 获取。
-- Firebase Cloud Messaging 的 Android 客户端要求 Google Play 服务。没有 GMS 的设备上，前台运行时仍可使用 HTTPS/WSS；休眠态的可靠来电唤醒没有通用自建 socket 替代方案。若后续要求支持无 GMS，需增加对应厂商推送适配并逐台验收，或明确作为尽力而为模式；不能承诺一般 Android 上无条件可靠后台响铃。
+- Firebase Cloud Messaging 的 Android 客户端要求 Google Play 服务。没有 GMS 的设备上，已实现用户开启的后台短信 FGS + HTTPS/WSS，配合电池优化豁免改善可达性；休眠态来电仍无通用可靠 socket 保证，后续可以增加厂商推送并进行真机验收。当前无 GMS 路线按尽力而为模式提供状态诊断；不能承诺一般 Android 上无条件可靠后台响铃。
 - 用户强制停止 App、关闭通知、撤销系统允许、厂商深度休眠或网络断开时，来电可能错过。App 应暴露推送/通知/电池限制诊断状态及最后同步时间，不谎报在线可达。
 
 ## 6. SIP SDK 选择与安全门槛
@@ -115,7 +115,7 @@ PJSIP 作为首个 probe 有几项必须先解决的安全问题：
 - 对上述漏洞的修复只能采用 pjproject 官方发布的版本或官方上游提交，并锁定准确 pin 与来源；不引入第三方 fork 或未核实的外部补丁。若官方修复尚不可用，且未有上游确认的有效规避措施时，该 SDK 暂不能通过发布门槛。
 - PJSIP Android 官方指南说明 Android 15 的 16 KB 页设备需采用支持方式构建 native libraries；打包产物必须检查 16 KB ELF 对齐/运行加载。
 - 生产媒体只开放 SDES；设 `SRTP_MANDATORY`、SDES keying、TLS 安全信令。对协商到 plain RTP 或不支持 SDES 的服务端必须失败，不允许静默降级。
-- PJSIP 通话中用 Call-ID 与服务端 `call_id` 建立唯一映射。SIP 事件桥接到 Kotlin 层时只发送序列化事件，所有 native 回调需线程安全，并避免在回调内阻塞网络、Room 或 Compose 主线程。
+- PJSIP 通话中用 Call-ID 与服务端 `call_id` 建立唯一映射。SIP 事件桥接到 Kotlin 层时只发送序列化事件，所有 native 回调需线程安全，并避免在回调内阻塞网络、数据库或 UI 主线程。
 
 ### 必做 SDK probe
 
@@ -132,7 +132,7 @@ probe 失败时再评估 Linphone；不得同时引入 PJSUA2 和 Linphone 以�
 
 ## 7. UI、数据与 Samsung 折叠屏
 
-建议 Kotlin、Jetpack Compose、Room；所有网络和 SIP 回调经单一 repository/state reducer 汇入可恢复的界面状态，通话活动状态保存在长生命周期 call session owner 中，不由 Activity 持有。
+当前采用 Kotlin、Material 3 Expressive Views 与 SQLite；未来迁移 Compose/Room 需保留现有草稿、幂等任务及账户隔离语义。所有网络和 SIP 回调经单一 repository/state reducer 汇入可恢复的界面状态，通话活动状态保存在长生命周期 call session owner 中，不由 Activity 持有。
 
 - 依据当前 App window 的宽度与姿态做自适应布局，不按机型硬编码“外屏/内屏分支”尺寸。外屏用紧凑布局；内屏可在短信会话列表/内容或网关/状态页采用双栏。
 - 支持折叠/展开、半开姿态、横竖屏、分屏/窗口缩放。状态变化不应重新创建 SIP account 或丢失通话 session。
@@ -232,7 +232,7 @@ probe 失败时再评估 Linphone；不得同时引入 PJSUA2 和 Linphone 以�
 
 新计划仍保留外部 SIP 客户端作为临时调试工具，但将 PJSUA2/Linphone 的内嵌验证、Android Telecom 集成、后台呼入、通话中界面及真实设备验收纳入 V1 必做项。外部客户端不能代替任一完成门槛。
 
-旧计划把网关到服务端的 SMS 流程作为 SIP MESSAGE 初版；跨仓库统一协议现由 HTTPS/WSS 承载 App 的短信、状态与控制，网关的旧 SIP MESSAGE 暂作迁移兼容基线。具体端点、字段和时序统一以 `plans/server/protocol-v1.md` 为准，本文件不复制协议定义。
+旧计划把网关到服务端的 SMS 流程作为 SIP MESSAGE 初版；跨仓库统一协议现由 HTTPS/WSS 承载 App 的短信、状态与控制，网关的旧 SIP MESSAGE 生产执行器已停用，仅保留迁移/诊断参考。具体端点、字段和时序统一以 `plans/server/protocol-v1.md` 为准，本文件不复制协议定义。
 
 ## 12. 官方资料与选型依据
 
@@ -264,7 +264,7 @@ probe 失败时再评估 Linphone；不得同时引入 PJSUA2 和 Linphone 以�
 
 ## 建议代码模块与首次发布
 
-- `app/`：Compose UI、导航、远端SIM选择及通知权限/推送诊断；`data/`：HTTPS/WSS、Room、Keystore凭据和同步游标。
+- `app/`：当前 Material 3 Expressive Views UI、导航、远端SIM选择及通知权限/推送诊断；`data/`：HTTPS/WSS、Room、Keystore凭据和同步游标。
 - `calls/`：一个 CallSessionCoordinator 管理服务器 call_id/state_revision 与实际 SIP INVITE、Telecom callbacks；`sip/`：唯一经验证的 PJSUA2 或替代 SDK 适配器及 native build pin；`push/`：FCM token、重复/迟到事件处理。初期可作为包保持单 module，勿先扩张大量Gradle modules。
 - 权限：主机不申请 SEND_SMS/READ_SMS/CALL_PRIVILEGED/root；按实际API声明 RECORD_AUDIO、MANAGE_OWN_CALLS、通知/通话FGS、蓝牙等必要权限，拒绝某项时提供明确状态。麦克风权限在可见配对/设置流程中取得，不能指望锁屏后台首次弹授权。
 - 配对后安全保存一次性 SIP bootstrap；凭据丢失走受控轮换，不重放配对码。依赖版本、原生架构、16KB页和信任CA按probe锁定。
