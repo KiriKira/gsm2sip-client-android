@@ -14,6 +14,8 @@ The pinned native PJSUA2 SDK handles SIP TLS and SRTP. CallSessionCoordinator an
 
 ## Current verification limits
 
+Both Android apps share password-encrypted, JSON and SMS Backup & Restore XML archive formats. Import validates the whole file before confirmation and merges it transactionally into an independent archive. It does not enqueue SMS, write the system SMS provider, restore receipts or replace session credentials. Identical reimports are deduplicated; cancellation, corruption and immutable-record conflicts roll back the merge. See [SMS backup usage](sms-backup.md) and the [original KVM screenshots and results](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/ui-verification/README.md).
+
 CI and the local Android build verify debug APK assembly, retry decisions, and SQLite persistence, merge, and account-isolation behavior under Robolectric. They do not validate a running server, rooted gateway handset, second physical Android device, carrier delivery receipts, or real two-SIM operation. The APK remains a debug artifact until device acceptance and release signing are completed.
 
 Refresh recovery persists the original refresh token and request key before HTTPS. Response loss keeps both for replay; only definitive unauthorized responses clear the session. SIP credential bootstrap has a separate encrypted recovery key and secret store. Message pages are fully validated before the SQLite transaction; a malformed row cannot silently advance the durable cursor. Server receipt is sent only after the local commit and is distinct from notification acknowledgement.
