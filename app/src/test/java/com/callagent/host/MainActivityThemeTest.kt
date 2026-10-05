@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import androidx.lifecycle.ViewModelProvider
@@ -65,6 +66,10 @@ class MainActivityThemeTest {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         try {
             val activity = controller.get()
+            assertEquals(R.id.tab_phone, activity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId)
+            assertTrue(descendants(rootView(activity)).filterIsInstance<android.widget.TextView>().any { it.text.toString() == "电话" })
+            selectTab(activity, R.id.tab_settings)
+            assertTrue(descendants(rootView(activity)).filterIsInstance<android.widget.TextView>().any { it.text.toString() == "设置" })
             val root = activity.findViewById<View>(android.R.id.content)
             val views = descendants(root).toList()
             assertTrue(views.any { it is TextInputLayout })
@@ -83,6 +88,7 @@ class MainActivityThemeTest {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         try {
             val activity = controller.get()
+            selectTab(activity, R.id.tab_settings)
             val server = activity.findViewById<TextInputEditText>(R.id.pairing_server)
             val code = activity.findViewById<TextInputEditText>(R.id.pairing_code)
             val deviceName = activity.findViewById<TextInputEditText>(R.id.pairing_device_name)
@@ -121,6 +127,7 @@ class MainActivityThemeTest {
         val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
         try {
             val oldActivity = controller.get()
+            selectTab(oldActivity, R.id.tab_settings)
             val viewModel = ViewModelProvider(oldActivity)[PairingFormViewModel::class.java]
             viewModel.setPairingClaimForTest { _, server, _, _ ->
                 claimStarted.countDown()
@@ -224,8 +231,12 @@ class MainActivityThemeTest {
             val activityController = Robolectric.buildActivity(MainActivity::class.java)
             controller = activityController
             activityController.setup()
-            assertDashboardSims(activityController.get())
+            assertPhoneHome(activityController.get())
+            selectTab(activityController.get(), R.id.tab_settings)
             assertSmsArchiveEntry(activityController.get())
+            selectTab(activityController.get(), R.id.tab_phone)
+            activityController.get().findViewById<View>(R.id.dialer_open).performClick()
+            assertDashboardSims(activityController.get())
 
             val initialChips = chips(activityController.get())
             initialChips[1].performClick()
@@ -237,6 +248,30 @@ class MainActivityThemeTest {
             val recreatedChips = chips(activityController.get())
             assertEquals("single-selection dashboard should check only one cached SIM", 1, recreatedChips.count { it.isChecked })
             assertTrue("selected SIM should survive Activity recreation", recreatedChips[1].isChecked)
+
+            val recreatedActivity = activityController.get()
+            val navigation = recreatedActivity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation)
+            navigation.selectedItemId = R.id.tab_messages
+            recreatedActivity.findViewById<View>(R.id.sms_compose_fab).performClick()
+            recreatedActivity.findViewById<TextInputEditText>(R.id.sms_recipient).setText("+15550009999")
+            recreatedActivity.findViewById<TextInputEditText>(R.id.sms_body).setText("折叠后仍保留的草稿")
+
+            navigation.selectedItemId = R.id.tab_phone
+            navigation.selectedItemId = R.id.tab_messages
+            recreatedActivity.findViewById<View>(R.id.sms_compose_fab).performClick()
+            assertEquals("+15550009999", recreatedActivity.findViewById<TextInputEditText>(R.id.sms_recipient).text.toString())
+            assertEquals("折叠后仍保留的草稿", recreatedActivity.findViewById<TextInputEditText>(R.id.sms_body).text.toString())
+
+            activityController.recreate()
+            val restoredActivity = activityController.get()
+            assertEquals(R.id.tab_messages, restoredActivity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId)
+            assertEquals("+15550009999", restoredActivity.findViewById<TextInputEditText>(R.id.sms_recipient).text.toString())
+            assertEquals("折叠后仍保留的草稿", restoredActivity.findViewById<TextInputEditText>(R.id.sms_body).text.toString())
+            ClientDatabase(application, databaseName).use { db ->
+                val savedDraft = db.loadDraft("robo-sim-secondary")
+                assertEquals("+15550009999", savedDraft?.recipient)
+                assertEquals("折叠后仍保留的草稿", savedDraft?.text)
+            }
         } finally {
             controller?.let { runCatching { it.pause().stop().destroy() } }
             runCatching { SessionStore(application).clearIfCurrent(session) }
@@ -248,7 +283,17 @@ class MainActivityThemeTest {
     }
 
     private fun assertDashboardSims(activity: MainActivity) {
-        assertTrue("paired dashboard should be rendered", hasDashboard(activity))
+        var navigation = activity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation)
+        if (navigation == null) {
+            activity.findViewById<View>(R.id.screen_back)?.performClick()
+            navigation = activity.findViewById(R.id.main_bottom_navigation)
+        }
+        assertTrue("home navigation should be visible after returning from a subpage", navigation != null)
+        if (navigation!!.selectedItemId != R.id.tab_phone) selectTab(activity, R.id.tab_phone)
+        if (activity.findViewById<View>(R.id.dialer_sim_selector) == null) {
+            activity.findViewById<View>(R.id.dialer_open)?.performClick()
+        }
+        assertTrue("SIM selector should be visible on the dialer page", activity.findViewById<View>(R.id.dialer_sim_selector) != null)
         val chips = chips(activity)
         assertEquals(2, chips.size)
         assertEquals("SIM 1", chips[0].text.toString())
@@ -257,21 +302,26 @@ class MainActivityThemeTest {
         assertTrue(chips[0].isCheckable)
         assertTrue(chips[0].contentDescription.toString().contains("Synthetic primary line with a readable long identity"))
         assertTrue(chips[0].contentDescription.toString().contains("+15550001001"))
-        val visibleText = descendants(activity.findViewById<View>(android.R.id.content))
-            .filterIsInstance<android.widget.TextView>()
-            .map { it.text.toString() }
-        assertTrue("full SIM identity should remain readable outside the compact selector",
-            visibleText.any { it.contains("Synthetic primary line with a readable long identity") && it.contains("+15550001001") })
     }
 
     private fun assertSmsArchiveEntry(activity: MainActivity) {
+        if (activity.findViewById<View>(R.id.main_bottom_navigation)?.let { (it as BottomNavigationView).selectedItemId } != R.id.tab_settings) {
+            selectTab(activity, R.id.tab_settings)
+        }
         val entry = activity.findViewById<MaterialButton>(R.id.sms_backup_archive_entry)
         assertEquals("短信备份与归档", entry.text.toString())
         assertTrue("archive entry must remain reachable on paired and unpaired screens", entry.isEnabled)
+        assertTrue(activity.findViewById<View>(R.id.settings_notifications) != null)
+        assertTrue(activity.findViewById<View>(R.id.settings_battery) != null)
+        assertTrue(activity.findViewById<View>(R.id.settings_contacts) != null)
+        val settingsText = descendants(activity.findViewById<View>(android.R.id.content))
+            .filterIsInstance<android.widget.TextView>()
+            .map { it.text.toString() }
+        assertFalse("normal settings must not expose an extra sync action", settingsText.any { it == "立即同步" })
     }
 
     private fun chips(activity: MainActivity): List<Chip> {
-        val group = activity.findViewById<ChipGroup>(R.id.remote_sim_selector)
+        val group = activity.findViewById<ChipGroup>(R.id.dialer_sim_selector)
         return (0 until group.childCount).map { group.getChildAt(it) as Chip }
     }
 
@@ -294,7 +344,22 @@ class MainActivityThemeTest {
 
     private fun hasDashboard(activity: MainActivity): Boolean =
         descendants(activity.findViewById(android.R.id.content)).filterIsInstance<android.widget.TextView>()
-            .any { it.text.toString() == "远程 SIM 卡" }
+            .any { it.text.toString() == "电话" }
+
+    private fun assertPhoneHome(activity: MainActivity) {
+        assertTrue("phone home should be rendered", hasDashboard(activity))
+        val navigation = activity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation)
+        assertEquals(R.id.tab_phone, navigation.selectedItemId)
+        assertTrue("empty call history should be visible", descendants(rootView(activity)).filterIsInstance<android.widget.TextView>()
+            .any { it.text.toString() == "暂无通话记录" })
+    }
+
+    private fun selectTab(activity: MainActivity, itemId: Int) {
+        val navigation = activity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation)
+        navigation.selectedItemId = itemId
+    }
+
+    private fun rootView(activity: MainActivity): View = activity.findViewById(android.R.id.content)
 
     private fun descendants(view: View): Sequence<View> = sequence {
         yield(view)

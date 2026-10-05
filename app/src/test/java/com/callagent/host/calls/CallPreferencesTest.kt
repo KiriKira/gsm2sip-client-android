@@ -36,6 +36,20 @@ class CallPreferencesTest {
         assertFalse(preferences.enabledFor(first))
     }
 
+    @Test
+    fun automaticListeningRequiresAvailableClientSignalingAndDoesNotNeedMicrophoneState() {
+        val paired = session("paired-session")
+        val nonClient = paired.copy(role = "gateway")
+
+        assertFalse(preferences.canAutoListenFor(null, signalingAvailable = true))
+        assertFalse(preferences.canAutoListenFor(nonClient, signalingAvailable = true))
+        assertFalse(preferences.canAutoListenFor(paired, signalingAvailable = false))
+        assertTrue(preferences.canAutoListenFor(paired, signalingAvailable = true))
+        assertTrue(preferences.ensureEnabledFor(paired))
+        assertTrue(preferences.enabledFor(paired))
+        assertTrue(preferences.ensureEnabledFor(paired))
+    }
+
     private fun session(instanceId: String) = HostSession(
         sessionInstanceId = instanceId,
         apiBaseUrl = "https://api.example.test/v1",

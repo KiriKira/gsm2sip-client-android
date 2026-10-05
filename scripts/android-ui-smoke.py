@@ -38,6 +38,15 @@ EXPECTED_CHECKS = (
     "backup_import_saf_preview", "backup_import_confirm", "backup_import_history",
     "backup_import_dedup", "backup_import_fixture_cleanup",
 )
+HOST_NAVIGATION_CHECKS = (
+    "host_navigation_tabs", "host_call_history", "host_dialpad",
+    "host_dialer_contacts", "host_sms_list", "host_settings_tab", "host_settings_backup",
+)
+HOST_TABS = (
+    ("tab_phone", "电话"),
+    ("tab_messages", "短信"),
+    ("tab_settings", "设置"),
+)
 
 
 def safe_name(value: str) -> str:
@@ -94,6 +103,20 @@ class Smoke:
     def shell(self, *args: str, check: bool = False, label: str | None = None) -> str:
         result = self.command(["shell", *args], check=check, label=label)
         return str(result.stdout).strip()
+
+    def keep_contacts_permission_denied(self) -> str:
+        permission = self.shell("pm", "check-permission", self.package,
+                                "android.permission.READ_CONTACTS", "0",
+                                label="check_contacts_permission").strip().lower()
+        if permission in {"granted", "true", "1"}:
+            self.shell("pm", "revoke", self.package, "android.permission.READ_CONTACTS",
+                       check=True, label="revoke_contacts_permission_for_smoke")
+            permission = self.shell("pm", "check-permission", self.package,
+                                    "android.permission.READ_CONTACTS", "0",
+                                    label="verify_contacts_permission_denied").strip().lower()
+        if permission not in {"denied", "false", "0"}:
+            raise RuntimeError(f"could not confirm READ_CONTACTS denied for synthetic UI smoke: {permission!r}")
+        return permission
 
     def wait(self, seconds: float = 2.0) -> None:
         time.sleep(seconds)
@@ -600,6 +623,115 @@ class Smoke:
         if self.args.scenario == "host":
             return "pairing_server", "pairing_device_name", None
         return "etControlUrl", "etControlDeviceName", "btnHomeMenu"
+
+    def test_host_navigation(self) -> None:
+        root = self.capture("host_navigation_initial")
+        navigation = self.find_node(root, "main_bottom_navigation")
+        tab_details: list[str] = []
+        tabs_visible = navigation is not None and self.node_is_on_screen(navigation)
+        for tab_id, label in HOST_TABS:
+            tab = self.find_node(root, tab_id)
+            text_node = self.find_text_node(root, label)
+            visible = (tab is not None and self.node_has_positive_visible_bounds(tab) and
+                       text_node is not None and self.node_is_on_screen(text_node))
+            tabs_visible = tabs_visible and visible
+            tab_details.append(f"{label} id={tab_id} visible={visible}")
+        self.record("host_navigation_tabs", "pass" if tabs_visible else "fail",
+                    f"bottom navigation={navigation is not None}; " + "; ".join(tab_details))
+        if not tabs_visible:
+            raise RuntimeError("Host bottom navigation does not expose all three labeled tabs")
+
+        self.tap_id(root, "tab_phone")
+        root = self.wait_for_app_tree(
+            lambda tree: self.find_node(tree, "call_history_search") is not None and
+            self.find_node(tree, "call_history_list") is not None and
+            self.find_node(tree, "dialer_open") is not None,
+            "host_call_history"
+        )
+        root = self.capture("host_call_history")
+        empty_history = self.find_text_node(root, "暂无通话记录")
+        history_search = self.find_node(root, "call_history_search")
+        history_list = self.find_node(root, "call_history_list")
+        history_ok = all(node is not None and self.node_is_on_screen(node)
+                         for node in (history_search, history_list, empty_history))
+        self.record("host_call_history", "pass" if history_ok else "fail",
+                    f"phone tab exposes search/history list and the fresh-install empty state={history_ok}; no call was made")
+        if not history_ok:
+            raise RuntimeError("Host call-history list or fresh-install empty state is missing")
+
+        self.tap_id(root, "dialer_open")
+        root = self.wait_for_app_tree(
+            lambda tree: self.find_node(tree, "dialer_destination") is not None and
+            self.find_node(tree, "dialer_keypad") is not None,
+            "host_dialer"
+        )
+        root = self.capture("host_dialpad")
+        keypad = self.find_node(root, "dialer_keypad")
+        destination = self.find_node(root, "dialer_destination")
+        call_button = self.find_node(root, "dialer_call_button")
+        required_keys = [f"keypad_{digit}" for digit in "123456789"] + [
+            "keypad_star", "keypad_0", "keypad_hash",
+        ]
+        missing_keys = [key for key in required_keys
+                        if (node := self.find_node(root, key)) is None or not self.node_is_on_screen(node)]
+        dialer_ok = (self.find_text_node(root, "拨号") is not None and
+                     keypad is not None and self.node_is_on_screen(keypad) and
+                     destination is not None and self.node_is_on_screen(destination) and
+                     call_button is not None and self.node_is_on_screen(call_button) and
+                     not missing_keys)
+        self.record("host_dialpad", "pass" if dialer_ok else "fail",
+                    f"destination and 12 keypad controls visible; missing keys={missing_keys}; call was not activated")
+        contacts = self.find_node(root, "dialer_contact_list")
+        permission_hint = self.find_text_containing(root, "允许访问联系人以查找姓名和号码")
+        contacts_ok = (contacts is not None and self.node_is_on_screen(contacts) and
+                       permission_hint is not None and self.node_is_on_screen(permission_hint))
+        self.record("host_dialer_contacts", "pass" if contacts_ok else "fail",
+                    "contact candidate container is visible; contacts permission is not granted by this smoke" if contacts_ok
+                    else "dialer contact candidate container is missing or outside the viewport")
+        if not dialer_ok or not contacts_ok:
+            raise RuntimeError("Host dialer screen is missing keypad or contact-candidate controls")
+        self.shell("input", "keyevent", "KEYCODE_BACK", check=True, label="close_host_dialer")
+        root = self.wait_for_app_tree(
+            lambda tree: self.find_node(tree, "call_history_list") is not None and
+            self.find_node(tree, "tab_messages") is not None,
+            "host_call_history_after_dialer"
+        )
+
+        self.tap_id(root, "tab_messages")
+        root = self.wait_for_app_tree(lambda tree: self.find_node(tree, "sms_thread_list") is not None,
+                                      "host_sms_thread_list")
+        root = self.capture("host_sms_thread_list")
+        thread_list = self.find_node(root, "sms_thread_list")
+        sms_ok = thread_list is not None and self.node_has_positive_visible_bounds(thread_list)
+        self.record("host_sms_list", "pass" if sms_ok else "fail",
+                    "SMS tab exposes its independent thread-list container" if sms_ok
+                    else "SMS thread-list container is missing or outside the viewport")
+        if not sms_ok:
+            raise RuntimeError("Host SMS thread list did not open from the SMS tab")
+
+        self.tap_id(root, "tab_settings")
+        root = self.wait_for_app_tree(
+            lambda tree: self.find_node(tree, "pairing_server") is not None,
+            "host_settings_tab"
+        )
+        root = self.capture("host_settings_tab")
+        settings_title = self.find_text_node(root, "设置")
+        pairing = self.find_node(root, "pairing_server")
+        settings_ok = (settings_title is not None and self.node_is_on_screen(settings_title) and
+                       pairing is not None and self.node_is_on_screen(pairing))
+        self.record("host_settings_tab", "pass" if settings_ok else "fail",
+                    f"settings exposes the simplified pairing form={settings_ok}")
+        if not settings_ok:
+            raise RuntimeError("Host settings tab is missing the simplified pairing form")
+        root = self.ensure_node_visible(root, "sms_backup_archive_entry")
+        root = self.capture("host_settings_backup_entry")
+        backup = self.find_node(root, "sms_backup_archive_entry")
+        backup_ok = backup is not None and self.node_has_positive_visible_bounds(backup)
+        self.record("host_settings_backup", "pass" if backup_ok else "fail",
+                    "SMS backup entry is reachable from Settings" if backup_ok
+                    else "SMS backup entry is missing or outside the viewport")
+        if not backup_ok:
+            raise RuntimeError("SMS backup entry is not reachable from Settings")
 
     def open_settings_if_needed(self, root: ET.Element) -> ET.Element:
         server_id, _, trigger = self.app_specific_fields()
@@ -1515,8 +1647,12 @@ class Smoke:
         else:
             self.record("emulator_api_level", "fail", f"expected API 35, observed {device_info['sdk']!r}")
         self.check_apk_install()
+        if self.args.scenario == "host":
+            self.keep_contacts_permission_denied()
         self.launch()
         self.refuse_system_prompts()
+        if self.args.scenario == "host":
+            self.test_host_navigation()
         self.verify_and_enter_synthetic_data()
         self.test_rotation_and_ime_restore()
         self.test_fold_unfold()
@@ -1527,7 +1663,8 @@ class Smoke:
         if fatal:
             self.record("smoke_runner", "fail", fatal)
         reached = {item["name"] for item in self.results}
-        for name in EXPECTED_CHECKS:
+        expected_checks = EXPECTED_CHECKS + (HOST_NAVIGATION_CHECKS if self.args.scenario == "host" else ())
+        for name in expected_checks:
             if name not in reached:
                 self.record(name, "blocked", "check was not reached before smoke execution stopped")
         try:
@@ -1542,7 +1679,7 @@ class Smoke:
         result = {
             "overall": overall,
             "scenario": self.args.scenario,
-            "scope": "unpaired host UI and shared SMS backup screen" if self.args.scenario == "host"
+            "scope": "unpaired host tabs, pairing settings and shared SMS backup screen" if self.args.scenario == "host"
                      else "unpaired gateway UI and shared SMS backup screen",
             "device_profile": self.args.device_profile,
             "package": self.package,
@@ -1556,6 +1693,11 @@ class Smoke:
             "schema_version": 1,
             "scenario": self.args.scenario,
             "screenshots": self.screenshots,
+            "host_navigation_key_stages": [
+                name for name in ("host_call_history", "host_dialpad", "host_sms_thread_list",
+                                  "host_settings_tab", "host_settings_backup_entry")
+                if any(image["stage"] == name for image in self.screenshots)
+            ],
             "backup_key_stages": [
                 name for name in ("main-backup-entry-host" if self.args.scenario == "host" else "main-backup-entry-gateway",
                                   "backup-overview", "backup-json-warning", "backup-xml-warning", "backup-password", "backup-rotation-landscape",
@@ -1571,16 +1713,21 @@ class Smoke:
         summary = [f"# Android UI smoke: {overall.upper()}", "", f"- Scenario: `{self.args.scenario}`",
                    f"- Scope: {result['scope']}", f"- Device profile: `{self.args.device_profile}` (API 35 expected)",
                    "- Only the generated synthetic SMS Backup & Restore fixture is imported into the local read-only archive; no real session or call is created, and nothing is sent or written to the system SMS provider.",
-                   "- Rotation, fold, and cutout checks use the visible backup screen and synthetic-only inputs.",
+                   "- Host UI navigation covers the phone-history, dialpad, SMS-thread, and settings tabs; pairing and SMS draft fields use synthetic text only.",
+                   "- Rotation, fold, and cutout checks use the visible settings/backup screens and synthetic-only inputs.",
                    f"- Screenshot manifest: `screenshot_manifest.json` ({len(self.screenshots)} captured stages)",
                    f"- Package: `{self.package}`", f"- Device: `{self.serial}`", "", "| Check | Result | Evidence |",
                    "|---|---|---|"]
         summary.extend(f"| {item['name']} | {item['status']} | {item['detail'].replace('|', '/')} |"
                        for item in self.results)
-        summary.extend(["", "## Backup screenshots", ""])
-        summary.extend(f"- `{stage['stage']}.png` and `{stage['ui_hierarchy']}`"
-                       for stage in self.screenshots if stage["stage"].startswith("backup-") or
-                       stage["stage"].startswith("main-backup-entry-"))
+        summary.extend(["", "## UI screenshots", ""])
+        for stage in self.screenshots:
+            if (stage["stage"].startswith("host_") or stage["stage"].startswith("backup-") or
+                    stage["stage"].startswith("main-backup-entry-")):
+                summary.extend([
+                    f"### {stage['stage']}", f"![{stage['stage']}]({stage['png']})",
+                    f"[UI hierarchy]({stage['ui_hierarchy']})", "",
+                ])
         summary_text = "\n".join(summary) + "\n"
         (self.artifacts / "summary.md").write_text(summary_text, encoding="utf-8")
         step_summary = os.environ.get("GITHUB_STEP_SUMMARY")

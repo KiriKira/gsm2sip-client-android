@@ -14,6 +14,25 @@ internal object HostBackgroundPolicy {
 
     fun shouldRestore(enabled: Boolean, pairedClient: Boolean): Boolean = enabled && pairedClient
 
+    fun shouldEnablePairedBinding(
+        pairedClient: Boolean,
+        bindingMatches: Boolean,
+        enabled: Boolean,
+        systemTaskStopped: Boolean
+    ): Boolean = pairedClient && (!bindingMatches || !enabled || systemTaskStopped)
+
+    /** A paired session starts only from a visible focused Activity, except for an already-running service. */
+    fun shouldStartForPairedSession(
+        pairedClient: Boolean,
+        activityFocused: Boolean,
+        bindingMatches: Boolean,
+        enabled: Boolean,
+        systemTaskStopped: Boolean,
+        serviceRunning: Boolean
+    ): Boolean = pairedClient && activityFocused && (
+        !bindingMatches || !enabled || systemTaskStopped || (enabled && !serviceRunning)
+    )
+
     fun isHistoricalBaseline(cursorPresent: Boolean, bootstrapped: Boolean, baselineInProgress: Boolean): Boolean =
         baselineInProgress || (!cursorPresent && !bootstrapped)
 
@@ -42,6 +61,34 @@ internal object HostBackgroundPolicy {
     }
 }
 
+/** Prevents rapid focused-Activity callbacks from enqueueing duplicate service starts. */
+internal class BackgroundStartRequests {
+    private var requestedStamp: String? = null
+
+    @Synchronized
+    fun isPending(stamp: String): Boolean = requestedStamp == stamp
+
+    @Synchronized
+    fun request(stamp: String) {
+        requestedStamp = stamp
+    }
+
+    @Synchronized
+    fun onStarted(stamp: String) {
+        if (requestedStamp == stamp) requestedStamp = null
+    }
+
+    @Synchronized
+    fun onRejected(stamp: String? = null) {
+        if (stamp == null || requestedStamp == stamp) requestedStamp = null
+    }
+
+    @Synchronized
+    fun onStopped(stamp: String?) {
+        if (stamp != null && requestedStamp == stamp) requestedStamp = null
+    }
+}
+
 internal fun isCurrentBackgroundSession(expected: HostSession, current: HostSession?): Boolean =
     current != null && expected.sameSessionInstance(current)
 
@@ -54,4 +101,3 @@ internal fun hostWakeWebSocketUrl(configuredBase: String): String {
     val normalized = if (base.encodedPath.trimEnd('/').endsWith("/v1")) base else base.newBuilder().addPathSegment("v1").build()
     return normalized.newBuilder().addPathSegment("ws").build().toString().replaceFirst("https://", "wss://")
 }
-
