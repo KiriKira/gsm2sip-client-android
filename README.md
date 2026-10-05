@@ -1,5 +1,7 @@
 # gsm2sip-client-android
 
+[自动构建与 Release、固定签名配置](docs/releases.md)：`main` 推送发布预览版，版本标签发布正式版；首次发布前运行签名 Secrets 配置脚本。
+
 Android host app for controlling SMS through the two SIMs in a separate Android gateway phone (SMS-only operation needs no root). The first implementation provides HTTPS pairing and token refresh, a Material 3 Expressive UI, a cached two-SIM status screen, per-line inboxes and replies, SMS submission and delivery status, and a local task ledger for safe recovery after timeouts.
 
 The app now includes a pinned PJSUA2 SIP SDK, self-managed Telecom calls, CallStyle notifications, mute/DTMF/audio routing and server-authorized remote call intents. Calling requires configured server/gateway voice capability; real dual-SIM audio remains a device acceptance gate. It does not read or send SMS through the host phone or fall back to the host carrier dialer.

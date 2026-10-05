@@ -1,0 +1,282 @@
+name: Signed Android releases
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the release after a successful signed build. Non-main refs are always build-only.
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify signed APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      publish_enabled: ${{ steps.release_meta.outputs.publish_enabled }}
+      sign_release: ${{ steps.release_meta.outputs.sign_release }}
+      release_tag: ${{ steps.release_meta.outputs.release_tag }}
+      release_name: ${{ steps.release_meta.outputs.release_name }}
+      prerelease: ${{ steps.release_meta.outputs.prerelease }}
+      release_kind: ${{ steps.release_meta.outputs.release_kind }}
+      version_code: ${{ steps.release_meta.outputs.version_code }}
+      version_name: ${{ steps.release_meta.outputs.version_name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install Android SDK 35 build tools
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+
+      - name: Test release signing and publishing tools
+        run: python3 -m unittest discover -s scripts -p 'test_*release*.py'
+
+      - name: Resolve release metadata and publication policy
+        id: release_meta
+        env:
+          PUBLISH_INPUT: ${{ inputs.publish }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha7="${GITHUB_SHA:0:7}"
+          version_code="$((10000 + GITHUB_RUN_NUMBER))"
+          if (( version_code < 1 || version_code > 2100000000 )); then
+            echo "::error::Computed Android versionCode is outside the supported range 1..2100000000."
+            exit 1
+          fi
+          build_tag="build-${GITHUB_RUN_NUMBER}-${sha7}"
+          build_version_name="0.3.0-${build_tag}"
+          sign_release=true
+          publish_enabled=false
+          prerelease=false
+          release_kind=validation
+          release_tag="$build_tag"
+          release_name="$build_tag"
+          version_name="$build_version_name"
+
+          case "${GITHUB_EVENT_NAME}:${GITHUB_REF}" in
+            push:refs/heads/main)
+              publish_enabled=true
+              prerelease=true
+              release_kind=prerelease
+              ;;
+            push:refs/tags/v*)
+              release_tag="$GITHUB_REF_NAME"
+              release_name="$GITHUB_REF_NAME"
+              version_name="$GITHUB_REF_NAME"
+              release_kind=stable
+              publish_enabled=true
+              ;;
+            workflow_dispatch:refs/heads/main)
+              release_kind=prerelease
+              prerelease=true
+              if [[ "$PUBLISH_INPUT" == "true" ]]; then
+                publish_enabled=true
+              fi
+              ;;
+            workflow_dispatch:*)
+              sign_release=false
+              release_kind=validation
+              echo "::notice::Manual runs outside main, including tag refs, are build-only; release signing and publication are disabled."
+              ;;
+            *)
+              echo "::error::Unsupported release workflow ref: ${GITHUB_EVENT_NAME}:${GITHUB_REF}"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "publish_enabled=$publish_enabled"
+            echo "sign_release=$sign_release"
+            echo "release_tag=$release_tag"
+            echo "release_name=$release_name"
+            echo "prerelease=$prerelease"
+            echo "release_kind=$release_kind"
+            echo "version_code=$version_code"
+            echo "version_name=$version_name"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Release signing: $sign_release"
+          echo "Release publication: $publish_enabled"
+          echo "Release tag: $release_tag"
+          echo "Android version: $version_name ($version_code)"
+
+      - name: Decode permanent release keystore
+        if: steps.release_meta.outputs.sign_release == 'true'
+        env:
+          GSM_RELEASE_KEYSTORE_BASE64: ${{ secrets.GSM_RELEASE_KEYSTORE_BASE64 }}
+          GSM_RELEASE_STORE_PASSWORD: ${{ secrets.GSM_RELEASE_STORE_PASSWORD }}
+          GSM_RELEASE_KEY_ALIAS: ${{ secrets.GSM_RELEASE_KEY_ALIAS }}
+          GSM_RELEASE_KEY_PASSWORD: ${{ secrets.GSM_RELEASE_KEY_PASSWORD }}
+          GSM_RELEASE_CERT_SHA256: ${{ vars.GSM_RELEASE_CERT_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import base64
+          import os
+          import pathlib
+          import re
+          import sys
+
+          required = (
+              "GSM_RELEASE_KEYSTORE_BASE64",
+              "GSM_RELEASE_STORE_PASSWORD",
+              "GSM_RELEASE_KEY_ALIAS",
+              "GSM_RELEASE_KEY_PASSWORD",
+              "GSM_RELEASE_CERT_SHA256",
+          )
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              print("::error::Signed release build is missing required Actions secrets/variable: " + ", ".join(missing))
+              sys.exit(1)
+
+          fingerprint = os.environ["GSM_RELEASE_CERT_SHA256"].strip().lower().replace(":", "")
+          if not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+              print("::error::GSM_RELEASE_CERT_SHA256 must be a 64-hex SHA-256 fingerprint, optionally colon-separated.")
+              sys.exit(1)
+
+          encoded = "".join(os.environ["GSM_RELEASE_KEYSTORE_BASE64"].split())
+          try:
+              keystore_bytes = base64.b64decode(encoded, validate=True)
+          except (ValueError, base64.binascii.Error) as exc:
+              print(f"::error::GSM_RELEASE_KEYSTORE_BASE64 is not valid base64: {exc}")
+              sys.exit(1)
+          if not keystore_bytes:
+              print("::error::GSM_RELEASE_KEYSTORE_BASE64 decoded to an empty keystore.")
+              sys.exit(1)
+
+          key_path = pathlib.Path(os.environ["RUNNER_TEMP"]) / "gsm2sip-release-signing.jks"
+          key_path.write_bytes(keystore_bytes)
+          key_path.chmod(0o600)
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as github_env:
+              github_env.write(f"GSM_RELEASE_STORE_FILE={key_path}\n")
+          print("Decoded the configured release keystore into the runner temporary directory.")
+          PY
+
+      - name: Assemble, unit test, and lint debug variant
+        env:
+          GSM_RELEASE_VERSION_CODE: ${{ steps.release_meta.outputs.version_code }}
+          GSM_RELEASE_VERSION_NAME: ${{ steps.release_meta.outputs.version_name }}
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --max-workers=2
+
+      - name: Assemble signed release variant
+        if: steps.release_meta.outputs.sign_release == 'true'
+        env:
+          GSM_RELEASE_STORE_PASSWORD: ${{ secrets.GSM_RELEASE_STORE_PASSWORD }}
+          GSM_RELEASE_KEY_ALIAS: ${{ secrets.GSM_RELEASE_KEY_ALIAS }}
+          GSM_RELEASE_KEY_PASSWORD: ${{ secrets.GSM_RELEASE_KEY_PASSWORD }}
+          GSM_RELEASE_VERSION_CODE: ${{ steps.release_meta.outputs.version_code }}
+          GSM_RELEASE_VERSION_NAME: ${{ steps.release_meta.outputs.version_name }}
+        run: ./gradlew :app:assembleRelease --no-daemon --max-workers=2
+
+      - name: Validate APK and create checksummed release payload
+        if: steps.release_meta.outputs.sign_release == 'true'
+        env:
+          GSM_RELEASE_CERT_SHA256: ${{ vars.GSM_RELEASE_CERT_SHA256 }}
+          RELEASE_TAG: ${{ steps.release_meta.outputs.release_tag }}
+          RELEASE_KIND: ${{ steps.release_meta.outputs.release_kind }}
+          RELEASE_VERSION_CODE: ${{ steps.release_meta.outputs.version_code }}
+          RELEASE_VERSION_NAME: ${{ steps.release_meta.outputs.version_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_tools="$ANDROID_HOME/build-tools/35.0.0"
+          apkanalyzer="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer -perm -u+x -print -quit)"
+          if [[ -z "$apkanalyzer" ]]; then
+            echo "::error::Android SDK apkanalyzer was not found under $ANDROID_HOME/cmdline-tools."
+            exit 1
+          fi
+          python3 scripts/verify-release-artifact.py \
+            --apk app/build/outputs/apk/release/app-release.apk \
+            --aapt "$sdk_tools/aapt" \
+            --apkanalyzer "$apkanalyzer" \
+            --apksigner "$sdk_tools/apksigner" \
+            --zipalign "$sdk_tools/zipalign" \
+            --expected-cert-sha256 "$GSM_RELEASE_CERT_SHA256" \
+            --version-code "$RELEASE_VERSION_CODE" \
+            --version-name "$RELEASE_VERSION_NAME" \
+            --source-commit "$GITHUB_SHA" \
+            --release-tag "$RELEASE_TAG" \
+            --release-kind "$RELEASE_KIND" \
+            --output-dir artifacts/release-bundle/payload
+
+      - name: Stage no-checkout publisher helper
+        if: steps.release_meta.outputs.sign_release == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/release-bundle/tools
+          if [[ ! -f scripts/publish-github-release.py ]]; then
+            echo "::error::Shared release publisher helper scripts/publish-github-release.py is missing."
+            exit 1
+          fi
+          cp scripts/publish-github-release.py artifacts/release-bundle/tools/publish-github-release.py
+
+      - name: Upload verified release bundle
+        if: steps.release_meta.outputs.sign_release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: gsm2sip-signed-release-bundle
+          path: artifacts/release-bundle/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    if: >-
+      needs.build.outputs.publish_enabled == 'true' &&
+      ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))) ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish == true))
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download verified release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: gsm2sip-signed-release-bundle
+          path: release-artifact
+
+      - name: Publish release bundle without checking out source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.build.outputs.release_name }}
+          RELEASE_PRERELEASE: ${{ needs.build.outputs.prerelease }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          publish_args=(
+            --directory release-artifact/payload
+            --tag "$RELEASE_TAG"
+            --commit "$SOURCE_COMMIT"
+            --name "$RELEASE_NAME"
+          )
+          if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+            publish_args+=(--prerelease)
+          fi
+          python3 release-artifact/tools/publish-github-release.py "${publish_args[@]}"
