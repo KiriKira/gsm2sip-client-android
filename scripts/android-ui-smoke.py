@@ -108,6 +108,13 @@ class Smoke:
         permission_name = "android.permission.READ_CONTACTS"
 
         def runtime_permission_state() -> bool | None:
+            # PackageManager DumpHelper supports this on API 35 even when a
+            # fresh install has no entries in its runtime-permission dump.
+            result = self.shell("dumpsys", "package", "check-permission",
+                                permission_name, self.package, "0",
+                                label="check_contacts_effective_permission")
+            if result.strip() in {"0", "-1"}:
+                return result.strip() == "0"
             package_dump = self.shell("dumpsys", "package", self.package,
                                       label="inspect_contacts_runtime_permission")
             match = re.search(
