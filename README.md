@@ -48,3 +48,5 @@ and notification delivery still requires user opt-in, permissions and network/OS
 See the [feature gaps and weak-network audit](https://github.com/KiriKira/gsm2sip-server/blob/codex/control-plane-foundation/docs/network-and-feature-status.md).
 
 主机 UI 重构的原始截图、验证状态和自动报告见 [截图与验证](docs/ui-redesign-verification/README.md)。
+
+两端 UI 与 Magisk 测试所用 GitHub Actions + KVM Android Emulator 的启动、取消、截图下载、复用模板和费用说明，见 [Android 虚拟机使用指南](https://github.com/KiriKira/gsm2sip/blob/main/docs/android-virtual-machine.md)。
