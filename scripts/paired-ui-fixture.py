@@ -352,18 +352,27 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         if destination_value:
             destination = self.require_node(root, "dialer_destination", "Dialer destination field")
             self.tap_node(destination, "clear_prefilled_dialer_destination")
-            self.shell("input", "keyevent", "KEYCODE_MOVE_END", check=True,
-                       label="move_to_end_of_history_number")
-            for index in range(len(destination_value)):
-                self.shell("input", "keyevent", "KEYCODE_DEL", check=True,
-                           label=f"delete_history_number_digit_{index}")
+            # The emulator occasionally drops a key event, so delete what is
+            # still visible and re-read the field, a bounded number of times.
+            remaining = destination_value
+            for clear_round in range(3):
+                self.shell("input", "keyevent", "KEYCODE_MOVE_END", check=True,
+                           label=f"move_to_end_of_history_number_{clear_round}")
+                for index in range(len(remaining)):
+                    self.shell("input", "keyevent", "KEYCODE_DEL", check=True,
+                               label=f"delete_history_number_digit_{clear_round}_{index}")
+                root = self.capture(f"paired_dialpad_clearing_{clear_round}")
+                # API 35 UIAutomator reports an empty Material field's hint as its text.
+                remaining = self.field_text(root, "dialer_destination") or ""
+                if remaining in ("", DIALER_DESTINATION_HINT):
+                    remaining = ""
+                    break
             # BACK only hides a visible keyboard; without one it would leave the dialer.
             if self._ime_visible()[0]:
                 self.shell("input", "keyevent", "KEYCODE_BACK", label="hide_dialer_ime_before_keypad")
                 self.wait(1)
             root = self.capture("paired_dialpad_cleared")
-            # API 35 UIAutomator reports an empty Material field's hint as its text.
-            if self.field_text(root, "dialer_destination") not in ("", DIALER_DESTINATION_HINT):
+            if remaining or self.field_text(root, "dialer_destination") not in ("", DIALER_DESTINATION_HINT):
                 raise RuntimeError("Could not clear the synthetic history number before direct keypad test")
 
         for resource_id in ("keypad_1", "keypad_2", "keypad_3"):
