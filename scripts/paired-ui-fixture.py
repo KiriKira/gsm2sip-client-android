@@ -357,7 +357,10 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
             for index in range(len(destination_value)):
                 self.shell("input", "keyevent", "KEYCODE_DEL", check=True,
                            label=f"delete_history_number_digit_{index}")
-            self.shell("input", "keyevent", "KEYCODE_BACK", label="hide_dialer_ime_before_keypad")
+            # BACK only hides a visible keyboard; without one it would leave the dialer.
+            if self._ime_visible()[0]:
+                self.shell("input", "keyevent", "KEYCODE_BACK", label="hide_dialer_ime_before_keypad")
+                self.wait(1)
             root = self.capture("paired_dialpad_cleared")
             # API 35 UIAutomator reports an empty Material field's hint as its text.
             if self.field_text(root, "dialer_destination") not in ("", DIALER_DESTINATION_HINT):
