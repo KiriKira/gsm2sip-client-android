@@ -617,9 +617,11 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         root = self.wait_for_app_tree(lambda tree: self.find_node(tree, "tab_settings") is not None,
                                       "settings_after_new_message")
         root = self.tap_tab(root, "tab_settings", "设置", "paired_settings")
+        # The backup entry can sit below the fold (it is scrolled to further down),
+        # so wait for the top of Settings instead.
         root = self.wait_for_app_tree(
             lambda tree: self.find_text_node(tree, "设置") is not None and
-            self.find_node(tree, "sms_backup_archive_entry") is not None,
+            self.find_node(tree, "settings_device_list") is not None,
             "paired_settings"
         )
         root = self.capture("paired_settings")
