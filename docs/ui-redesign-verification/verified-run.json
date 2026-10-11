@@ -1,0 +1,423 @@
+{
+  "schema_version": 1,
+  "overall": "pass",
+  "generated_at_utc": "2026-10-11T13:07:07Z",
+  "source_commit": "245bfab51e1559b0101a4da326750f9d7496db94",
+  "repository": "KiriKira/gsm2sip-client-android",
+  "run_id": "38141062274",
+  "artifact": {
+    "id": "11703441850",
+    "digest": "sha256:636764c000dcb40674130304e61c2a1cde0e12ed96430a7bc6a5e9ef634815e9"
+  },
+  "apk": {
+    "filename": "app-debug.apk",
+    "sha256": "866027c7a46599f02c54f5c443e30782b8e23f65e0be8ded0ccaec6b635c6b7b",
+    "size_bytes": 19615133
+  },
+  "results": {
+    "unpaired": {
+      "path": "results.json",
+      "overall": "pass"
+    },
+    "paired": {
+      "path": "paired-fixture/results.json",
+      "status": "pass",
+      "fixture_manifest_overall": "pass",
+      "fixture_active_call_ui": "pass"
+    }
+  },
+  "result_files": [
+    {
+      "path": "results.json",
+      "sha256": "f482b4b88f7f674bc6ef1f72b2583e22cf249b21b9e758e0e3713661fd252cab",
+      "size_bytes": 9383
+    },
+    {
+      "path": "screenshot_manifest.json",
+      "sha256": "b8b629e0596a12afb2cb25b2816af56dfeb822fb786b3a125680657449a2b335",
+      "size_bytes": 18623
+    },
+    {
+      "path": "paired-fixture/results.json",
+      "sha256": "2d6bd7095a0c68ce3e6c57924897ca28df76881c9d70b2eb4394a45061e23eb4",
+      "size_bytes": 18791
+    },
+    {
+      "path": "paired-fixture/fixture_manifest.json",
+      "sha256": "c78268e44b351e713228ee4d077a8821a41adb9cf4988612ee43052cc01b4490",
+      "size_bytes": 15922
+    }
+  ],
+  "screenshots": [
+    {
+      "category": "未配对界面",
+      "description": "三标签导航",
+      "source": "host_navigation_initial.png",
+      "path": "images/host_navigation_initial.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 98892,
+      "sha256": "3ac1db7d476a0005c833ac6d633d2b239b800b2de89d40db082d7405b282137a"
+    },
+    {
+      "category": "电话与拨号",
+      "description": "未配对电话记录页",
+      "source": "host_call_history.png",
+      "path": "images/host_call_history.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 97617,
+      "sha256": "061e0fc0a1eb9d770da3077f7cd6890032aa105a927e27c6e7c0abee436e9290"
+    },
+    {
+      "category": "电话与拨号",
+      "description": "独立拨号键盘",
+      "source": "host_dialpad.png",
+      "path": "images/host_dialpad.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 127431,
+      "sha256": "e21d438e5a63e647bcf0ce4bc45d155b6daa1f9cc112d329b267e0c18c93879a"
+    },
+    {
+      "category": "短信",
+      "description": "短信会话列表",
+      "source": "host_sms_thread_list.png",
+      "path": "images/host_sms_thread_list.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 96898,
+      "sha256": "e1e65e2d7c2220ccc83648033c3e50aefd526c57cf5bc719b75d8afec4be08c2"
+    },
+    {
+      "category": "设置",
+      "description": "设置与配对表单",
+      "source": "host_settings_tab.png",
+      "path": "images/host_settings_tab.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 146505,
+      "sha256": "840872b187aefdf1b880d8a34d3d39a0fdb86f6f0e06f607507ba756fab69ff0"
+    },
+    {
+      "category": "设置",
+      "description": "设置中的短信备份入口",
+      "source": "host_settings_backup_entry.png",
+      "path": "images/host_settings_backup_entry.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 152449,
+      "sha256": "4946227b600c09d91c00659717e1a4d50a683ca839a90f8bb87c30efae96f41d"
+    },
+    {
+      "category": "窗口适配",
+      "description": "主界面合拢窗口",
+      "source": "folded_ui.png",
+      "path": "images/folded_ui.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 162586,
+      "sha256": "bba25325823955dfeedca977e69f33098ad7af344f017ab3130c5eaf2b182d63"
+    },
+    {
+      "category": "窗口适配",
+      "description": "主界面展开窗口",
+      "source": "unfolded_ui.png",
+      "path": "images/unfolded_ui.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 162591,
+      "sha256": "63f7aac8d6b702bf99b73f84bcf417fe1e0a63e1543c7cb3c49b06f9a1bb8663"
+    },
+    {
+      "category": "窗口适配",
+      "description": "显示挖孔时的主界面",
+      "source": "hole_cutout_enabled.png",
+      "path": "images/hole_cutout_enabled.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 148820,
+      "sha256": "20386103bb4a96d2730e3c134b239468f50fd4e7e3b4d74cc85b947f2e359288"
+    },
+    {
+      "category": "短信备份",
+      "description": "滚动后可见的备份入口",
+      "source": "main-backup-entry-host.png",
+      "path": "images/main-backup-entry-host.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 137546,
+      "sha256": "b3c9a4d416afcdb3f328932d7e4367e6474ea983764c9d2df78da3ad3eafb5dc"
+    },
+    {
+      "category": "短信备份",
+      "description": "短信备份与归档页面",
+      "source": "backup-overview.png",
+      "path": "images/backup-overview.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 235627,
+      "sha256": "4d279f4c925dfb22b65da7abe1e579e5a26936e025732e19283dc2100230f055"
+    },
+    {
+      "category": "短信备份",
+      "description": "备份页面横屏",
+      "source": "backup-rotation-landscape.png",
+      "path": "images/backup-rotation-landscape.png",
+      "width": 2208,
+      "height": 1768,
+      "size_bytes": 233437,
+      "sha256": "a6f431ccd1944b77e27f86baed8f2eef100fb51d877b17d775a5f1583864c071"
+    },
+    {
+      "category": "短信备份",
+      "description": "备份页面竖屏",
+      "source": "backup-rotation-portrait.png",
+      "path": "images/backup-rotation-portrait.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 237216,
+      "sha256": "2b3e551c37741b45280e257d2d24ce394a515c71f16a193362ccf8dcf9d85dd4"
+    },
+    {
+      "category": "短信备份",
+      "description": "备份页面合拢",
+      "source": "backup-folded.png",
+      "path": "images/backup-folded.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 249095,
+      "sha256": "2c6b6280a80460d3cd3502926aa18f8434b1bc10e41baae2ed5117e745f4917f"
+    },
+    {
+      "category": "短信备份",
+      "description": "备份页面展开",
+      "source": "backup-unfolded.png",
+      "path": "images/backup-unfolded.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 237225,
+      "sha256": "090453e94e8a3498c737714dddde6708b7c1070bd765bf5c95c708cb52509357"
+    },
+    {
+      "category": "短信备份",
+      "description": "挖孔安全区中的备份页面",
+      "source": "backup-cutout.png",
+      "path": "images/backup-cutout.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 237225,
+      "sha256": "090453e94e8a3498c737714dddde6708b7c1070bd765bf5c95c708cb52509357"
+    },
+    {
+      "category": "短信备份",
+      "description": "合成短信归档导入预览",
+      "source": "backup-import-preview.png",
+      "path": "images/backup-import-preview.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 259105,
+      "sha256": "619d84845878d53a592bec597e68de8b79ef57c7985cac9b05e98abc9d2bded3"
+    },
+    {
+      "category": "短信备份",
+      "description": "导入后的归档历史",
+      "source": "backup-imported-history.png",
+      "path": "images/backup-imported-history.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 277652,
+      "sha256": "ef1bedcad67e3a37ef50b3c6ab45756a0fe02e581e36ce2ef13759099414d4e5"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "配对状态下的三标签",
+      "source": "paired-fixture/paired_three_tabs.png",
+      "path": "images/paired-fixture/paired_three_tabs.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 144062,
+      "sha256": "ddd4833d0ca0e0ad9ba98b66df1ad3e329312cd949a8cd5ecd5845b0d36e0b93"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "双 SIM 合成通话记录",
+      "source": "paired-fixture/paired_call_history.png",
+      "path": "images/paired-fixture/paired_call_history.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 137467,
+      "sha256": "c84ca659e76b317fdf557f7ca80a816b3fd5ac387285499eba5d1a4e0bf10b77"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "从通话记录预填号码的拨号页",
+      "source": "paired-fixture/paired_dialpad_from_history.png",
+      "path": "images/paired-fixture/paired_dialpad_from_history.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 141017,
+      "sha256": "c1613da0067cc5e3cbf07f0f61ff10430a211048ef4443f0793a249975abb2d5"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "配对状态下的独立拨号键盘",
+      "source": "paired-fixture/paired_dialpad.png",
+      "path": "images/paired-fixture/paired_dialpad.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 141017,
+      "sha256": "c1613da0067cc5e3cbf07f0f61ff10430a211048ef4443f0793a249975abb2d5"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "三条合成短信会话",
+      "source": "paired-fixture/paired_sms_threads.png",
+      "path": "images/paired-fixture/paired_sms_threads.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 184849,
+      "sha256": "63acce9f87a5c831b9b8fac4d7f15859d5c91446a82affc2ccc378211b961aff"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "合拢窗口中的短信会话",
+      "source": "paired-fixture/paired_sms_threads_folded.png",
+      "path": "images/paired-fixture/paired_sms_threads_folded.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 159827,
+      "sha256": "6a93423ea126d911dd6d25bdc9e594d7d296d36e8edfdf48ad886061f150dfc8"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "展开窗口中的短信会话",
+      "source": "paired-fixture/paired_sms_threads_unfolded.png",
+      "path": "images/paired-fixture/paired_sms_threads_unfolded.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 184849,
+      "sha256": "63acce9f87a5c831b9b8fac4d7f15859d5c91446a82affc2ccc378211b961aff"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "既有短信对话与回复框",
+      "source": "paired-fixture/paired_sms_conversation.png",
+      "path": "images/paired-fixture/paired_sms_conversation.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 74012,
+      "sha256": "9d1a1633728eadf80520410f4fef4335b46e7b65a794d908611085c7cd761703"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "新短信编辑页",
+      "source": "paired-fixture/paired_new_message.png",
+      "path": "images/paired-fixture/paired_new_message.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 67016,
+      "sha256": "870f087be503bf00b35f157cd57bd16b3828fe58f0982c7a273bb6a7f95957c9"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "选择 SIM 2 的新短信页",
+      "source": "paired-fixture/paired_new_message_sim_b.png",
+      "path": "images/paired-fixture/paired_new_message_sim_b.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 67388,
+      "sha256": "dd6de569337d6493e829fe94b3faaca2bf0aaf3c4374bca4e3cf2a05bd3a7c20"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "横屏且键盘显示时的短信草稿",
+      "source": "paired-fixture/paired_new_message_landscape.png",
+      "path": "images/paired-fixture/paired_new_message_landscape.png",
+      "width": 2208,
+      "height": 1768,
+      "size_bytes": 157201,
+      "sha256": "2706a69bc03fc902d81b5221ab6def246da91c2d9df16f45f30b18ca1c8fbffd"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "合拢窗口中的短信草稿",
+      "source": "paired-fixture/paired_new_message_folded.png",
+      "path": "images/paired-fixture/paired_new_message_folded.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 154209,
+      "sha256": "4aeba0c6df57493cdf3df73a5d73224a758b3365ab0acbabf850643ec4fc6534"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "展开窗口中的短信草稿",
+      "source": "paired-fixture/paired_new_message_unfolded.png",
+      "path": "images/paired-fixture/paired_new_message_unfolded.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 154158,
+      "sha256": "0ee89cceb3ec0872963d49c45ce9fbb0f67b8920d40ef19ba1dbb062b5ff17db"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "配对状态下的设置",
+      "source": "paired-fixture/paired_settings.png",
+      "path": "images/paired-fixture/paired_settings.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 212553,
+      "sha256": "e0cbde200efe93bdb7dbd5a4b256eef93aa71a4dccaab5ac5a52b06cb3c16e4e"
+    },
+    {
+      "category": "配对数据界面",
+      "description": "配对设置中的短信备份入口",
+      "source": "paired-fixture/paired_settings_backup.png",
+      "path": "images/paired-fixture/paired_settings_backup.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 189098,
+      "sha256": "2f19064dcef770fc8efd3f0c784bd3c0eddd983eee47c643e592a9f453070c64"
+    },
+    {
+      "category": "合成通话界面",
+      "description": "合成出站呼叫准备界面",
+      "source": "paired-fixture/call-synthetic-dialing.png",
+      "path": "images/paired-fixture/call-synthetic-dialing.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 51346,
+      "sha256": "0cea98328a7d1519bbc21790a73ff1b4b21be42c76966fc7f2a20edfc4de83e1"
+    },
+    {
+      "category": "合成通话界面",
+      "description": "合成通话中界面",
+      "source": "paired-fixture/call-synthetic-active.png",
+      "path": "images/paired-fixture/call-synthetic-active.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 61394,
+      "sha256": "23d14ac3191221bbb11f3a26bcc686d0100bb0b67fc31eab1bf9e38ca922c600"
+    },
+    {
+      "category": "合成通话界面",
+      "description": "合成通话键盘界面",
+      "source": "paired-fixture/call-synthetic-keypad.png",
+      "path": "images/paired-fixture/call-synthetic-keypad.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 73230,
+      "sha256": "de912c0e5d06a8ba731616de463521f65bafc991e34019a9c8f29958d2c85ffe"
+    },
+    {
+      "category": "合成通话界面",
+      "description": "合成来电界面",
+      "source": "paired-fixture/call-synthetic-incoming.png",
+      "path": "images/paired-fixture/call-synthetic-incoming.png",
+      "width": 1768,
+      "height": 2208,
+      "size_bytes": 60571,
+      "sha256": "24350724808aafe74448c33c5287f514b441542f1bc71c26a98912f4836d64c9"
+    }
+  ]
+}
