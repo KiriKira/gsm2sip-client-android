@@ -638,8 +638,9 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         paired_host = self.find_text_containing(root, "SYNTHETIC Tablet Host")
         if paired_host is None or not self.node_is_on_screen(paired_host):
             root = self.fixture_ensure_visible(root, text="SYNTHETIC Tablet Host", name="paired_settings_device_list")
-            root = self.capture("paired_settings_devices")
-            paired_host = self.find_text_containing(root, "SYNTHETIC Tablet Host")
+        # The stage below always cites this screenshot, so capture it even when no scroll was needed.
+        root = self.capture("paired_settings_devices")
+        paired_host = self.find_text_containing(root, "SYNTHETIC Tablet Host")
         devices_ok = paired_host is not None and self.node_is_on_screen(paired_host)
         self.record_fixture_stage("fixture_settings_devices", "paired_settings_devices", root,
                                   (),
