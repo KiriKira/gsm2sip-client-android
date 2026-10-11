@@ -6,8 +6,9 @@ The host app has three primary destinations: **电话**, **短信**, and **设�
 
 | Screen | Main content | Smoke anchors |
 |---|---|---|
+| Remote gateway status (top of Phone and Messages; full card in Settings) | Old-phone online/offline with last-seen time, battery and charging, voice readiness, and per-SIM signal bars, network type, roaming and confirmation problems. Tapping the compact strip opens Settings. A heartbeat older than 120 s is shown as offline and hides stale signal. | `gateway_status_card` |
 | Phone | Call-history rows; selecting one opens the dial pad with its number filled. The dial-pad floating button opens an empty dial pad. | `main_bottom_navigation`, `tab_phone`, `call_history_search`, `call_history_list`, `call_history_item`, `dialer_open` |
-| Dial pad | Destination, contact candidates, SIM selector, 3×4 keypad, and outbound button | `dialer_destination`, `dialer_contact_list`, `dialer_sim_selector`, `dialer_keypad`, `keypad_1` … `keypad_hash`, `dialer_call_button` |
+| Dial pad | Destination, contact candidates, SIM selector, 3×4 keypad, outbound button, and the reason calling is unavailable (not paired, server calling not configured, old phone offline, SIM awaiting confirmation, SIM revision changing) | `dialer_destination`, `dialer_contact_list`, `dialer_sim_selector`, `dialer_keypad`, `keypad_1` … `keypad_hash`, `dialer_call_button`, `dialer_readiness` |
 | Messages | SMS threads, latest message, and a SIM badge on each thread | `tab_messages`, `sms_thread_list`, `sms_thread_item`, `sms_thread_sim_badge`, `sms_compose_fab` |
 | Conversation/editor | Existing conversation shows the recipient in a read-only heading with reply fields; a new message adds a recipient input. SIM is selected here. | `sms_thread_header`, `sms_conversation_list`, new-message `sms_recipient`, `sms_thread_sim_selector`, `sms_body`, `sms_thread_send` |
 | Settings | Server pairing, paired-device state, notification/battery/contacts permissions, and SMS backup/archive entry | `tab_settings`, `pairing_server`, `pairing_code`, `pairing_device_name`, `sms_backup_archive_entry` |
@@ -44,3 +45,7 @@ Review the output Markdown and PNGs for these views:
 The app's shared SMS backup smoke also checks format warnings, password entry, rotation/fold/cutout layout, import preview, confirmation, imported history, and duplicate-import behavior using synthetic archive data.
 
 Successful main runs save original key PNGs, source/APK/artifact hashes and a Chinese Markdown gallery to [the UI verification report](ui-redesign-verification/README.md). Publication requires all UI checks to pass and the tested app and harness to still match main. The initial partial run remains documented separately.
+
+## Status feedback
+
+Outcomes such as "queued", "result unknown, safe to retry", "server unreachable, showing cache" and "SIM mapping changed" are shown once as a Snackbar above the bottom navigation. Each distinct message is announced once; the offline message clears after the next successful sync.

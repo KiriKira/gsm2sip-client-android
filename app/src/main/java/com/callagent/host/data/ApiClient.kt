@@ -100,7 +100,8 @@ class ApiClient(
                 state = item.optNullableString("state") ?: "unverified",
                 mappingRevision = item.optLong("mapping_revision", revision),
                 identityVerified = item.optBoolean("identity_verified", false),
-                serviceState = item.optNullableString("service_state")
+                serviceState = item.optNullableString("service_state"),
+                radio = SimRadio.fromJson(item.optJSONObject("radio"))
             )
         }
         return revision to lines

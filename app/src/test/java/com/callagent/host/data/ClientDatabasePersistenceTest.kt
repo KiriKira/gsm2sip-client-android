@@ -25,6 +25,24 @@ class ClientDatabasePersistenceTest {
     }
 
     @Test
+    fun versionOneCacheUpgradesAndKeepsSimRadioTelemetry() {
+        val name = testDatabaseName()
+        context.openOrCreateDatabase(name, Context.MODE_PRIVATE, null).use { legacy ->
+            legacy.execSQL("""CREATE TABLE sim_lines (sim_id TEXT PRIMARY KEY, slot_index INTEGER NOT NULL,
+                label TEXT NOT NULL, carrier_name TEXT, phone_number TEXT, state TEXT NOT NULL,
+                mapping_revision INTEGER NOT NULL, identity_verified INTEGER NOT NULL, service_state TEXT)""")
+            legacy.execSQL("INSERT INTO sim_lines VALUES ('sim-a',0,'Work',NULL,NULL,'active',3,1,'in_service')")
+            legacy.version = 1
+        }
+        val db = openDatabase(name)
+        assertNull(db.loadSims().single().radio)
+        val radio = SimRadio(2, "LTE", "Carrier", true, "2026-10-11T08:00:00Z")
+        db.replaceSims(listOf(db.loadSims().single().copy(radio = radio)))
+        db.close()
+        assertEquals(radio, openDatabase(name).loadSims().single().radio)
+    }
+
+    @Test
     fun appRestartKeepsTaskKeyAndExactPostBody() {
         val name = testDatabaseName()
         val task = task(localId = "local-1", key = "stable-retry-key")
