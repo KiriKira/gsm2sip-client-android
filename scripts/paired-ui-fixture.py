@@ -424,11 +424,17 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         if inbound is None or not self.node_is_on_screen(inbound):
             raise RuntimeError("Synthetic SIM 1 thread row is not visible to open")
         self.tap_node(inbound, "open_synthetic_sms_thread")
-        root = self.wait_for_app_tree(
-            lambda tree: self.find_node(tree, "sms_thread_header") is not None and
-            self.find_node(tree, "sms_conversation_list") is not None,
-            "paired_sms_conversation"
-        )
+        opened = lambda tree: (self.find_node(tree, "sms_thread_header") is not None and
+                               self.find_node(tree, "sms_conversation_list") is not None)
+        root = self.capture("paired_sms_conversation_after_tap")
+        if not opened(root):
+            # A tap that lands while the emulator settles after unfold can be lost; retry once.
+            self.wait(2)
+            root = self.capture("paired_sms_conversation_retry")
+            retry_row = self.find_text_containing(root, "SYNTHETIC UI fixture inbox preview")
+            if retry_row is not None and self.node_is_on_screen(retry_row) and not opened(root):
+                self.tap_node(retry_row, "open_synthetic_sms_thread_retry")
+        root = self.wait_for_app_tree(opened, "paired_sms_conversation")
         root = self.capture("paired_sms_conversation")
         thread_header = self.find_node(root, "sms_thread_header")
         conversation = self.find_node(root, "sms_conversation_list")

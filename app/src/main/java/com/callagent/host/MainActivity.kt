@@ -633,8 +633,18 @@ class MainActivity : AppCompatActivity() {
         return GatewayStatusView(this, status, compact,
             onClick = if (compact) ({ navigate(navigation.selectTab(HostTab.SETTINGS)) }) else null).apply {
             id = R.id.gateway_status_card
+            tag = compact
             layoutParams = fullWidthParams(bottom = 12)
         }
+    }
+
+    /** Replace only the visible status card, e.g. so "last seen" ages without rebuilding lists. */
+    private fun refreshGatewayStatusCard() {
+        val current = adaptiveHost?.findViewById<View>(R.id.gateway_status_card) ?: return
+        val parent = current.parent as? ViewGroup ?: return
+        val index = parent.indexOfChild(current)
+        parent.removeViewAt(index)
+        parent.addView(gatewayStatusCard(compact = current.tag as? Boolean ?: true), index)
     }
 
     private fun renderPhoneHome(content: LinearLayout) {
@@ -2251,7 +2261,9 @@ class MainActivity : AppCompatActivity() {
                         showPairing("配对会话已过期或被撤销，请重新配对此手机。")
                     } else {
                         statusMessage = "$OFFLINE_STATUS_PREFIX，当前显示缓存的旧手机、SIM 和短信。${apiFailureText(failure)}"
-                        showDashboard()
+                        // Cached data did not change; rebuilding the whole screen every
+                        // failed 30 s sync would flicker and drop taps. Only re-age the status card.
+                        refreshGatewayStatusCard()
                     }
                 }
             }
