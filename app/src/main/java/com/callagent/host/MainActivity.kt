@@ -823,10 +823,10 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
                 }
                 top.addView(peer, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                top.addView(body(formatHistoryTime(thread.latest.createdAt)))
+                top.addView(body(formatHistoryTime(thread.latest.createdAt), selectable = false))
                 textColumn.addView(top)
                 val summary = thread.latest.text.replace('\n', ' ').trim().ifBlank { SmsStatus.display(thread.latest.status) }
-                textColumn.addView(body(summary.take(90)).apply {
+                textColumn.addView(body(summary.take(90), selectable = false).apply {
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })
@@ -1166,7 +1166,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             row.addView(label(entry.name))
-            row.addView(body(entry.number))
+            row.addView(body(entry.number, selectable = false))
             list.addView(row)
             if (index < matching.lastIndex) list.addView(divider())
         }
@@ -1189,7 +1189,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             row.addView(label(entry.name))
-            row.addView(body(entry.number))
+            row.addView(body(entry.number, selectable = false))
             list.addView(row)
             if (index < visible.lastIndex) list.addView(divider())
         }
@@ -3089,12 +3089,13 @@ class MainActivity : AppCompatActivity() {
         setPadding(0, dp(8), 0, dp(4))
     }
 
-    private fun body(text: String): TextView = MaterialTextView(this).apply {
+    /** Body text; [selectable] must be false inside clickable rows, where selection would swallow the tap. */
+    private fun body(text: String, selectable: Boolean = true): TextView = MaterialTextView(this).apply {
         this.text = text
         setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
         setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
         setPadding(0, dp(4), 0, dp(6))
-        setTextIsSelectable(true)
+        setTextIsSelectable(selectable)
     }
 
     private fun messageCard(text: String, error: Boolean = false): View = MaterialCardView(this).apply {
