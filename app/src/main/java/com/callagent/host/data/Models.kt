@@ -53,7 +53,7 @@ fun PairedHost.pairingStateLabel(): String = when (state) {
     else -> state.replace('_', ' ').ifBlank { "状态未知" }
 }
 
-data class SimLine(
+data class SimLine @JvmOverloads constructor(
     val simId: String,
     val slotIndex: Int,
     val label: String,
@@ -62,7 +62,9 @@ data class SimLine(
     val state: String,
     val mappingRevision: Long,
     val identityVerified: Boolean,
-    val serviceState: String?
+    val serviceState: String?,
+    /** Latest radio observation the gateway reported for this SIM, if the server relays it. */
+    val radio: SimRadio? = null
 ) {
     val canSend: Boolean get() = state == "active" && identityVerified
 
@@ -78,6 +80,42 @@ data class SimLine(
         state == "removed" -> "removed"
         state == "unverified" -> "unverified"
         else -> state
+    }
+}
+
+/**
+ * Display-only radio telemetry for one gateway SIM. Values are whatever the old
+ * phone's Android reported; any member may be unknown. It never affects which
+ * SIM a task uses.
+ */
+data class SimRadio(
+    val signalLevel: Int?,
+    val networkType: String?,
+    val networkOperator: String?,
+    val roaming: Boolean?,
+    val updatedAt: String?
+) {
+    fun toJson(): JSONObject = JSONObject()
+        .put("signal_level", signalLevel ?: JSONObject.NULL)
+        .put("network_type", networkType ?: JSONObject.NULL)
+        .put("network_operator", networkOperator ?: JSONObject.NULL)
+        .put("roaming", roaming ?: JSONObject.NULL)
+        .put("updated_at", updatedAt ?: JSONObject.NULL)
+
+    companion object {
+        /** Parses the server's `radio` object; unknown or malformed members become null. */
+        fun fromJson(json: JSONObject?): SimRadio? {
+            if (json == null) return null
+            fun text(name: String, max: Int) = if (json.isNull(name)) null else json.optString(name)
+                .trim().takeIf { it.isNotEmpty() && it.length <= max && it.none(Char::isISOControl) }
+            return SimRadio(
+                signalLevel = if (json.isNull("signal_level")) null else json.optInt("signal_level", -1).takeIf { it in 0..4 },
+                networkType = text("network_type", 16),
+                networkOperator = text("network_operator", 64),
+                roaming = if (json.isNull("roaming") || !json.has("roaming")) null else json.optBoolean("roaming"),
+                updatedAt = text("updated_at", 64)
+            )
+        }
     }
 }
 

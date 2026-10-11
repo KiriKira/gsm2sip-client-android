@@ -8,7 +8,7 @@ import android.database.sqlite.SQLiteOpenHelper
 import org.json.JSONArray
 import java.util.UUID
 
-class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(context, databaseName, null, 1) {
+class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(context, databaseName, null, DATABASE_VERSION) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE gateway_state (
@@ -23,7 +23,7 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
               sim_id TEXT PRIMARY KEY, slot_index INTEGER NOT NULL, label TEXT NOT NULL,
               carrier_name TEXT, phone_number TEXT, state TEXT NOT NULL,
               mapping_revision INTEGER NOT NULL, identity_verified INTEGER NOT NULL,
-              service_state TEXT
+              service_state TEXT, radio_json TEXT
             )
         """.trimIndent())
         db.execSQL("""
@@ -46,7 +46,10 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         db.execSQL("CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // Version 2 caches the gateway's per-SIM radio telemetry for offline display.
+        if (oldVersion < 2) db.execSQL("ALTER TABLE sim_lines ADD COLUMN radio_json TEXT")
+    }
 
     @Synchronized
     fun saveGateway(gateway: GatewaySnapshot) {
@@ -86,6 +89,7 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
                     put("mapping_revision", line.mappingRevision)
                     put("identity_verified", if (line.identityVerified) 1 else 0)
                     put("service_state", line.serviceState)
+                    put("radio_json", line.radio?.toJson()?.toString())
                 })
             }
             db.setTransactionSuccessful()
@@ -575,6 +579,7 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
     )
 
     private companion object {
+        const val DATABASE_VERSION = 2
         const val EVENT_CURSOR_KEY = "events_cursor"
         const val BOOTSTRAPPED_KEY = "background_events_bootstrapped"
         const val BASELINE_IN_PROGRESS_KEY = "background_events_baseline_in_progress"
@@ -591,7 +596,10 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         state = getString(getColumnIndexOrThrow("state")),
         mappingRevision = getLong(getColumnIndexOrThrow("mapping_revision")),
         identityVerified = getInt(getColumnIndexOrThrow("identity_verified")) != 0,
-        serviceState = getNullableString("service_state")
+        serviceState = getNullableString("service_state"),
+        radio = getNullableString("radio_json")?.let { raw ->
+            runCatching { SimRadio.fromJson(org.json.JSONObject(raw)) }.getOrNull()
+        }
     )
 
     private fun Cursor.toSmsRecord(): SmsRecord {

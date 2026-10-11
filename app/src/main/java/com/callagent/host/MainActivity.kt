@@ -69,6 +69,7 @@ import com.callagent.host.data.SessionStore
 import com.callagent.host.data.SimLine
 import com.callagent.host.data.SmsDraft
 import com.callagent.host.data.SmsRecord
+import com.callagent.host.data.CallHistoryCache
 import com.callagent.host.data.SmsSubmissionClients
 import com.callagent.host.data.SmsStatus
 import com.callagent.host.data.toRetryEnvelope
@@ -88,6 +89,7 @@ import com.google.android.material.textview.MaterialTextView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.snackbar.Snackbar
 import com.callagent.host.ui.AdaptiveLayoutDecision
 import com.callagent.host.ui.AdaptiveWindowLayoutPolicy
 import com.callagent.host.ui.FoldGeometry
@@ -98,6 +100,11 @@ import com.callagent.host.ui.HostDestination
 import com.callagent.host.ui.HostNavigationState
 import com.callagent.host.ui.HostTab
 import com.callagent.host.ui.PhoneRowView
+import com.callagent.host.ui.SmsThread
+import com.callagent.host.ui.SmsThreadIndex
+import com.callagent.host.ui.GatewayStatusPresenter
+import com.callagent.host.ui.CallReadiness
+import com.callagent.host.ui.GatewayStatusView
 import com.callagent.host.ui.DialPadKeyView
 import com.callagent.host.contacts.ContactEntry
 import com.callagent.host.contacts.HostContactsRepository
@@ -129,7 +136,13 @@ class MainActivity : AppCompatActivity() {
     private var pairedHostsRefreshIssue: String? = null
     private var sims: List<SimLine> = emptyList()
     private var selectedSimId: String? = null
+    /** Latest user-facing outcome; each new non-blank value is shown once as a snackbar. */
     private var statusMessage: String = ""
+        set(value) {
+            val changed = field != value
+            field = value
+            if (changed && value.isNotBlank()) announceStatus(value)
+        }
     private var syncing = false
     private var resumed = false
     private var pairingButton: MaterialButton? = null
@@ -145,6 +158,7 @@ class MainActivity : AppCompatActivity() {
     private var smsConversationVisibleCount = 100
     private var smsConversationList: LinearLayout? = null
     private var smsThreadList: LinearLayout? = null
+    private var smsThreadCache: List<SmsThread>? = null
     private var callHistoryList: LinearLayout? = null
     private var dialerContactsList: LinearLayout? = null
     private var phoneContactsList: LinearLayout? = null
@@ -154,6 +168,7 @@ class MainActivity : AppCompatActivity() {
     private var contactsQuery = ""
     private var dialerContacts: List<ContactEntry> = emptyList()
     private var dialerCallButton: MaterialButton? = null
+    private var dialerReadinessText: TextView? = null
     private var smsThreadSendButton: MaterialButton? = null
     private val contactsRepository by lazy { HostContactsRepository(applicationContext) }
     private var smsList: LinearLayout? = null
@@ -233,6 +248,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        private const val REFRESHING_STATUS = "正在刷新服务器状态…"
+        private const val OFFLINE_STATUS_PREFIX = "无法连接服务器"
         private const val ACTION_BACKGROUND_SYNCED = "com.callagent.host.BACKGROUND_SYNCED"
         private const val ACTION_BACKGROUND_STATUS_CHANGED = "com.callagent.host.background.STATUS_CHANGED"
         private const val REQUEST_CALL_MICROPHONE = 7311
@@ -430,7 +447,6 @@ class MainActivity : AppCompatActivity() {
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
     }
 
-    private data class SmsThread(val simId: String?, val peer: String, val latest: SmsRecord, val records: List<SmsRecord>)
 
     private fun showPairing(message: String? = null) {
         session = null
@@ -500,6 +516,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderCurrentScreen(preserveInput: Boolean = true) {
+        // Rebuilt once per render; search keystrokes only filter this in memory.
+        smsThreadCache = null
         val focusKey = if (preserveInput) focusedInputKey() ?: restoreFocusedInput else null
         val focusSelection = if (preserveInput) (currentFocus as? EditText)?.selectionStart ?: restoreFocusedSelection else -1
         val showIme = preserveInput && (adaptiveHost?.let { ViewCompat.getRootWindowInsets(it)?.isVisible(WindowInsetsCompat.Type.ime()) } == true || restoreImeVisible)
@@ -516,6 +534,7 @@ class MainActivity : AppCompatActivity() {
         dialerContactsList = null
         phoneContactsList = null
         dialerCallButton = null
+        dialerReadinessText = null
         smsThreadSendButton = null
         val content = verticalRoot()
         val fixed = when (val destination = navigation.destination) {
@@ -608,7 +627,28 @@ class MainActivity : AppCompatActivity() {
         return frame
     }
 
+    /** Remote old-phone status: compact strip on home tabs, full card in settings. */
+    private fun gatewayStatusCard(compact: Boolean): View {
+        val status = GatewayStatusPresenter.present(gateway, sims, System.currentTimeMillis())
+        return GatewayStatusView(this, status, compact,
+            onClick = if (compact) ({ navigate(navigation.selectTab(HostTab.SETTINGS)) }) else null).apply {
+            id = R.id.gateway_status_card
+            tag = compact
+            layoutParams = fullWidthParams(bottom = 12)
+        }
+    }
+
+    /** Replace only the visible status card, e.g. so "last seen" ages without rebuilding lists. */
+    private fun refreshGatewayStatusCard() {
+        val current = adaptiveHost?.findViewById<View>(R.id.gateway_status_card) ?: return
+        val parent = current.parent as? ViewGroup ?: return
+        val index = parent.indexOfChild(current)
+        parent.removeViewAt(index)
+        parent.addView(gatewayStatusCard(compact = current.tag as? Boolean ?: true), index)
+    }
+
     private fun renderPhoneHome(content: LinearLayout) {
+        if (session != null) content.addView(gatewayStatusCard(compact = true))
         val search = roundedSearchField("搜索联系人或号码", R.id.call_history_search)
         search.setText(callSearchQuery)
         callSearchEdit = search
@@ -640,6 +680,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderMessagesHome(content: LinearLayout) {
+        if (session != null) content.addView(gatewayStatusCard(compact = true))
         val search = roundedSearchField("搜索短信", R.id.sms_search)
         search.setText(searchQuery)
         searchEdit = search
@@ -734,16 +775,10 @@ class MainActivity : AppCompatActivity() {
             list.addView(body("本机导入的短信归档可在设置中查看。"))
             return
         }
-        val records = sims.flatMap { line -> database.loadMessages(line.simId) } + database.loadMessages(null)
-        val query = searchQuery.trim().lowercase()
-        val threads = records
-            .groupBy { it.simId to it.peerAddress().ifBlank { "未知号码" } }
-            .map { (key, messages) ->
-                val sorted = messages.sortedByDescending { timestampMillis(it.createdAt) }
-                SmsThread(key.first, key.second, sorted.first(), sorted)
-            }
-            .filter { thread -> query.isBlank() || thread.peer.lowercase().contains(query) || thread.latest.text.lowercase().contains(query) }
-            .sortedByDescending { timestampMillis(it.latest.createdAt) }
+        val allThreads = smsThreadCache ?: SmsThreadIndex.build(
+            sims.flatMap { line -> database.loadMessages(line.simId) } + database.loadMessages(null)
+        ).also { smsThreadCache = it }
+        val threads = SmsThreadIndex.filter(allThreads, searchQuery)
         if (threads.isEmpty()) {
             list.addView(body("暂无短信对话"))
         } else {
@@ -788,10 +823,10 @@ class MainActivity : AppCompatActivity() {
                     setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
                 }
                 top.addView(peer, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                top.addView(body(formatHistoryTime(thread.latest.createdAt)))
+                top.addView(body(formatHistoryTime(thread.latest.createdAt), selectable = false))
                 textColumn.addView(top)
                 val summary = thread.latest.text.replace('\n', ' ').trim().ifBlank { SmsStatus.display(thread.latest.status) }
-                textColumn.addView(body(summary.take(90)).apply {
+                textColumn.addView(body(summary.take(90), selectable = false).apply {
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                 })
@@ -857,11 +892,8 @@ class MainActivity : AppCompatActivity() {
             }
             content.addView(devices)
             pairedHostsRefreshIssue?.let { content.addView(body(it)) }
-            content.addView(sectionTitle("SIM 卡"))
-            if (sims.isEmpty()) content.addView(body("暂无可用线路。")) else sims.sortedBy { it.slotIndex }.forEach { line ->
-                val status = if (line.canSend) "可用" else line.stateLabel()
-                content.addView(body("SIM ${line.slotIndex + 1} · ${line.label}${line.phoneNumber?.let { " · $it" }.orEmpty()} · $status"))
-            }
+            content.addView(sectionTitle("旧手机与 SIM 卡"))
+            content.addView(gatewayStatusCard(compact = false))
             val unpair = smallButton("解除此手机配对").apply { id = R.id.settings_unpair }
             unpair.setOnClickListener { confirmUnpair() }
             content.addView(unpair)
@@ -1092,6 +1124,13 @@ class MainActivity : AppCompatActivity() {
         dial.setOnClickListener { beginDial(selected, destination.text?.toString().orEmpty()) }
         dialerCallButton = dial
         content.addView(dial)
+        dialerReadinessText = body("").apply {
+            id = R.id.dialer_readiness
+            gravity = Gravity.CENTER_HORIZONTAL
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            layoutParams = fullWidthParams(top = 8)
+        }
+        content.addView(dialerReadinessText)
         updateDialButtonState()
         if (session != null && callServerAvailable == null) refreshCallAvailability()
         if (checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED && dialerContacts.isEmpty()) {
@@ -1127,7 +1166,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             row.addView(label(entry.name))
-            row.addView(body(entry.number))
+            row.addView(body(entry.number, selectable = false))
             list.addView(row)
             if (index < matching.lastIndex) list.addView(divider())
         }
@@ -1150,7 +1189,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             row.addView(label(entry.name))
-            row.addView(body(entry.number))
+            row.addView(body(entry.number, selectable = false))
             list.addView(row)
             if (index < visible.lastIndex) list.addView(divider())
         }
@@ -1201,17 +1240,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun callReadiness(line: SimLine? = sims.firstOrNull { it.simId == selectedSimId }): CallReadiness.Result {
+        val current = gateway
+        return CallReadiness.evaluate(
+            paired = session != null,
+            gatewayOnline = current != null && GatewayStatusPresenter.isOnline(current,
+                current.lastSeenAt?.let { runCatching { Instant.parse(it) }.getOrNull() }, System.currentTimeMillis()),
+            gatewaySipRegistered = current?.sipRegistered,
+            gatewayRevision = current?.mappingRevision,
+            line = line,
+            callServerAvailable = callServerAvailable,
+            callServerReason = callServerReason,
+            localEngineAvailable = localSipEngineAvailable()
+        )
+    }
+
     private fun updateDialButtonState() {
-        val line = sims.firstOrNull { it.simId == selectedSimId }
-        val lineReady = line != null && line.canSend && gateway?.mappingRevision == line.mappingRevision
-        val ready = session != null && gateway?.online == true && lineReady && callServerAvailable == true && localSipEngineAvailable()
-        dialerCallButton?.isEnabled = ready
+        val readiness = callReadiness()
+        dialerCallButton?.let { button ->
+            button.isEnabled = readiness.ready
+            // The fixed green tint hides Material's disabled state, so dim it explicitly.
+            button.alpha = if (readiness.ready) 1f else 0.38f
+        }
+        dialerReadinessText?.let { text ->
+            val message = readiness.blocker ?: readiness.hint
+            text.text = message.orEmpty()
+            text.visibility = if (message == null) View.GONE else View.VISIBLE
+        }
     }
 
     private fun beginDial(line: SimLine?, numberValue: String) {
         val number = normalizeDialNumber(numberValue)
-        if (line == null || !line.canSend || gateway?.mappingRevision != line.mappingRevision || gateway?.online != true || callServerAvailable != true) {
-            showToast("请先选择在线且已确认的 SIM 卡。")
+        val readiness = callReadiness(line)
+        if (line == null || !readiness.ready) {
+            showToast(readiness.blocker ?: "请先选择在线且已确认的 SIM 卡。")
             return
         }
         if (!validDialAddress(number)) {
@@ -1737,7 +1799,7 @@ class MainActivity : AppCompatActivity() {
         val currentSession = session ?: return
         val latestSession = sessionStore.read()
         if (latestSession == null || !currentSession.sameSessionInstance(latestSession)) {
-            showCurrentSession("The paired account changed. Showing its own saved gateway and message cache.")
+            showCurrentSession("配对账户已变化，已切换到该账户自己的缓存。")
             return
         }
         saveVisibleDraft()
@@ -1993,7 +2055,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     .show()
             }
-            RetryAction.NONE -> showToast("This item has no safe retry action.")
+            RetryAction.NONE -> showToast("这条短信没有可安全执行的重试操作。")
         }
     }
 
@@ -2116,7 +2178,7 @@ class MainActivity : AppCompatActivity() {
         val expectedDatabase = database
         syncing = true
         if (showProgress) {
-            statusMessage = "Refreshing server snapshots…"
+            statusMessage = REFRESHING_STATUS
             showDashboard()
         }
         executor.execute {
@@ -2126,7 +2188,7 @@ class MainActivity : AppCompatActivity() {
                 val oldRevision = expectedDatabase.loadGateway()?.mappingRevision
                 val remoteGateways = api.listGateways()
                 val current = remoteGateways.firstOrNull()
-                    ?: throw IOException("No gateway is paired with this account")
+                    ?: throw IOException("此账户还没有配对旧手机网关")
                 val (_, remoteSims) = api.listSims(current.gatewayId)
                 val mappingChanged = oldRevision != null && oldRevision != current.mappingRevision
                 expectedDatabase.saveGateway(current)
@@ -2134,11 +2196,11 @@ class MainActivity : AppCompatActivity() {
                 syncSms(api)
                 val remoteCallPage = runCatching { api.listCallHistoryPage(cursor = null, limit = 100) }.getOrNull()
                 val mergedCallSnapshot = remoteCallPage?.let { page ->
-                    val prior = expectedDatabase.syncStateValue(SYNC_KEY_CALL_HISTORY)?.let(::parseCallHistorySnapshot)
-                    mergeCallHistory(prior?.first.orEmpty(), page.first).let { merged -> merged to page.second }
+                    val prior = expectedDatabase.syncStateValue(SYNC_KEY_CALL_HISTORY)?.let(CallHistoryCache::parse)
+                    CallHistoryCache.merge(prior?.first.orEmpty(), page.first).let { merged -> merged to page.second }
                 }
                 if (mergedCallSnapshot != null && sessionStore.read()?.sameSessionInstance(expectedSession) == true) {
-                    expectedDatabase.saveSyncStateValue(SYNC_KEY_CALL_HISTORY, encodeCallHistory(mergedCallSnapshot.first, mergedCallSnapshot.second))
+                    expectedDatabase.saveSyncStateValue(SYNC_KEY_CALL_HISTORY, CallHistoryCache.encode(mergedCallSnapshot.first, mergedCallSnapshot.second))
                 }
                 val pairedHostsRefresh = refreshPairedHosts(api)
                 if (sessionStore.read()?.sameSessionInstance(expectedSession) != true) throw SessionChanged()
@@ -2156,14 +2218,14 @@ class MainActivity : AppCompatActivity() {
                 mainHandler.post {
                     syncing = false
                     if (sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) {
-                        showCurrentSession("The paired account changed. Showing its own saved gateway and message cache.")
+                        showCurrentSession("配对账户已变化，已切换到该账户自己的缓存。")
                         return@post
                     }
                     session = sessionStore.read()
                     gateway = current
                     sims = remoteSims
                     if (remoteCallPage != null) {
-                        callHistory = mergeCallHistory(callHistory, mergedCallSnapshot?.first ?: remoteCallPage.first)
+                        callHistory = CallHistoryCache.merge(callHistory, mergedCallSnapshot?.first ?: remoteCallPage.first)
                         callHistoryCursor = mergedCallSnapshot?.second ?: remoteCallPage.second
                     }
                     when (val hostRefresh = pairedHostsRefresh) {
@@ -2187,25 +2249,25 @@ class MainActivity : AppCompatActivity() {
                     }
                     if (mappingChanged) {
                         selectedSimId = null
-                        statusMessage = "The gateway SIM mapping changed. Choose a line again before sending."
+                        statusMessage = "旧手机的 SIM 绑定已变化，发送前请重新选择 SIM。"
                     }
-                    if (statusMessage.isBlank() || statusMessage.startsWith("Refreshing")) {
-                        statusMessage = "Updated. Check the calling panel for live readiness."
-                    }
+                    if (statusMessage == REFRESHING_STATUS || statusMessage.startsWith(OFFLINE_STATUS_PREFIX)) statusMessage = ""
                     showDashboard()
                 }
             } catch (failure: Exception) {
                 mainHandler.post {
                     syncing = false
                     if (failure is SessionChanged) {
-                        showCurrentSession("The paired account changed. Showing its own saved gateway and message cache.")
+                        showCurrentSession("配对账户已变化，已切换到该账户自己的缓存。")
                     } else if (failure is SessionNeedsPairing || sessionStore.read() == null) {
                         session = null
                         switchDatabase(null)
-                        showPairing("Session expired or revoked. Pair this phone again.")
+                        showPairing("配对会话已过期或被撤销，请重新配对此手机。")
                     } else {
-                        statusMessage = "Offline or server unavailable. Showing saved gateway, SIM and SMS cache. ${apiFailureText(failure)}"
-                        showDashboard()
+                        statusMessage = "$OFFLINE_STATUS_PREFIX，当前显示缓存的旧手机、SIM 和短信。${apiFailureText(failure)}"
+                        // Cached data did not change; rebuilding the whole screen every
+                        // failed 30 s sync would flicker and drop taps. Only re-age the status card.
+                        refreshGatewayStatusCard()
                     }
                 }
             }
@@ -2323,9 +2385,9 @@ class MainActivity : AppCompatActivity() {
                     } catch (failure: Exception) {
                         mainHandler.post {
                             if (failure is SessionChanged) {
-                                showCurrentSession("The paired account changed during unpairing.")
+                                showCurrentSession("解除配对期间账户已变化。")
                             } else {
-                                statusMessage = "Could not confirm server revocation. Credentials and cache remain so you can retry. ${apiFailureText(failure)}"
+                                statusMessage = "未能确认服务器已撤销此手机，凭据和缓存已保留，可稍后重试。${apiFailureText(failure)}"
                                 showDashboard()
                             }
                         }
@@ -2422,72 +2484,13 @@ class MainActivity : AppCompatActivity() {
             return
         }
         runCatching {
-            val parsed = parseCallHistorySnapshot(raw)
-            callHistory = mergeCallHistory(emptyList(), parsed.first)
+            val parsed = CallHistoryCache.parse(raw)
+            callHistory = CallHistoryCache.merge(emptyList(), parsed.first)
             callHistoryCursor = parsed.second
         }.onFailure {
             callHistory = emptyList()
             callHistoryCursor = null
         }
-    }
-
-    private fun parseCallHistorySnapshot(raw: String): Pair<List<RemoteCall>, String?> {
-        val snapshot = JSONObject(raw)
-        val items = snapshot.optJSONArray("items") ?: JSONArray()
-        val parsed = (0 until items.length()).map { index -> items.getJSONObject(index).toRemoteCall() }
-        val cursor = snapshot.optString("next_cursor").takeIf { it.isNotBlank() && it != "null" }
-        return parsed to cursor
-    }
-
-    private fun encodeCallHistory(items: List<RemoteCall>, cursor: String?): String = JSONObject().apply {
-        put("next_cursor", cursor)
-        put("items", JSONArray().apply { items.forEach { put(it.toJson()) } })
-    }.toString()
-
-    private fun RemoteCall.toJson(): JSONObject = JSONObject()
-        .put("call_id", callId)
-        .put("gateway_id", gatewayId)
-        .put("sim_id", simId)
-        .put("mapping_revision", mappingRevision)
-        .put("direction", direction)
-        .put("state", state)
-        .put("state_revision", stateRevision)
-        .put("from", from)
-        .put("to", to)
-        .put("created_at", createdAt)
-        .put("expires_at", expiresAt)
-        .put("answered_at", answeredAt)
-        .put("ended_at", endedAt)
-        .put("reason", reason)
-
-    private fun JSONObject.toRemoteCall(): RemoteCall = RemoteCall(
-        callId = getString("call_id"),
-        gatewayId = getString("gateway_id"),
-        clientId = null,
-        simId = getString("sim_id"),
-        mappingRevision = optLong("mapping_revision"),
-        direction = optString("direction"),
-        state = optString("state"),
-        stateRevision = optLong("state_revision"),
-        from = optNullableString("from"),
-        to = optNullableString("to"),
-        createdAt = optString("created_at"),
-        expiresAt = optNullableString("expires_at"),
-        wakeNonce = null,
-        answeredAt = optNullableString("answered_at"),
-        endedAt = optNullableString("ended_at"),
-        reason = optNullableString("reason"),
-    )
-
-    private fun JSONObject.optNullableString(key: String): String? = optString(key).takeIf { it.isNotBlank() && it != "null" }
-
-    private fun mergeCallHistory(existing: List<RemoteCall>, incoming: List<RemoteCall>): List<RemoteCall> {
-        val merged = LinkedHashMap<String, RemoteCall>()
-        (existing + incoming).forEach { call ->
-            val previous = merged[call.callId]
-            if (previous == null || call.stateRevision >= previous.stateRevision) merged[call.callId] = call
-        }
-        return merged.values.sortedByDescending { timestampMillis(it.createdAt) }
     }
 
     private fun loadMoreCallHistory() {
@@ -2503,10 +2506,10 @@ class MainActivity : AppCompatActivity() {
                 callHistoryLoading = false
                 if (isDestroyed || sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) return@post
                 result.onSuccess { (items, nextCursor) ->
-                    callHistory = mergeCallHistory(callHistory, items)
+                    callHistory = CallHistoryCache.merge(callHistory, items)
                     callHistoryCursor = nextCursor
-                    expectedDatabase.saveSyncStateValue(SYNC_KEY_CALL_HISTORY, encodeCallHistory(callHistory, nextCursor))
-                }.onFailure { failure -> statusMessage = apiFailureText(failure as? Exception ?: IOException("Call history unavailable")) }
+                    expectedDatabase.saveSyncStateValue(SYNC_KEY_CALL_HISTORY, CallHistoryCache.encode(callHistory, nextCursor))
+                }.onFailure { failure -> statusMessage = apiFailureText(failure as? Exception ?: IOException("通话记录暂不可用")) }
                 renderCallHistoryRows()
             }
         }
@@ -2516,10 +2519,10 @@ class MainActivity : AppCompatActivity() {
         message.text.lowercase().contains(query) || message.peerAddress().lowercase().contains(query)
 
     private fun pairingFailureText(failure: Exception): String = when (failure) {
-        is ApiFailure -> "Pairing failed (${failure.code.ifBlank { "HTTP ${failure.httpStatus}" }}). Check the server URL and one-time code."
+        is ApiFailure -> "配对失败（${failure.code.ifBlank { "HTTP ${failure.httpStatus}" }}）。请检查服务器地址和一次性配对码。"
         is IOException -> failure.message?.takeIf { it.startsWith("Server URL") || it.startsWith("Enter") || it.startsWith("Pairing code") }
-            ?: "Could not reach the server or the pairing code was rejected."
-        else -> "Pairing failed. Check the HTTPS URL and pairing code."
+            ?: "无法连接服务器，或配对码被拒绝。"
+        else -> "配对失败，请检查 HTTPS 地址和配对码。"
     }
 
     private fun handlePairingOutcome(outcome: com.callagent.host.ui.PairingOperationOutcome) {
@@ -2529,7 +2532,7 @@ class MainActivity : AppCompatActivity() {
             pairingForm.clear()
             val paired = outcome.session ?: sessionStore.read()
             if (paired == null) {
-                statusMessage = "Pairing completed without a saved client session. Please try pairing again."
+                statusMessage = "配对已完成但未保存会话，请重新配对。"
                 showPairing(statusMessage)
                 return
             }
@@ -2540,7 +2543,7 @@ class MainActivity : AppCompatActivity() {
                 selectedSimId = null
                 navigation = HostNavigationState()
                 composerTransfer = null
-                statusMessage = "Paired. Loading gateway state…"
+                statusMessage = "已配对，正在载入旧手机状态…"
                 showDashboard()
                 adaptiveHost?.post { if (hasWindowFocus()) ensurePairedRuntimeStarted() }
                 if (sessionStore.read()?.sameSessionInstance(paired) == true) {
@@ -2551,7 +2554,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (failure is SessionChanged) {
-            showCurrentSession("Another app screen changed the paired account.")
+            showCurrentSession("其他界面更改了配对账户。")
             return
         }
         if (failure is ApiFailure && failure.code == "INVALID_PAIRING_CODE") {
@@ -2563,13 +2566,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun apiFailureText(failure: Exception): String = when (failure) {
-        is SessionNeedsPairing -> "Session revoked; pair this phone again."
-        is SessionChanged -> "The active account changed."
-        is ApiFailure -> "Server returned ${failure.httpStatus}${failure.code.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()}."
-        else -> "Connection failed (${failure.javaClass.simpleName})."
+        is SessionNeedsPairing -> "会话已撤销，请重新配对此手机。"
+        is SessionChanged -> "当前账户已变化。"
+        is ApiFailure -> "服务器返回 ${failure.httpStatus}${failure.code.takeIf { it.isNotBlank() }?.let { "（$it）" }.orEmpty()}。"
+        else -> "连接失败（${failure.javaClass.simpleName}）。"
     }
 
     private fun shortId(value: String): String = value.take(8)
+
+    private fun announceStatus(message: String) {
+        if (!resumed) return
+        val host = adaptiveHost ?: return
+        mainHandler.post {
+            if (!resumed || statusMessage != message) return@post
+            val snackbar = Snackbar.make(host, message, Snackbar.LENGTH_LONG)
+            findViewById<View>(R.id.main_bottom_navigation)?.takeIf { it.isShown }?.let { snackbar.anchorView = it }
+            snackbar.show()
+        }
+    }
 
     private fun verticalRoot(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
@@ -3079,12 +3093,13 @@ class MainActivity : AppCompatActivity() {
         setPadding(0, dp(8), 0, dp(4))
     }
 
-    private fun body(text: String): TextView = MaterialTextView(this).apply {
+    /** Body text; [selectable] must be false inside clickable rows, where selection would swallow the tap. */
+    private fun body(text: String, selectable: Boolean = true): TextView = MaterialTextView(this).apply {
         this.text = text
         setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
         setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
         setPadding(0, dp(4), 0, dp(6))
-        setTextIsSelectable(true)
+        setTextIsSelectable(selectable)
     }
 
     private fun messageCard(text: String, error: Boolean = false): View = MaterialCardView(this).apply {

@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any
 
 
+DIALER_DESTINATION_HINT = "联系人或号码"
+
 SMOKE_MODULE_PATH = Path(__file__).with_name("android-ui-smoke.py")
 SMOKE_SPEC = importlib.util.spec_from_file_location("android_ui_smoke", SMOKE_MODULE_PATH)
 if SMOKE_SPEC is None or SMOKE_SPEC.loader is None:
@@ -350,14 +352,27 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         if destination_value:
             destination = self.require_node(root, "dialer_destination", "Dialer destination field")
             self.tap_node(destination, "clear_prefilled_dialer_destination")
-            self.shell("input", "keyevent", "KEYCODE_MOVE_END", check=True,
-                       label="move_to_end_of_history_number")
-            for index in range(len(destination_value)):
-                self.shell("input", "keyevent", "KEYCODE_DEL", check=True,
-                           label=f"delete_history_number_digit_{index}")
-            self.shell("input", "keyevent", "KEYCODE_BACK", label="hide_dialer_ime_before_keypad")
+            # The emulator occasionally drops a key event, so delete what is
+            # still visible and re-read the field, a bounded number of times.
+            remaining = destination_value
+            for clear_round in range(3):
+                self.shell("input", "keyevent", "KEYCODE_MOVE_END", check=True,
+                           label=f"move_to_end_of_history_number_{clear_round}")
+                for index in range(len(remaining)):
+                    self.shell("input", "keyevent", "KEYCODE_DEL", check=True,
+                               label=f"delete_history_number_digit_{clear_round}_{index}")
+                root = self.capture(f"paired_dialpad_clearing_{clear_round}")
+                # API 35 UIAutomator reports an empty Material field's hint as its text.
+                remaining = self.field_text(root, "dialer_destination") or ""
+                if remaining in ("", DIALER_DESTINATION_HINT):
+                    remaining = ""
+                    break
+            # BACK only hides a visible keyboard; without one it would leave the dialer.
+            if self._ime_visible()[0]:
+                self.shell("input", "keyevent", "KEYCODE_BACK", label="hide_dialer_ime_before_keypad")
+                self.wait(1)
             root = self.capture("paired_dialpad_cleared")
-            if self.field_text(root, "dialer_destination") != "":
+            if remaining or self.field_text(root, "dialer_destination") not in ("", DIALER_DESTINATION_HINT):
                 raise RuntimeError("Could not clear the synthetic history number before direct keypad test")
 
         for resource_id in ("keypad_1", "keypad_2", "keypad_3"):
@@ -409,11 +424,17 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         if inbound is None or not self.node_is_on_screen(inbound):
             raise RuntimeError("Synthetic SIM 1 thread row is not visible to open")
         self.tap_node(inbound, "open_synthetic_sms_thread")
-        root = self.wait_for_app_tree(
-            lambda tree: self.find_node(tree, "sms_thread_header") is not None and
-            self.find_node(tree, "sms_conversation_list") is not None,
-            "paired_sms_conversation"
-        )
+        opened = lambda tree: (self.find_node(tree, "sms_thread_header") is not None and
+                               self.find_node(tree, "sms_conversation_list") is not None)
+        root = self.capture("paired_sms_conversation_after_tap")
+        if not opened(root):
+            # A tap that lands while the emulator settles after unfold can be lost; retry once.
+            self.wait(2)
+            root = self.capture("paired_sms_conversation_retry")
+            retry_row = self.find_text_containing(root, "SYNTHETIC UI fixture inbox preview")
+            if retry_row is not None and self.node_is_on_screen(retry_row) and not opened(root):
+                self.tap_node(retry_row, "open_synthetic_sms_thread_retry")
+        root = self.wait_for_app_tree(opened, "paired_sms_conversation")
         root = self.capture("paired_sms_conversation")
         thread_header = self.find_node(root, "sms_thread_header")
         conversation = self.find_node(root, "sms_conversation_list")
@@ -596,9 +617,11 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         root = self.wait_for_app_tree(lambda tree: self.find_node(tree, "tab_settings") is not None,
                                       "settings_after_new_message")
         root = self.tap_tab(root, "tab_settings", "设置", "paired_settings")
+        # The backup entry can sit below the fold (it is scrolled to further down),
+        # so wait for the top of Settings instead.
         root = self.wait_for_app_tree(
             lambda tree: self.find_text_node(tree, "设置") is not None and
-            self.find_node(tree, "sms_backup_archive_entry") is not None,
+            self.find_node(tree, "settings_device_list") is not None,
             "paired_settings"
         )
         root = self.capture("paired_settings")
@@ -615,8 +638,9 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         paired_host = self.find_text_containing(root, "SYNTHETIC Tablet Host")
         if paired_host is None or not self.node_is_on_screen(paired_host):
             root = self.fixture_ensure_visible(root, text="SYNTHETIC Tablet Host", name="paired_settings_device_list")
-            root = self.capture("paired_settings_devices")
-            paired_host = self.find_text_containing(root, "SYNTHETIC Tablet Host")
+        # The stage below always cites this screenshot, so capture it even when no scroll was needed.
+        root = self.capture("paired_settings_devices")
+        paired_host = self.find_text_containing(root, "SYNTHETIC Tablet Host")
         devices_ok = paired_host is not None and self.node_is_on_screen(paired_host)
         self.record_fixture_stage("fixture_settings_devices", "paired_settings_devices", root,
                                   (),
