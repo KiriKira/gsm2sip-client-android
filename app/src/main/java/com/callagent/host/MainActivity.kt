@@ -1257,7 +1257,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateDialButtonState() {
         val readiness = callReadiness()
-        dialerCallButton?.isEnabled = readiness.ready
+        dialerCallButton?.let { button ->
+            button.isEnabled = readiness.ready
+            // The fixed green tint hides Material's disabled state, so dim it explicitly.
+            button.alpha = if (readiness.ready) 1f else 0.38f
+        }
         dialerReadinessText?.let { text ->
             val message = readiness.blocker ?: readiness.hint
             text.text = message.orEmpty()
