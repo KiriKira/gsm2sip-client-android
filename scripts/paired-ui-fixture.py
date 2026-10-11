@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any
 
 
+DIALER_DESTINATION_HINT = "联系人或号码"
+
 SMOKE_MODULE_PATH = Path(__file__).with_name("android-ui-smoke.py")
 SMOKE_SPEC = importlib.util.spec_from_file_location("android_ui_smoke", SMOKE_MODULE_PATH)
 if SMOKE_SPEC is None or SMOKE_SPEC.loader is None:
@@ -357,7 +359,8 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
                            label=f"delete_history_number_digit_{index}")
             self.shell("input", "keyevent", "KEYCODE_BACK", label="hide_dialer_ime_before_keypad")
             root = self.capture("paired_dialpad_cleared")
-            if self.field_text(root, "dialer_destination") != "":
+            # API 35 UIAutomator reports an empty Material field's hint as its text.
+            if self.field_text(root, "dialer_destination") not in ("", DIALER_DESTINATION_HINT):
                 raise RuntimeError("Could not clear the synthetic history number before direct keypad test")
 
         for resource_id in ("keypad_1", "keypad_2", "keypad_3"):
