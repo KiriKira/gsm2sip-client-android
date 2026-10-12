@@ -22,9 +22,11 @@ import com.callagent.host.data.SessionNeedsPairing
 import com.callagent.host.data.SessionStore
 import com.callagent.host.data.SessionChanged
 import com.callagent.host.data.SyncBudgetExhausted
-import com.callagent.host.data.clientDatabaseName
+import com.callagent.host.data.databaseName
+import com.callagent.host.data.sameProfile
 import com.callagent.host.data.sameSessionInstance
 import com.callagent.host.calls.CallRuntime
+import com.callagent.host.mesh.NodeMonitor
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.WebSocket
@@ -45,6 +47,7 @@ class HostBackgroundService : Service() {
     private val syncQueued = AtomicBoolean(false)
     private val periodicStarted = AtomicBoolean(false)
     private val authReconnectPending = AtomicBoolean(false)
+    private val forceNodeProbe = AtomicBoolean(false)
     private val webSocketLock = Any()
     private val socketGeneration = AtomicLong(0L)
     private lateinit var sessionStore: SessionStore
@@ -68,6 +71,8 @@ class HostBackgroundService : Service() {
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             setConnection("Connecting to server")
+            // A new network (home Wi-Fi, mobile data) can change which node is best.
+            forceNodeProbe.set(true)
             enqueueSync()
             scheduleWebSocketReconnect(500L)
         }
@@ -129,7 +134,8 @@ class HostBackgroundService : Service() {
         if (previousSession != null && !previousSession.sameSessionInstance(session!!)) {
             generation.incrementAndGet()
             closeWebSocket()
-            cancelPendingNotifications(previousSession)
+            // Another node of the same profile keeps the pending SMS alerts.
+            if (!previousSession.sameProfile(session)) cancelPendingNotifications(previousSession)
         }
         activeSession = session
         HostBackgroundRuntime.onServiceStarted(session!!)
@@ -202,6 +208,9 @@ class HostBackgroundService : Service() {
     }
 
     private fun runSync(expectedGeneration: Long) {
+        // Pick the best server node first; a switch rebinds this service and
+        // queues a fresh sync on the new node.
+        if (runCatching { NodeMonitor.evaluate(this, force = forceNodeProbe.getAndSet(false)) }.getOrNull() != null) return
         val bound = sessionStore.read()
         if (bound == null || bound.role != "client") {
             stopForInvalidSession(expectedGeneration = expectedGeneration)
@@ -258,9 +267,22 @@ class HostBackgroundService : Service() {
             val stillEnabled = RuntimeState.preferences(this).getBoolean(RuntimeState.KEY_ENABLED, false)
             // Ordinary service recreation preserves alerts for the same pairing. Only an
             // explicit stop or pairing change discards the old session's pending alerts.
-            if (!stillEnabled || currentSession?.sameSessionInstance(bound) != true) {
+            if (!stillEnabled || currentSession?.sameProfile(bound) != true) {
                 cancelPendingNotifications(bound)
             }
+        }
+    }
+
+    private fun rebindToActiveNode() {
+        val session = runCatching { sessionStore.read() }.getOrNull() ?: return
+        if (!isBoundToOptIn(session)) return
+        generation.incrementAndGet()
+        closeWebSocket()
+        reconnectAttempt.set(0)
+        activeSession = session
+        scheduler.execute {
+            enqueueSync()
+            ensureWebSocket()
         }
     }
 
@@ -287,7 +309,7 @@ class HostBackgroundService : Service() {
         val state = RuntimeState.preferences(this)
         return state.getBoolean(RuntimeState.KEY_ENABLED, false) &&
             state.getString(RuntimeState.KEY_SESSION_STAMP, null) == sessionStamp(session) &&
-            state.getString(RuntimeState.KEY_SESSION_DB_NAME, null) == clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
+            state.getString(RuntimeState.KEY_SESSION_DB_NAME, null) == session.databaseName()
     }
 
     private fun stopForInvalidSession(
@@ -333,7 +355,7 @@ class HostBackgroundService : Service() {
     }
 
     private fun notificationCoalescer(session: HostSession, expectedGeneration: Long): InboundNotificationCoalescer {
-        val databaseName = clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
+        val databaseName = session.databaseName()
         return synchronized(notificationCoalescers) {
             val key = "$databaseName:${session.sessionInstanceId}:$expectedGeneration"
             notificationCoalescers.getOrPut(key) { InboundNotificationCoalescer(this, databaseName, session, expectedGeneration) }
@@ -350,7 +372,7 @@ class HostBackgroundService : Service() {
             val state = RuntimeState.preferences(this)
             clearPending(this, state.getString(RuntimeState.KEY_SESSION_DB_NAME, null), state.getString(RuntimeState.KEY_SESSION_STAMP, null))
         } else {
-            val dbName = clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
+            val dbName = session.databaseName()
             clearPending(this, dbName, sessionStamp(session))
         }
     }
@@ -698,6 +720,11 @@ class HostBackgroundService : Service() {
 
         internal fun stopByUser(): Boolean = liveService?.stopFromUser() ?: true
 
+        /** The active server node changed: drop the old node's socket and sync the new one. */
+        internal fun onActiveNodeChanged() {
+            liveService?.takeIf { isRunning }?.rebindToActiveNode()
+        }
+
         internal fun clearPending(context: Context, databaseName: String?, sessionStamp: String? = null) {
             if (databaseName.isNullOrBlank()) return
             if (!sessionStamp.isNullOrBlank()) {
@@ -705,7 +732,7 @@ class HostBackgroundService : Service() {
                     .edit().clear().commit()
             }
             val current = runCatching { SessionStore(context.applicationContext).read() }.getOrNull()
-            val currentDb = current?.let { clientDatabaseName(it.apiBaseUrl, it.ownerId, it.deviceId) }
+            val currentDb = current?.let { it.databaseName() }
             val belongsToNewPairing = current != null && currentDb == databaseName &&
                 sessionStamp != null && com.callagent.host.background.sessionStamp(current) != sessionStamp
             if (!belongsToNewPairing) clearBackgroundAlertQueue(context.applicationContext, databaseName)

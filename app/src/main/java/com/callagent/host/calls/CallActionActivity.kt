@@ -32,7 +32,7 @@ import com.callagent.host.R
 import com.callagent.host.contacts.HostContactsRepository
 import com.callagent.host.data.ClientDatabase
 import com.callagent.host.data.SessionStore
-import com.callagent.host.data.clientDatabaseName
+import com.callagent.host.data.databaseName
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
@@ -297,7 +297,7 @@ class CallActionActivity : AppCompatActivity() {
         if (simId == null) return ""
         return runCatching {
             val session = SessionStore(this).read() ?: return@runCatching "远程 SIM"
-            ClientDatabase(this, clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)).use { db ->
+            ClientDatabase(this, session.databaseName()).use { db ->
                 db.loadSims().firstOrNull { it.simId == simId }?.let { "SIM${it.slotIndex + 1}${it.phoneNumber?.let { number -> " · $number" }.orEmpty()}" } ?: "远程 SIM"
             }
         }.getOrDefault("远程 SIM")

@@ -12,8 +12,14 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-class SessionStore(context: Context) {
-    private val preferences = context.getSharedPreferences("host-session", Context.MODE_PRIVATE)
+/**
+ * One encrypted pairing. The default store holds the active pairing that the
+ * whole app uses; each inactive mesh node keeps its own store under another
+ * preferences name. All stores share one process lock so a node switch moves
+ * sessions between them atomically with respect to readers and refreshes.
+ */
+class SessionStore @JvmOverloads constructor(context: Context, prefsName: String = ACTIVE_PREFS) {
+    private val preferences = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val alias = "gsm2sip-host-session-v1"
 
     fun read(): HostSession? = synchronized(processLock) { readLocked() }
@@ -39,7 +45,10 @@ class SessionStore(context: Context) {
                 sipAvailable = json.optJSONObject("sip")?.optBoolean("available", false) ?: false,
                 sipReason = json.optJSONObject("sip")?.optString("reason")?.takeIf { it.isNotBlank() && it != "null" },
                 pendingRefreshKey = json.optString("pending_refresh_key")
-                    .takeIf { it.isNotBlank() && it != "null" }
+                    .takeIf { it.isNotBlank() && it != "null" },
+                profileId = json.optString("profile_id").takeIf { it.isNotBlank() && it != "null" },
+                profileDatabase = json.optString("profile_database").takeIf { it.isNotBlank() && it != "null" },
+                nodeScope = json.optString("node_scope", "")
             )
         } catch (_: Exception) {
             clearLocked()
@@ -97,6 +106,11 @@ class SessionStore(context: Context) {
         true
     }
 
+    /** Unconditional write for a store the caller owns exclusively (inactive mesh nodes). */
+    internal fun replace(session: HostSession) = synchronized(processLock) { writeLocked(session) }
+
+    internal fun clear() = synchronized(processLock) { clearLocked() }
+
     private fun writeLocked(session: HostSession) {
         val json = JSONObject()
             .put("session_instance_id", session.sessionInstanceId)
@@ -110,6 +124,9 @@ class SessionStore(context: Context) {
             .put("refresh_expires_at", session.refreshExpiresAt)
             .put("sip", JSONObject().put("available", session.sipAvailable).put("reason", session.sipReason))
         session.pendingRefreshKey?.let { json.put("pending_refresh_key", it) }
+        session.profileId?.let { json.put("profile_id", it) }
+        session.profileDatabase?.let { json.put("profile_database", it) }
+        if (session.nodeScope.isNotEmpty()) json.put("node_scope", session.nodeScope)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val ciphertext = cipher.doFinal(json.toString().toByteArray(Charsets.UTF_8))
@@ -141,7 +158,11 @@ class SessionStore(context: Context) {
     }
 
     companion object {
+        const val ACTIVE_PREFS = "host-session"
         private val processLock = Any()
+
+        /** Run [block] while no store can read or write; used for node switches. */
+        internal fun <T> exclusive(block: () -> T): T = synchronized(processLock, block)
     }
 }
 

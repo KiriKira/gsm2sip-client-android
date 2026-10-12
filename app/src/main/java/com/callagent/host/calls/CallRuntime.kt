@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import com.callagent.host.data.HostSession
+import com.callagent.host.data.profileKey
 import com.callagent.host.data.SessionStore
 
 /** Process-wide call owner. Activities render its snapshots; no Activity owns a SIP dialog. */
@@ -25,6 +26,9 @@ object CallRuntime {
 
     @Volatile
     private var rememberedSessionInstance: String? = null
+
+    @Volatile
+    private var rememberedProfileKey: String? = null
 
     private val signalingStartLock = Any()
 
@@ -46,12 +50,22 @@ object CallRuntime {
         if (previousSessionInstance != null && previousSessionInstance != nextSessionInstance) {
             wantsForegroundListening = false
             signalingStartRequestedFor = null
-            CallPreferences(context).clear()
+            // Another node of the same profile keeps the user's opt-in; only
+            // its SIP registration (per server) is restarted.
+            if (rememberedProfileKey != session?.profileKey) CallPreferences(context).clear()
             service?.stopForSessionChange()
         }
         SipCredentialStore(context).clearForDifferentSession(session)
         wantsForegroundListening = CallPreferences(context).enabledFor(session) && session?.sipAvailable == true
         rememberedSessionInstance = nextSessionInstance
+        rememberedProfileKey = session?.profileKey
+    }
+
+    /** The phone switched to another server node of the same profile. */
+    fun onActiveNodeChanged(context: Context, session: HostSession) {
+        val app = context.applicationContext
+        restoreForegroundPreference(app, session)
+        if (appVisible && wantsForegroundListening) startSignalingIfNeeded(app, session)
     }
 
     fun snapshot(callId: String): CallSession? = coordinator.current?.takeIf { it.callId == callId }

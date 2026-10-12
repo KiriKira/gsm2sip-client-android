@@ -13,7 +13,8 @@ import android.provider.Settings
 import com.callagent.host.data.SessionStore
 import com.callagent.host.data.HostSession
 import com.callagent.host.data.sameSessionInstance
-import com.callagent.host.data.clientDatabaseName
+import com.callagent.host.data.databaseName
+import com.callagent.host.data.profileKey
 import java.security.MessageDigest
 
 data class BackgroundStatus(
@@ -88,7 +89,7 @@ object HostBackgroundRuntime {
             .putBoolean(RuntimeState.KEY_ENABLED, true)
             .putBoolean(RuntimeState.KEY_TASK_MANAGER_STOPPED, false)
             .putLong(RuntimeState.KEY_EXPLICIT_ENABLE_AT, System.currentTimeMillis())
-            .putString(RuntimeState.KEY_SESSION_DB_NAME, clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId))
+            .putString(RuntimeState.KEY_SESSION_DB_NAME, session.databaseName())
             .putString(RuntimeState.KEY_SESSION_STAMP, currentSessionStamp)
             .putString(RuntimeState.KEY_ISSUE, null)
             .commit()
@@ -128,7 +129,7 @@ object HostBackgroundRuntime {
 
             val state = RuntimeState.preferences(app)
             val newSessionStamp = sessionStamp(session)
-            val newDatabaseName = clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
+            val newDatabaseName = session.databaseName()
             val oldSessionStamp = state.getString(RuntimeState.KEY_SESSION_STAMP, null)
             val oldDatabaseName = state.getString(RuntimeState.KEY_SESSION_DB_NAME, null)
             val bindingMatches = oldSessionStamp == newSessionStamp && oldDatabaseName == newDatabaseName
@@ -231,7 +232,7 @@ object HostBackgroundRuntime {
             return false
         }
         val sessionMatchesOptIn = session != null &&
-            state.getString(RuntimeState.KEY_SESSION_DB_NAME, null) == clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId) &&
+            state.getString(RuntimeState.KEY_SESSION_DB_NAME, null) == session.databaseName() &&
             state.getString(RuntimeState.KEY_SESSION_STAMP, null) == sessionStamp(session)
         if (!sessionMatchesOptIn) {
             RuntimeState.update(app, issue = "The paired account changed. Open the app to resume background sync for this account.")
@@ -287,7 +288,7 @@ object HostBackgroundRuntime {
 }
 
 internal fun sessionStamp(session: HostSession): String = MessageDigest.getInstance("SHA-256")
-    .digest(session.sessionInstanceId.toByteArray(Charsets.UTF_8))
+    .digest(session.profileKey.toByteArray(Charsets.UTF_8))
     .take(16)
     .joinToString("") { byte -> "%02x".format(byte) }
 

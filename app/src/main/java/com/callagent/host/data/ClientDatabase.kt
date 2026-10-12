@@ -8,7 +8,23 @@ import android.database.sqlite.SQLiteOpenHelper
 import org.json.JSONArray
 import java.util.UUID
 
-class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(context, databaseName, null, DATABASE_VERSION) {
+/**
+ * Local cache of one account, or of one multi-node profile. Messages are keyed
+ * by their global message ID, so the same SMS seen through several server
+ * nodes is stored and alerted once. [nodeScope] separates each node's own
+ * event cursor and first-sync baseline; it is "" for a standalone pairing.
+ */
+class ClientDatabase @JvmOverloads constructor(
+    context: Context,
+    databaseName: String,
+    private val nodeScope: String = ""
+) : SQLiteOpenHelper(context, databaseName, null, DATABASE_VERSION) {
+    private val eventCursorKey = scoped(EVENT_CURSOR_KEY)
+    private val bootstrappedKey = scoped(BOOTSTRAPPED_KEY)
+    private val baselineInProgressKey = scoped(BASELINE_IN_PROGRESS_KEY)
+
+    private fun scoped(key: String) = if (nodeScope.isEmpty()) key else "$key:$nodeScope"
+
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE gateway_state (
@@ -51,9 +67,26 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         if (oldVersion < 2) db.execSQL("ALTER TABLE sim_lines ADD COLUMN radio_json TEXT")
     }
 
+    /**
+     * Gateway and SIM rows carry node-local IDs and revisions. They are only
+     * returned to the node that wrote them, so right after a node switch
+     * nothing is sent with the previous node's gateway ID or SIM revision.
+     */
     @Synchronized
     fun saveGateway(gateway: GatewaySnapshot) {
-        writableDatabase.insertWithOnConflict("gateway_state", null, ContentValues().apply {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            saveSyncStateValue(db, GATEWAY_SCOPE_KEY, nodeScope)
+            insertGateway(db, gateway)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    private fun insertGateway(db: SQLiteDatabase, gateway: GatewaySnapshot) {
+        db.insertWithOnConflict("gateway_state", null, ContentValues().apply {
             put("singleton", 1)
             put("gateway_id", gateway.gatewayId)
             put("device_name", gateway.deviceName)
@@ -68,15 +101,23 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
     }
 
     @Synchronized
-    fun loadGateway(): GatewaySnapshot? = readableDatabase.query(
-        "gateway_state", null, "singleton=1", null, null, null, null
-    ).use { cursor -> if (cursor.moveToFirst()) cursor.toGateway() else null }
+    fun loadGateway(): GatewaySnapshot? {
+        if (!writtenByThisNode(GATEWAY_SCOPE_KEY)) return null
+        return readableDatabase.query(
+            "gateway_state", null, "singleton=1", null, null, null, null
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.toGateway() else null }
+    }
+
+    private fun writtenByThisNode(scopeKey: String): Boolean =
+        // A cache written before nodes existed belongs to the first node ("").
+        (runCatching { readSyncStateValue(readableDatabase, scopeKey) }.getOrNull() ?: "") == nodeScope
 
     @Synchronized
     fun replaceSims(lines: List<SimLine>) {
         val db = writableDatabase
         db.beginTransaction()
         try {
+            saveSyncStateValue(db, SIMS_SCOPE_KEY, nodeScope)
             db.delete("sim_lines", null, null)
             lines.forEach { line ->
                 db.insertOrThrow("sim_lines", null, ContentValues().apply {
@@ -99,9 +140,12 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
     }
 
     @Synchronized
-    fun loadSims(): List<SimLine> = readableDatabase.query(
-        "sim_lines", null, null, null, null, null, "slot_index ASC"
-    ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toSimLine()) } }
+    fun loadSims(): List<SimLine> {
+        if (!writtenByThisNode(SIMS_SCOPE_KEY)) return emptyList()
+        return readableDatabase.query(
+            "sim_lines", null, null, null, null, null, "slot_index ASC"
+        ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.toSimLine()) } }
+    }
 
     @Synchronized
     fun upsertRemoteMessage(message: SmsRecord) {
@@ -169,6 +213,21 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         }
     }
 
+    /**
+     * Re-address an unconfirmed mesh task to another node. Only a task that
+     * the server never confirmed and that still carries [expectedTaskKey] moves.
+     */
+    @Synchronized
+    fun moveTask(localId: String, expectedTaskKey: String, moved: RetryEnvelope): Boolean {
+        val changed = writableDatabase.update("messages", ContentValues().apply {
+            put("task_key", moved.idempotencyKey)
+            put("gateway_id", moved.gatewayId)
+            put("mapping_revision", moved.mappingRevision)
+            put("idempotency_body", moved.requestBody())
+        }, "local_id=? AND task_key=? AND server_id IS NULL AND direction='outbound'", arrayOf(localId, expectedTaskKey))
+        return changed == 1
+    }
+
     @Synchronized
     fun markInterruptedSubmissionsUnknown() {
         writableDatabase.execSQL(
@@ -234,7 +293,7 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
 
     @Synchronized
     fun eventCursor(): String? = readableDatabase.query(
-        "sync_state", arrayOf("value"), "key=?", arrayOf("events_cursor"), null, null, null
+        "sync_state", arrayOf("value"), "key=?", arrayOf(eventCursorKey), null, null, null
     ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
 
     @Synchronized
@@ -244,7 +303,7 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
 
     private fun saveEventCursor(db: SQLiteDatabase, cursorValue: String) {
         db.insertWithOnConflict("sync_state", null, ContentValues().apply {
-            put("key", "events_cursor")
+            put("key", eventCursorKey)
             put("value", cursorValue)
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
@@ -261,7 +320,7 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
             // Another ClientDatabase instance may have completed the initial
             // history pass after this caller observed the old state.
             if (!isHistoricalBaseline(db)) return
-            saveSyncStateValue(db, BASELINE_IN_PROGRESS_KEY, "1")
+            saveSyncStateValue(db, baselineInProgressKey, "1")
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -273,8 +332,8 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         val db = writableDatabase
         db.beginTransaction()
         try {
-            saveSyncStateValue(db, BASELINE_IN_PROGRESS_KEY, "0")
-            saveSyncStateValue(db, BOOTSTRAPPED_KEY, "1")
+            saveSyncStateValue(db, baselineInProgressKey, "0")
+            saveSyncStateValue(db, bootstrappedKey, "1")
             db.setTransactionSuccessful()
         } finally {
             db.endTransaction()
@@ -509,11 +568,11 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
-    private fun eventCursor(db: SQLiteDatabase): String? = readSyncStateValue(db, EVENT_CURSOR_KEY)
+    private fun eventCursor(db: SQLiteDatabase): String? = readSyncStateValue(db, eventCursorKey)
 
     private fun isHistoricalBaseline(db: SQLiteDatabase): Boolean =
-        readSyncStateValue(db, BASELINE_IN_PROGRESS_KEY) == "1" ||
-            (eventCursor(db) == null && readSyncStateValue(db, BOOTSTRAPPED_KEY) != "1")
+        readSyncStateValue(db, baselineInProgressKey) == "1" ||
+            (eventCursor(db) == null && readSyncStateValue(db, bootstrappedKey) != "1")
 
     private fun readSyncStateValue(db: SQLiteDatabase, key: String): String? = db.query(
         "sync_state", arrayOf("value"), "key=?", arrayOf(key), null, null, null
@@ -585,6 +644,8 @@ class ClientDatabase(context: Context, databaseName: String) : SQLiteOpenHelper(
         const val BASELINE_IN_PROGRESS_KEY = "background_events_baseline_in_progress"
         const val BACKGROUND_SMS_SEEN_KEY = "background_sms_seen"
         const val BACKGROUND_SMS_PENDING_KEY = "background_sms_pending_alerts"
+        const val GATEWAY_SCOPE_KEY = "gateway_state_node"
+        const val SIMS_SCOPE_KEY = "sim_lines_node"
     }
 
     private fun Cursor.toSimLine() = SimLine(

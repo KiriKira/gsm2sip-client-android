@@ -32,6 +32,7 @@ class ClientDatabasePersistenceTest {
                 label TEXT NOT NULL, carrier_name TEXT, phone_number TEXT, state TEXT NOT NULL,
                 mapping_revision INTEGER NOT NULL, identity_verified INTEGER NOT NULL, service_state TEXT)""")
             legacy.execSQL("INSERT INTO sim_lines VALUES ('sim-a',0,'Work',NULL,NULL,'active',3,1,'in_service')")
+            legacy.execSQL("CREATE TABLE sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
             legacy.version = 1
         }
         val db = openDatabase(name)

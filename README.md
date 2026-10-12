@@ -8,6 +8,12 @@ The app now includes a pinned PJSUA2 SIP SDK, self-managed Telecom calls, CallSt
 
 Several hosts can pair to the same owner and gateway, using separate one-time codes and credentials. Settings lists paired hosts and preserves its last snapshot offline and through folding. Incoming calls select the first host that actually answers; other hosts show that another device answered. One host rejecting does not reject the call for everyone. See [multi-host operation](docs/multi-host.md); the shared protocol supports future platforms, while a Windows client is not yet implemented.
 
+## 多服务器节点
+
+设置里可以添加多个独立服务器节点并拖动排序：当前节点不通、旧手机不在线或延迟过高时自动切到下一个，
+更高优先级节点稳定恢复后切回。同一条短信经过多个节点只存一份、只提醒一次；发出的短信由主手机铸造全局
+`message_id`，跨节点重试时旧手机最多执行一次。见 [多服务器节点](docs/mesh-nodes.md)。
+
 ## Build
 
 Requires JDK 17 and Android SDK platform 35. From this directory run:
