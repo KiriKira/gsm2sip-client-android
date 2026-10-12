@@ -121,6 +121,15 @@ class HostNodesTest {
         assertNotEquals(sessionStamp(home), sessionStamp(other))
     }
 
+    @Test
+    fun healthWithProbeHistorySurvivesAReload() {
+        HostNodes.register(app, "key-vps", vps, "install-1")
+        val health = NodeHealth(consecutiveSuccesses = 2, rttMillis = 70, gatewayOnline = true, checkedAt = 5,
+            gatewayId = "gw-vps", callReady = true, recent = listOf(ProbeSample(true, 70, 4), ProbeSample(false, null, 5)))
+        HostNodes.recordHealth(app, mapOf("key-vps" to health))
+        assertEquals(health, HostNodes.health(app)["key-vps"])
+    }
+
     private fun clearPreferences() {
         listOf("host-session", "host-nodes", "host-node-key-vps").forEach {
             app.getSharedPreferences(it, 0).edit().clear().commit()

@@ -3,6 +3,7 @@ package com.callagent.host.mesh
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
+import com.callagent.host.background.HostBackgroundRuntime
 import com.callagent.host.background.HostBackgroundService
 import com.callagent.host.calls.CallPhase
 import com.callagent.host.calls.CallRuntime
@@ -61,6 +62,11 @@ object NodeMonitor {
                 node.key to NodeSelectionPolicy.record(previous[node.key], observation, System.currentTimeMillis())
             }
             HostNodes.recordHealth(app, updates)
+            // Messages sent through another node only get later status there.
+            val refreshed = runCatching { CrossNodeStatus.refresh(app, nodes, updates) }.getOrDefault(0)
+            if (refreshed > 0) {
+                app.sendBroadcast(Intent(HostBackgroundRuntime.BACKGROUND_SYNCED).setPackage(app.packageName))
+            }
             val busy = callInProgress() || inFlightSubmissions.get() > 0
             val active = HostNodes.activeNode(app)?.key
             val target = NodeSelectionPolicy.choose(nodes.map { it.key }.filter { it in usable }, active, updates, busy)
@@ -78,8 +84,14 @@ object NodeMonitor {
             val api = ApiClient(node.apiBaseUrl, store, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
             api.capabilities()
             val rtt = SystemClock.elapsedRealtime() - started
-            val online = api.listGateways().any { it.online && installId != null && it.installId == installId }
-            NodeObservation(reachable = true, gatewayOnline = online, rttMillis = rtt)
+            val gateway = api.listGateways().firstOrNull { installId != null && it.installId == installId }
+            NodeObservation(
+                reachable = true,
+                gatewayOnline = gateway?.online == true,
+                rttMillis = rtt,
+                gatewayId = gateway?.gatewayId,
+                callReady = gateway?.online == true && gateway.sipRegistered == true
+            )
         } catch (_: Exception) {
             NodeObservation(reachable = false, gatewayOnline = false, rttMillis = null)
         }
