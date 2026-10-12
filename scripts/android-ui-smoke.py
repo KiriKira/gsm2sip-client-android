@@ -160,6 +160,29 @@ class Smoke:
     def wait(self, seconds: float = 2.0) -> None:
         time.sleep(seconds)
 
+    def dismiss_foreign_anr(self, root: ET.Element, name: str) -> bool:
+        """Tap "Wait" on a system ANR dialog that belongs to another app.
+
+        A cold emulator sometimes reports its own launcher as not
+        responding; that dialog covers the app under test and is not this
+        app's failure. A dialog naming this app is never dismissed.
+        """
+        wait_button = next((node for node in self.nodes(root)
+                            if node.attrib.get("resource-id", "") == "android:id/aerr_wait"), None)
+        if wait_button is None:
+            return False
+        title = " ".join(node.attrib.get("text", "") for node in self.nodes(root)
+                         if node.attrib.get("resource-id", "") in ("android:id/alertTitle", "android:id/message"))
+        dismissed = getattr(self, "foreign_anr_dismissals", 0)
+        if "gsm2sip" in title.lower() or dismissed >= 3:
+            return False
+        self.foreign_anr_dismissals = dismissed + 1
+        with (self.artifacts / "foreign_anr_dismissals.txt").open("a", encoding="utf-8") as log:
+            log.write(f"{name}: {title.strip() or 'system ANR dialog'}\n")
+        self.tap_node(wait_button, f"foreign_anr_wait_{dismissed + 1}")
+        self.wait(3)
+        return True
+
     def capture(self, name: str) -> ET.Element:
         device_xml = "/sdcard/ui-smoke-window.xml"
         attempts = 4
@@ -239,6 +262,9 @@ class Smoke:
                     if root.tag != "hierarchy" or not list(root):
                         root = None
                         last_error = "fresh hierarchy was empty or invalid"
+                    elif self.dismiss_foreign_anr(root, name):
+                        root = None
+                        last_error = "another app's 'isn't responding' dialog covered the screen"
                     else:
                         (self.artifacts / f"{safe_name(name)}.xml").write_text(raw, encoding="utf-8")
                         break
@@ -528,6 +554,20 @@ class Smoke:
                 self.wait(0.2)
             self.wait(1)
             root = self.capture(f"{resource_id}_typed_suffix_ime_hidden")
+        entered = self.field_text(root, resource_id)
+        if entered is not None and entered != value and not value.startswith(entered):
+            # An emulator under load once delivered a burst out of order
+            # ("thtps://"). Clear the field and type it again one character
+            # at a time; the full-value assertions still decide the check.
+            self.shell("input", "keyevent", "KEYCODE_MOVE_END", check=True, label=f"end_retype_{resource_id}")
+            self.shell("input", "keyevent", *(["KEYCODE_DEL"] * min(len(entered), 120)),
+                       check=True, label=f"clear_retype_{resource_id}")
+            for index, character in enumerate(value):
+                self.shell("input", "text", character, check=True,
+                           label=f"retype_{resource_id}_{index}")
+                self.wait(0.15)
+            self.wait(1)
+            root = self.capture(f"{resource_id}_retyped_ime_hidden")
         node = self.find_node(root, resource_id)
         if node is not None and self.node_is_on_screen(node):
             self.tap_node(node, f"reopen_ime_{resource_id}")
