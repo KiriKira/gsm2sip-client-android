@@ -358,7 +358,11 @@ class HostCallService : android.app.Service() {
             val api = apiForCurrentSession()
             val config = loadUsableSipConfiguration(api, session)
             verifyOutboundLine(api, gatewayId, simId, revision)
-            val intent = api.createCallIntent(gatewayId, simId, revision, destination, UUID.randomUUID().toString())
+            // In a mesh profile this phone mints the call_id, so the old
+            // phone's call ledger can refuse a second dial of the same call
+            // that reached it through another server node.
+            val meshCallId = if (session.profileId != null) UUID.randomUUID().toString() else null
+            val intent = api.createCallIntent(gatewayId, simId, revision, destination, UUID.randomUUID().toString(), meshCallId)
             if (sessionStore.read()?.sessionInstanceId != session.sessionInstanceId) {
                 runCatching { api.cancelCallIntent(intent.intentId) }
                 throw SessionChanged()

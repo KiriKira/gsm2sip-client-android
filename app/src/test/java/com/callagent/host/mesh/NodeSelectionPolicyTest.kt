@@ -83,4 +83,22 @@ class NodeSelectionPolicyTest {
     private fun healthy(successes: Int) = NodeHealth(consecutiveSuccesses = successes, checkedAt = 1L, gatewayOnline = true)
 
     private fun failing(failures: Int) = NodeHealth(consecutiveFailures = failures, checkedAt = 1L)
+
+    @Test
+    fun qualityKeepsTheLastTwentyProbesAndReportsMedianAndAvailability() {
+        var health: NodeHealth? = null
+        repeat(25) { index ->
+            val observation = if (index % 5 == 4) down else ok.copy(rttMillis = 100L + index, callReady = true, gatewayId = "gw-1")
+            health = NodeSelectionPolicy.record(health, observation, now = index.toLong())
+        }
+        val state = health!!
+        assertEquals(20, state.recent.size)
+        assertEquals("16 of the last 20 probes were healthy", 80, state.availabilityPercent)
+        assertEquals(115L, state.medianRttMillis)
+        assertEquals("the gateway ID survives a failed probe", "gw-1", state.gatewayId)
+        assertFalse("a failed probe is not call-ready", state.callReady)
+        val recovered = NodeSelectionPolicy.record(state, ok.copy(callReady = true), now = 99)
+        assertTrue(recovered.callReady)
+        assertNull(NodeHealth().availabilityPercent)
+    }
 }

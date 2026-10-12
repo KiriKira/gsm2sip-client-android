@@ -322,7 +322,14 @@ object HostNodes {
                     .put("rtt_ms", health.rttMillis ?: JSONObject.NULL)
                     .put("gateway_online", health.gatewayOnline)
                     .put("checked_at", health.checkedAt)
-                    .put("issue", health.issue ?: JSONObject.NULL))
+                    .put("issue", health.issue ?: JSONObject.NULL)
+                    .put("gateway_id", health.gatewayId ?: JSONObject.NULL)
+                    .put("call_ready", health.callReady)
+                    .put("recent", JSONArray().also { samples ->
+                        health.recent.forEach { sample ->
+                            samples.put(JSONArray().put(sample.ok).put(sample.rttMillis ?: JSONObject.NULL).put(sample.at))
+                        }
+                    }))
             }
         })
 
@@ -345,7 +352,15 @@ object HostNodes {
                     rttMillis = if (item.isNull("rtt_ms")) null else item.optLong("rtt_ms"),
                     gatewayOnline = item.optBoolean("gateway_online"),
                     checkedAt = item.optLong("checked_at"),
-                    issue = item.optNullable("issue")
+                    issue = item.optNullable("issue"),
+                    gatewayId = item.optNullable("gateway_id"),
+                    callReady = item.optBoolean("call_ready"),
+                    recent = item.optJSONArray("recent")?.let { samples ->
+                        (0 until samples.length()).mapNotNull { index ->
+                            val sample = samples.optJSONArray(index) ?: return@mapNotNull null
+                            ProbeSample(sample.optBoolean(0), if (sample.isNull(1)) null else sample.optLong(1), sample.optLong(2))
+                        }
+                    }.orEmpty()
                 )
             }
         )

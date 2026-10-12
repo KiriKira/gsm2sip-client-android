@@ -110,6 +110,8 @@ import com.callagent.host.ui.DialPadKeyView
 import com.callagent.host.ui.NodeListView
 import com.callagent.host.ui.NodeRowPresenter
 import com.callagent.host.mesh.HostNodes
+import com.callagent.host.mesh.JoinEntry
+import com.callagent.host.mesh.JoinLink
 import com.callagent.host.mesh.NodeMonitor
 import com.callagent.host.contacts.ContactEntry
 import com.callagent.host.contacts.HostContactsRepository
@@ -185,6 +187,8 @@ class MainActivity : AppCompatActivity() {
     private var previousMappingRevision: Long? = null
     private var databaseName: String = ""
     private var databaseScope: String = ""
+    /** Join-link nodes to add once the first entry's pairing succeeds. */
+    private var pendingJoinNodes: List<JoinEntry> = emptyList()
     private var backgroundStatus: BackgroundStatus? = null
     private var backgroundSwitch: MaterialSwitch? = null
     private var backgroundSummary: TextView? = null
@@ -332,6 +336,7 @@ class MainActivity : AppCompatActivity() {
         }
         showDashboard()
         if (session != null) syncFromServer(showProgress = false)
+        if (savedInstanceState == null) handleJoinLink(intent)
     }
 
     override fun onStart() {
@@ -410,6 +415,74 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         if (intent.action == ACTION_SHOW_SMS) {
             navigate(navigation.selectTab(HostTab.MESSAGES))
+        }
+        handleJoinLink(intent)
+    }
+
+    /**
+     * A gsm2sip://join link lists one-time pairing codes for several server
+     * nodes. Unpaired, the first entry becomes the pairing and the rest are
+     * added as nodes; paired, every entry is added as a node.
+     */
+    private fun handleJoinLink(source: Intent?) {
+        val link = source?.dataString
+        if (!JoinLink.isJoinLink(link)) return
+        // The link carries one-time secrets: never keep it around for a recreate.
+        source?.data = null
+        val entries = JoinLink.parse(link!!, "client")
+        if (entries == null) {
+            showToast("这个加入链接无效，或不是给主手机用的。")
+            return
+        }
+        val paired = session != null
+        val hosts = entries.joinToString("\n") { "• ${HostNodes.hostLabel(it.serverUrl)}" }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(if (paired) "添加 ${entries.size} 个服务器节点？" else "加入 ${entries.size} 个服务器？")
+            .setMessage(if (paired) hosts else "先与第一个服务器配对，其余作为备用节点：\n$hosts")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("加入") { _, _ ->
+                if (session != null) {
+                    addJoinNodes(entries)
+                } else {
+                    val first = entries.first()
+                    pendingJoinNodes = entries.drop(1)
+                    val deviceName = Build.MODEL.orEmpty().ifBlank { "Android host" }.take(100)
+                    navigation = navigation.selectTab(HostTab.SETTINGS)
+                    if (!pairingForm.startPairing(applicationContext, first.serverUrl, first.pairingCode, deviceName)) {
+                        pendingJoinNodes = emptyList()
+                        showToast("已有配对正在进行，请稍后再试。")
+                    }
+                    renderCurrentScreen()
+                }
+            }
+            .show()
+    }
+
+    private fun addJoinNodes(entries: List<JoinEntry>) {
+        if (entries.isEmpty()) return
+        val app = applicationContext
+        val deviceName = Build.MODEL.orEmpty().ifBlank { "Android host" }.take(100)
+        showToast("正在加入 ${entries.size} 个节点…")
+        nodeExecutor.execute {
+            val lines = entries.map { entry ->
+                val label = HostNodes.hostLabel(entry.serverUrl)
+                runCatching { HostNodes.add(app, entry.serverUrl, entry.pairingCode, deviceName) }
+                    .fold(
+                        onSuccess = { node -> HostNodes.catchUpSilently(app, node); "$label：已加入" },
+                        onFailure = { failure ->
+                            "$label：未加入（${(failure as? com.callagent.host.mesh.NodeSetupFailure)?.message
+                                ?: apiFailureText(failure as? Exception ?: Exception(failure))}）"
+                        }
+                    )
+            }
+            mainHandler.post {
+                if (isDestroyed) return@post
+                session = sessionStore.read() ?: session
+                settingsMessage = lines.joinToString("\n")
+                navigation = navigation.selectTab(HostTab.SETTINGS)
+                renderCurrentScreen()
+                probeNodes(force = true)
+            }
         }
     }
 
@@ -943,7 +1016,8 @@ class MainActivity : AppCompatActivity() {
                     // Re-render after the drag gesture has fully finished.
                     mainHandler.post { if (!isDestroyed) renderCurrentScreen() }
                 },
-                onRemove = { row -> confirmRemoveNode(row.key, row.title) }
+                onRemove = { row -> confirmRemoveNode(row.key, row.title) },
+                onSelect = { row -> showNodeDetails(row.key) }
             ).apply { id = R.id.settings_node_list; layoutParams = fullWidthParams(top = 4, bottom = 4) })
             content.addView(smallButton("立即检测节点").apply {
                 id = R.id.settings_nodes_probe
@@ -954,6 +1028,18 @@ class MainActivity : AppCompatActivity() {
             id = R.id.settings_nodes_add
             setOnClickListener { showAddNodeDialog() }
         })
+    }
+
+    private fun showNodeDetails(key: String) {
+        val node = HostNodes.nodes(this).firstOrNull { it.key == key } ?: return
+        val details = NodeRowPresenter.details(node, HostNodes.health(this)[key],
+            HostNodes.activeNode(this)?.key == key, System.currentTimeMillis())
+        MaterialAlertDialogBuilder(this)
+            .setTitle(node.label)
+            .setMessage(details.joinToString("\n") { (label, value) -> "$label：$value" })
+            .setPositiveButton("关闭", null)
+            .setNeutralButton("立即检测") { _, _ -> probeNodes(force = true) }
+            .show()
     }
 
     private fun showAddNodeDialog() {
@@ -2724,8 +2810,13 @@ class MainActivity : AppCompatActivity() {
                     syncFromServer(showProgress = true)
                 }
             }
+            pendingJoinNodes.takeIf { it.isNotEmpty() }?.let { rest ->
+                pendingJoinNodes = emptyList()
+                addJoinNodes(rest)
+            }
             return
         }
+        pendingJoinNodes = emptyList()
 
         if (failure is SessionChanged) {
             showCurrentSession("其他界面更改了配对账户。")

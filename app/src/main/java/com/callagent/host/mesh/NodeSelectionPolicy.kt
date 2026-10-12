@@ -6,8 +6,15 @@ data class NodeObservation(
     /** The account's old phone is online on this node (matched by install ID). */
     val gatewayOnline: Boolean,
     val rttMillis: Long?,
-    val issue: String? = null
+    val issue: String? = null,
+    /** This account's gateway on that node (the IDs differ per node). */
+    val gatewayId: String? = null,
+    /** The old phone is SIP-registered on that node, so calls work through it. */
+    val callReady: Boolean = false
 )
+
+/** One probe result kept for the node quality view. */
+data class ProbeSample(val ok: Boolean, val rttMillis: Long?, val at: Long)
 
 /** Rolling health of one node, persisted between probes. */
 data class NodeHealth(
@@ -16,9 +23,23 @@ data class NodeHealth(
     val rttMillis: Long? = null,
     val gatewayOnline: Boolean = false,
     val checkedAt: Long = 0L,
-    val issue: String? = null
+    val issue: String? = null,
+    val gatewayId: String? = null,
+    val callReady: Boolean = false,
+    /** Most recent probes, oldest first, at most [NodeSelectionPolicy.QUALITY_SAMPLES]. */
+    val recent: List<ProbeSample> = emptyList()
 ) {
     val healthy: Boolean get() = consecutiveSuccesses > 0
+
+    /** Share of recent probes that were healthy, 0..100; null before any probe. */
+    val availabilityPercent: Int? get() =
+        if (recent.isEmpty()) null else recent.count { it.ok } * 100 / recent.size
+
+    /** Median round trip of the recent healthy probes. */
+    val medianRttMillis: Long? get() {
+        val values = recent.filter { it.ok }.mapNotNull { it.rttMillis }.sorted()
+        return if (values.isEmpty()) null else values[values.size / 2]
+    }
 }
 
 /**
@@ -34,6 +55,7 @@ object NodeSelectionPolicy {
     const val MAX_HEALTHY_RTT_MS = 3_000L
     const val FAILOVER_AFTER_FAILURES = 2
     const val FAILBACK_AFTER_SUCCESSES = 3
+    const val QUALITY_SAMPLES = 20
 
     fun healthy(observation: NodeObservation): Boolean =
         observation.reachable && observation.gatewayOnline &&
@@ -48,6 +70,9 @@ object NodeSelectionPolicy {
             rttMillis = observation.rttMillis,
             gatewayOnline = observation.gatewayOnline,
             checkedAt = now,
+            gatewayId = observation.gatewayId ?: before.gatewayId,
+            callReady = ok && observation.callReady,
+            recent = (before.recent + ProbeSample(ok, observation.rttMillis, now)).takeLast(QUALITY_SAMPLES),
             issue = observation.issue ?: when {
                 !observation.reachable -> "无法连接"
                 !observation.gatewayOnline -> "旧手机不在线"

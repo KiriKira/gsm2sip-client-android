@@ -173,10 +173,16 @@ class ApiClient(
 
     fun getCall(callId: String): RemoteCall = parseCall(authenticatedRequest("GET", "/calls/${pathSegment(callId)}"))
 
-    fun createCallIntent(gatewayId: String, simId: String, mappingRevision: Long, destination: String, idempotencyKey: String): CallIntent {
-        val json = authenticatedRequest("POST", "/call-intents", JSONObject()
+    /** [callId] is sent only for a mesh profile, whose servers all support the field. */
+    fun createCallIntent(
+        gatewayId: String, simId: String, mappingRevision: Long, destination: String,
+        idempotencyKey: String, callId: String? = null
+    ): CallIntent {
+        val body = JSONObject()
             .put("gateway_id", gatewayId).put("sim_id", simId)
-            .put("mapping_revision", mappingRevision).put("to", destination), idempotencyKey)
+            .put("mapping_revision", mappingRevision).put("to", destination)
+        callId?.let { body.put("call_id", it) }
+        val json = authenticatedRequest("POST", "/call-intents", body, idempotencyKey)
         return CallIntent(json.getString("intent_id"), json.getString("call_id"), json.getString("sip_uri"), json.getString("expires_at"))
     }
 

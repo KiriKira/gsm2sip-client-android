@@ -27,7 +27,9 @@ data class NodeRow(
     val detail: String,
     val active: Boolean,
     val healthy: Boolean?,
-    val removable: Boolean
+    val removable: Boolean,
+    /** Recent availability, latency and call readiness, or null before any probe. */
+    val quality: String? = null
 )
 
 object NodeRowPresenter {
@@ -47,9 +49,36 @@ object NodeRowPresenter {
                 detail = "$role · $status",
                 active = active,
                 healthy = state?.takeIf { it.checkedAt > 0L }?.healthy,
-                removable = !active
+                removable = !active,
+                quality = state?.let(::quality)
             )
         }
+
+    private fun quality(state: NodeHealth): String? {
+        val availability = state.availabilityPercent ?: return null
+        val parts = mutableListOf("近 ${state.recent.size} 次可用 $availability%")
+        state.medianRttMillis?.let { parts += "中位延迟 $it ms" }
+        parts += if (state.callReady) "可通话" else "仅短信"
+        return parts.joinToString(" · ")
+    }
+
+    /** Label/value pairs for the node detail dialog. */
+    fun details(node: HostNode, state: NodeHealth?, active: Boolean, now: Long): List<Pair<String, String>> = buildList {
+        add("地址" to node.apiBaseUrl)
+        add("角色" to if (active) "正在使用" else "备用")
+        if (state == null || state.checkedAt == 0L) {
+            add("状态" to "尚未检测")
+            return@buildList
+        }
+        add("状态" to if (state.healthy) "正常" else (state.issue ?: "不可用"))
+        add("旧手机" to if (state.gatewayOnline) "在线" else "不在线")
+        add("通话" to if (state.callReady) "可通话（旧手机已在该节点注册 SIP）" else "仅短信（旧手机未在该节点注册 SIP）")
+        state.rttMillis?.let { add("最近延迟" to "$it ms") }
+        state.medianRttMillis?.let { add("中位延迟" to "$it ms") }
+        state.availabilityPercent?.let { add("可用率" to "近 ${state.recent.size} 次 $it%") }
+        add("最近检测" to "${((now - state.checkedAt) / 1000).coerceAtLeast(0)} 秒前")
+        if (state.recent.isNotEmpty()) add("最近结果" to state.recent.joinToString("") { if (it.ok) "●" else "○" })
+    }
 }
 
 /**
@@ -62,7 +91,8 @@ class NodeListView(
     context: Context,
     rows: List<NodeRow>,
     private val onReorder: (List<String>) -> Unit,
-    private val onRemove: (NodeRow) -> Unit
+    private val onRemove: (NodeRow) -> Unit,
+    private val onSelect: (NodeRow) -> Unit = {}
 ) : RecyclerView(context) {
     private val items = rows.toMutableList()
     private val touchHelper: ItemTouchHelper
@@ -119,6 +149,7 @@ class NodeListView(
         private val handle = MaterialTextView(context)
         private val title = MaterialTextView(context)
         private val detail = MaterialTextView(context)
+        private val quality = MaterialTextView(context)
         private val remove = MaterialButton(context, null, MaterialR.attr.materialButtonOutlinedStyle)
         private val accessibilityActions = mutableListOf<Int>()
 
@@ -152,6 +183,8 @@ class NodeListView(
             detail.setTextAppearance(MaterialR.style.TextAppearance_Material3_BodySmall)
             column.addView(title)
             column.addView(detail)
+            quality.setTextAppearance(MaterialR.style.TextAppearance_Material3_LabelSmall)
+            column.addView(quality)
             row.addView(column, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             remove.text = "移除"
             remove.isAllCaps = false
@@ -162,6 +195,11 @@ class NodeListView(
         fun bind(item: NodeRow) {
             title.text = item.title
             detail.text = item.detail
+            quality.text = item.quality.orEmpty()
+            quality.visibility = if (item.quality == null) View.GONE else View.VISIBLE
+            quality.setTextColor(color(MaterialR.attr.colorOnSurfaceVariant))
+            card.isClickable = true
+            card.setOnClickListener { onSelect(item) }
             title.setTextColor(color(MaterialR.attr.colorOnSurface))
             detail.setTextColor(color(when (item.healthy) {
                 false -> androidx.appcompat.R.attr.colorError
@@ -174,7 +212,7 @@ class NodeListView(
             remove.visibility = if (item.removable) View.VISIBLE else View.GONE
             remove.contentDescription = "移除 ${item.title}"
             remove.setOnClickListener { onRemove(item) }
-            card.contentDescription = "${item.title}，${item.detail}"
+            card.contentDescription = listOfNotNull(item.title, item.detail, item.quality).joinToString("，")
             accessibilityActions.forEach { ViewCompat.removeAccessibilityAction(card, it) }
             accessibilityActions.clear()
             val position = bindingAdapterPosition
