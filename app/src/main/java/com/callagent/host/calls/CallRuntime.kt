@@ -65,7 +65,10 @@ object CallRuntime {
     fun onActiveNodeChanged(context: Context, session: HostSession) {
         val app = context.applicationContext
         restoreForegroundPreference(app, session)
-        if (appVisible && wantsForegroundListening) startSignalingIfNeeded(app, session)
+        // Re-register with the new node's SIP server right away. In the
+        // background Android may refuse the service start; the next app
+        // open then restarts signaling as usual.
+        if (wantsForegroundListening) runCatching { startSignalingIfNeeded(app, session) }
     }
 
     fun snapshot(callId: String): CallSession? = coordinator.current?.takeIf { it.callId == callId }
