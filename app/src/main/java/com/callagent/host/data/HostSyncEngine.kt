@@ -17,14 +17,12 @@ class HostSyncEngine(
     context: Context,
     private val boundSession: HostSession,
     private val sessionIsCurrent: (HostSession) -> Boolean,
-    private val persistInboundNotificationIds: (List<String>) -> Boolean = { false }
+    private val persistInboundNotificationIds: (List<String>) -> Boolean = { false },
+    /** Where [boundSession] lives: the active store, or an inactive mesh node's own store. */
+    sessionStore: SessionStore = SessionStore(context.applicationContext)
 ) : Closeable {
     private val app = context.applicationContext
-    private val sessionStore = SessionStore(app)
-    private val database = ClientDatabase(
-        app,
-        clientDatabaseName(boundSession.apiBaseUrl, boundSession.ownerId, boundSession.deviceId)
-    )
+    private val database = ClientDatabase(app, boundSession.databaseName(), boundSession.nodeScope)
     private val api = ApiClient(
         boundSession.apiBaseUrl,
         sessionStore,
@@ -58,6 +56,17 @@ class HostSyncEngine(
             }
         }
         return HostSyncOutcome(inboundCount)
+    }
+
+    /**
+     * Fold this node's message history into the shared profile database
+     * without alerting, so a node that later becomes active only notifies
+     * about messages no other node delivered. Returns true once caught up.
+     */
+    fun catchUpSilently(deadlineElapsedRealtime: Long): Boolean {
+        ensureCurrent()
+        syncSms(deadlineElapsedRealtime)
+        return !database.isHistoricalBaseline()
     }
 
     private fun syncSms(deadline: Long): Int {

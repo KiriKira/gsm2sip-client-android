@@ -75,7 +75,8 @@ class ApiClient(
                 root = item.optNullableBoolean("root"),
                 sipRegistered = item.optNullableBoolean("sip_registered"),
                 batteryPercent = item.optNullableInt("battery_percent"),
-                charging = item.optNullableBoolean("charging")
+                charging = item.optNullableBoolean("charging"),
+                installId = item.optNullableString("install_id")?.lowercase()
             )
         }
     }
@@ -208,11 +209,37 @@ class ApiClient(
         endedAt = json.optNullableString("ended_at"), reason = json.optNullableString("reason")
     )
 
+    /** Public protocol extensions of this server; also a cheap reachability probe. */
+    fun capabilities(): Set<String> {
+        val json = request("GET", "/capabilities", body = null, token = null, idempotencyKey = null)
+        val items = json.optJSONArray("extensions") ?: JSONArray()
+        return (0 until items.length()).mapNotNull { items.optString(it).takeIf(String::isNotBlank) }.toSet()
+    }
+
     fun createMessage(envelope: RetryEnvelope): MessageAccepted {
-        val json = authenticatedRequest(
-            "POST", "/messages", idempotencyKey = envelope.idempotencyKey,
-            rawBody = envelope.requestBody()
-        )
+        val json = try {
+            authenticatedRequest(
+                "POST", "/messages", idempotencyKey = envelope.idempotencyKey,
+                rawBody = envelope.requestBody()
+            )
+        } catch (failure: ApiFailure) {
+            // This node already holds this phone-minted message under an
+            // earlier idempotency key (a retry that came back to it). Adopt
+            // that record instead of failing a message that exists.
+            val messageId = envelope.messageId
+            if (failure.httpStatus != 409 || failure.code != "MESSAGE_ID_CONFLICT" || messageId == null) throw failure
+            val existing = getMessage(messageId)
+            if (existing == null || existing.direction != "outbound" || existing.simId != envelope.simId ||
+                existing.to != envelope.to || existing.text != envelope.text
+            ) throw failure
+            return MessageAccepted(
+                messageId = messageId,
+                commandId = existing.commandId.orEmpty(),
+                status = existing.status,
+                expiresAt = existing.expiresAt.orEmpty(),
+                partCount = existing.partCount
+            )
+        }
         return MessageAccepted(
             messageId = json.getString("message_id"),
             commandId = json.getString("command_id"),

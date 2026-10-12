@@ -73,7 +73,8 @@ import com.callagent.host.data.CallHistoryCache
 import com.callagent.host.data.SmsSubmissionClients
 import com.callagent.host.data.SmsStatus
 import com.callagent.host.data.toRetryEnvelope
-import com.callagent.host.data.clientDatabaseName
+import com.callagent.host.data.databaseName
+import com.callagent.host.data.sameProfile
 import com.callagent.host.data.newTaskKey
 import com.callagent.host.data.retryAction
 import com.callagent.host.data.sameSessionInstance
@@ -106,6 +107,10 @@ import com.callagent.host.ui.GatewayStatusPresenter
 import com.callagent.host.ui.CallReadiness
 import com.callagent.host.ui.GatewayStatusView
 import com.callagent.host.ui.DialPadKeyView
+import com.callagent.host.ui.NodeListView
+import com.callagent.host.ui.NodeRowPresenter
+import com.callagent.host.mesh.HostNodes
+import com.callagent.host.mesh.NodeMonitor
 import com.callagent.host.contacts.ContactEntry
 import com.callagent.host.contacts.HostContactsRepository
 import androidx.core.util.Consumer
@@ -125,6 +130,8 @@ class MainActivity : AppCompatActivity() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val executor = Executors.newSingleThreadExecutor()
+    /** Node probes may take seconds; they never delay user actions on [executor]. */
+    private val nodeExecutor = Executors.newSingleThreadExecutor()
     private lateinit var sessionStore: SessionStore
     private lateinit var preferences: ClientPreferences
     private lateinit var pairingForm: PairingFormViewModel
@@ -177,6 +184,7 @@ class MainActivity : AppCompatActivity() {
     private var bindingDraft = false
     private var previousMappingRevision: Long? = null
     private var databaseName: String = ""
+    private var databaseScope: String = ""
     private var backgroundStatus: BackgroundStatus? = null
     private var backgroundSwitch: MaterialSwitch? = null
     private var backgroundSummary: TextView? = null
@@ -243,6 +251,11 @@ class MainActivity : AppCompatActivity() {
                 ACTION_BACKGROUND_SYNCED -> refreshVisibleCache()
                 ACTION_BACKGROUND_STATUS_CHANGED -> refreshBackgroundStatus()
                 CallRuntime.ACTION_STATE_CHANGED -> renderCurrentScreen()
+                NodeMonitor.ACTION_NODE_CHANGED -> if (sessionStore.read()?.sameSessionInstance(session ?: return) != true) {
+                    showCurrentSession("")
+                } else if (navigation.tab == HostTab.SETTINGS) {
+                    renderCurrentScreen()
+                }
             }
         }
     }
@@ -281,6 +294,7 @@ class MainActivity : AppCompatActivity() {
     private val periodicSync = object : Runnable {
         override fun run() {
             if (!resumed || session == null) return
+            probeNodes(force = false)
             syncFromServer(showProgress = false)
             mainHandler.postDelayed(this, 30_000L)
         }
@@ -308,7 +322,7 @@ class MainActivity : AppCompatActivity() {
             restoredServerUrl = savedInstanceState?.getString(STATE_PAIRING_SERVER),
             restoredDeviceName = savedInstanceState?.getString(STATE_PAIRING_DEVICE_NAME),
         )
-        session = sessionStore.read()
+        session = sessionStore.read() ?: runCatching { HostNodes.recoverActive(this) }.getOrNull()
         CallRuntime.restoreForegroundPreference(this, session)
         switchDatabase(session)
         selectedSimId = selectedRestoreSimId
@@ -418,6 +432,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         executor.shutdownNow()
+        nodeExecutor.shutdownNow()
         database.close()
         super.onDestroy()
     }
@@ -877,6 +892,7 @@ class MainActivity : AppCompatActivity() {
             content.addView(sectionTitle("服务器与设备"))
             content.addView(body(session?.apiBaseUrl.orEmpty()))
             content.addView(body("已配对此手机 · 账号 ${shortId(session?.ownerId.orEmpty())}"))
+            addServerNodes(content)
             content.addView(sectionTitle("已配对设备"))
             val devices = LinearLayout(this).apply {
                 id = R.id.settings_device_list
@@ -903,6 +919,109 @@ class MainActivity : AppCompatActivity() {
         content.addView(sectionTitle("短信备份与归档"))
         content.addView(smsArchiveEntryButton())
         settingsMessage = null
+    }
+
+    private fun probeNodes(force: Boolean) {
+        if (!HostNodes.isMultiNode(this)) return
+        val app = applicationContext
+        // A switch is announced by broadcast and handled by the receiver.
+        runCatching { nodeExecutor.execute { runCatching { NodeMonitor.evaluate(app, force) } } }
+    }
+
+    /** Server nodes in priority order; the phone uses the first healthy one. */
+    private fun addServerNodes(content: LinearLayout) {
+        content.addView(sectionTitle("服务器节点").apply { id = R.id.settings_nodes_section })
+        val nodes = HostNodes.nodes(this)
+        if (nodes.size < 2) {
+            content.addView(body("可再添加一台服务器作为备用节点（例如家里的局域网服务器和外网 VPS）。当前节点不通或延迟过高时自动切换，恢复后切回优先级更高的节点。"))
+        } else {
+            content.addView(body("按住 ≡ 拖动调整优先级。正在使用的节点不可用时切换到下一个可用节点，优先级更高的节点稳定恢复后切回。"))
+            val rows = NodeRowPresenter.rows(nodes, HostNodes.health(this), HostNodes.activeNode(this)?.key)
+            content.addView(NodeListView(this, rows,
+                onReorder = { order ->
+                    if (HostNodes.reorder(this, order)) probeNodes(force = true)
+                    // Re-render after the drag gesture has fully finished.
+                    mainHandler.post { if (!isDestroyed) renderCurrentScreen() }
+                },
+                onRemove = { row -> confirmRemoveNode(row.key, row.title) }
+            ).apply { id = R.id.settings_node_list; layoutParams = fullWidthParams(top = 4, bottom = 4) })
+            content.addView(smallButton("立即检测节点").apply {
+                id = R.id.settings_nodes_probe
+                setOnClickListener { probeNodes(force = true); showToast("正在检测各节点…") }
+            })
+        }
+        content.addView(smallButton("添加服务器节点").apply {
+            id = R.id.settings_nodes_add
+            setOnClickListener { showAddNodeDialog() }
+        })
+    }
+
+    private fun showAddNodeDialog() {
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+        }
+        val serverField = inputField("节点服务器地址", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+        val codeField = inputField("该服务器的一次性配对码", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        form.addView(body("先在旧手机的“其他节点”里添加同一台服务器，再在该服务器上为此手机生成配对码。", selectable = false))
+        form.addView(serverField)
+        form.addView(codeField)
+        MaterialAlertDialogBuilder(this)
+            .setTitle("添加服务器节点")
+            .setView(form)
+            .setNegativeButton("取消", null)
+            .setPositiveButton("添加") { _, _ ->
+                val url = serverField.editText?.text?.toString()?.trim().orEmpty()
+                val code = codeField.editText?.text?.toString()?.trim().orEmpty()
+                if (url.isBlank() || code.isBlank()) {
+                    showToast("请输入服务器地址和配对码。")
+                    return@setPositiveButton
+                }
+                val deviceName = Build.MODEL.orEmpty().ifBlank { "Android host" }.take(100)
+                val app = applicationContext
+                settingsMessage = null
+                statusMessage = "正在验证并添加节点…"
+                showToast("正在验证并添加节点…")
+                nodeExecutor.execute {
+                    val result = runCatching { HostNodes.add(app, url, code, deviceName) }
+                    // History catch-up runs after the result is shown; it is silent and best-effort.
+                    result.getOrNull()?.let { node -> nodeExecutor.execute { HostNodes.catchUpSilently(app, node) } }
+                    mainHandler.post {
+                        if (isDestroyed) return@post
+                        result.onSuccess { node ->
+                            // The active pairing now belongs to a profile.
+                            session = sessionStore.read() ?: session
+                            showToast("已添加节点 ${node.label}")
+                            probeNodes(force = true)
+                        }.onFailure { failure ->
+                            val reason = if (failure is com.callagent.host.mesh.NodeSetupFailure) failure.message.orEmpty()
+                                else apiFailureText(failure as? Exception ?: Exception(failure))
+                            settingsMessage = "未添加节点：$reason"
+                        }
+                        renderCurrentScreen()
+                    }
+                }
+            }
+            .show()
+    }
+
+    private fun confirmRemoveNode(key: String, title: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("移除节点？")
+            .setMessage("将撤销此手机在 $title 上的登录凭据，之后不会再切换到这个节点。")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("移除") { _, _ ->
+                val app = applicationContext
+                nodeExecutor.execute {
+                    val result = runCatching { HostNodes.remove(app, key) }
+                    mainHandler.post {
+                        if (isDestroyed) return@post
+                        result.onFailure { settingsMessage = it.message ?: "未能移除节点。" }
+                        renderCurrentScreen()
+                    }
+                }
+            }
+            .show()
     }
 
     private fun addPermissionSettings(content: LinearLayout) {
@@ -1784,6 +1903,7 @@ class MainActivity : AppCompatActivity() {
             addAction(ACTION_BACKGROUND_SYNCED)
             addAction(ACTION_BACKGROUND_STATUS_CHANGED)
             addAction(CallRuntime.ACTION_STATE_CHANGED)
+            addAction(NodeMonitor.ACTION_NODE_CHANGED)
         }
         ContextCompat.registerReceiver(this, backgroundReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         backgroundReceiverRegistered = true
@@ -1933,7 +2053,10 @@ class MainActivity : AppCompatActivity() {
             mappingRevision = line.mappingRevision,
             to = recipient,
             text = text,
-            createdAt = Instant.now().toString()
+            createdAt = Instant.now().toString(),
+            // Every node of a profile supports the mesh extension (checked when
+            // it was added), so this phone mints the global message ID.
+            messageId = if (expectedSession.profileId != null) UUID.randomUUID().toString() else null
         )
         try {
             expectedDatabase.insertOutbound(task)
@@ -1960,7 +2083,7 @@ class MainActivity : AppCompatActivity() {
         executor.execute {
             try {
                 if (sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) throw SessionChanged()
-                val accepted = expectedApi.createMessage(retryEnvelope)
+                val accepted = NodeMonitor.holdingNode { expectedApi.createMessage(retryEnvelope) }
                 expectedDatabase.updateTask(task.localId, accepted.status, accepted)
                 mainHandler.post {
                     if (isDestroyed || sessionStore.read()?.sameSessionInstance(expectedSession) != true || database !== expectedDatabase) return@post
@@ -2131,6 +2254,42 @@ class MainActivity : AppCompatActivity() {
             showToast("保存的任务与原提交不一致，无法安全重试。")
             return
         }
+        val (task, taskEnvelope) = moveTaskToActiveNode(expectedDatabase, verified.first, verified.second) ?: run {
+            showToast("当前节点上这张 SIM 卡不可用，暂时无法重试。")
+            return
+        }
+        submitVerifiedTask(task, taskEnvelope, expectedSession, expectedDatabase)
+    }
+
+    /**
+     * A mesh task saved for another node's gateway is re-addressed to the
+     * active node before retrying: same global message ID and SIM, this
+     * node's gateway and revision, a new idempotency key. The old phone runs
+     * the message ID at most once, whichever node delivers it.
+     */
+    private fun moveTaskToActiveNode(
+        expectedDatabase: ClientDatabase,
+        record: SmsRecord,
+        envelope: RetryEnvelope
+    ): Pair<SmsRecord, RetryEnvelope>? {
+        val activeGateway = gateway ?: return null
+        if (envelope.gatewayId == activeGateway.gatewayId || envelope.messageId == null) return record to envelope
+        val line = sims.firstOrNull {
+            it.simId == envelope.simId && it.canSend && it.mappingRevision == activeGateway.mappingRevision
+        } ?: return null
+        val moved = envelope.forNode(activeGateway.gatewayId, line.mappingRevision)
+        if (!expectedDatabase.moveTask(record.localId, envelope.idempotencyKey, moved)) return null
+        val stored = runCatching { expectedDatabase.loadTask(record.localId) }.getOrNull() ?: return null
+        val storedEnvelope = runCatching { stored.toRetryEnvelope() }.getOrNull() ?: return null
+        return stored to storedEnvelope
+    }
+
+    private fun submitVerifiedTask(
+        record: SmsRecord,
+        envelope: RetryEnvelope,
+        expectedSession: HostSession,
+        expectedDatabase: ClientDatabase,
+    ) {
         val expectedApi = SmsSubmissionClients.capture(ApiClient(expectedSession.apiBaseUrl, sessionStore))
         expectedDatabase.updateTask(record.localId, SmsStatus.SUBMITTING)
         statusMessage = "正在安全重试原短信任务…"
@@ -2145,7 +2304,7 @@ class MainActivity : AppCompatActivity() {
                     mainHandler.post { showToast("保存的任务已变化，未提交重试。") }
                     return@execute
                 }
-                val accepted = expectedApi.createMessage(current.second)
+                val accepted = NodeMonitor.holdingNode { expectedApi.createMessage(current.second) }
                 if (!retryContextIsCurrent(expectedSession, expectedDatabase)) throw SessionChanged()
                 val afterResponse = loadVerifiedRetryTask(expectedDatabase, record)
                 if (afterResponse == null || afterResponse.second != envelope) return@execute
@@ -2366,6 +2525,8 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("解除配对") { _, _ ->
                 executor.execute {
                     try {
+                        // Other nodes first, so none can take over after this one is revoked.
+                        runCatching { HostNodes.forgetAll(applicationContext) }
                         client().revoke()
                         runCatching { HostBackgroundRuntime.setEnabled(applicationContext, false) }
                         database.clearAll()
@@ -2410,7 +2571,20 @@ class MainActivity : AppCompatActivity() {
     private fun client(): ApiClient = ApiClient(sessionStore.read()?.apiBaseUrl ?: preferences.apiBaseUrl, sessionStore)
 
     private fun showCurrentSession(message: String) {
-        session = sessionStore.read()
+        val previous = session
+        val latest = sessionStore.read() ?: runCatching { HostNodes.recoverActive(this) }.getOrNull()
+        if (previous != null && latest != null && previous.sameProfile(latest)) {
+            // Another server node of the same profile: same local data, so
+            // keep the screen and only rebind to the new node.
+            session = latest
+            switchDatabase(latest)
+            statusMessage = "已切换到节点 ${HostNodes.hostLabel(latest.apiBaseUrl)}。"
+            showDashboard()
+            ensurePairedRuntimeStarted()
+            syncFromServer(showProgress = false)
+            return
+        }
+        session = latest
         navigation = HostNavigationState()
         composerTransfer = null
         selectedSimId = null
@@ -2420,17 +2594,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun switchDatabase(ownerSession: HostSession?) {
-        val nextName = if (ownerSession == null) "host-unpaired.db" else {
-            clientDatabaseName(ownerSession.apiBaseUrl, ownerSession.ownerId, ownerSession.deviceId)
-        }
-        if (databaseName == nextName && ::database.isInitialized) return
+        val nextName = ownerSession?.databaseName() ?: "host-unpaired.db"
+        val nextScope = ownerSession?.nodeScope.orEmpty()
+        if (databaseName == nextName && databaseScope == nextScope && ::database.isInitialized) return
         if (databaseName.isNotBlank() && databaseName != nextName) {
             CallRuntime.disableForegroundListening(this)
         }
         CallRuntime.restoreForegroundPreference(this, ownerSession)
         if (::database.isInitialized) database.close()
         databaseName = nextName
-        database = ClientDatabase(this, nextName)
+        databaseScope = nextScope
+        database = ClientDatabase(this, nextName, nextScope)
         database.markInterruptedSubmissionsUnknown()
         gateway = database.loadGateway()
         sims = database.loadSims()

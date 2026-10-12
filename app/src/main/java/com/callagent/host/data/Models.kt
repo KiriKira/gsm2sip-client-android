@@ -16,8 +16,28 @@ data class HostSession(
     val refreshExpiresAt: String,
     val sipAvailable: Boolean,
     val sipReason: String?,
-    val pendingRefreshKey: String? = null
+    val pendingRefreshKey: String? = null,
+    /**
+     * Set when this pairing is one node of a multi-node (mesh) profile. Every
+     * node of a profile shares one local database and background binding; it
+     * is the first node's session instance ID, so converting a single pairing
+     * into a profile changes neither.
+     */
+    val profileId: String? = null,
+    /** The profile's shared database file; null for a standalone pairing. */
+    val profileDatabase: String? = null,
+    /** Separates this node's server cursors inside the shared database; "" for the first node. */
+    val nodeScope: String = ""
 )
+
+/** Identity of the local account data: the mesh profile, or the pairing itself. */
+val HostSession.profileKey: String get() = profileId ?: sessionInstanceId
+
+fun HostSession.databaseName(): String = profileDatabase ?: clientDatabaseName(apiBaseUrl, ownerId, deviceId)
+
+/** True when both sessions share local data, including two nodes of one mesh profile. */
+fun HostSession.sameProfile(other: HostSession): Boolean =
+    profileKey == other.profileKey && databaseName() == other.databaseName()
 
 fun HostSession.sameSessionInstance(other: HostSession): Boolean =
     sessionInstanceId == other.sessionInstanceId &&
@@ -35,7 +55,9 @@ data class GatewaySnapshot(
     val root: Boolean?,
     val sipRegistered: Boolean?,
     val batteryPercent: Int?,
-    val charging: Boolean?
+    val charging: Boolean?,
+    /** The old phone's stable identity across server nodes (mesh extension). */
+    val installId: String? = null
 )
 
 /** A host paired to the same owner account as the current client session. */
@@ -154,7 +176,13 @@ data class OutboundTask(
     val to: String,
     val text: String,
     val createdAt: String,
-    val status: String = "submitting"
+    val status: String = "submitting",
+    /**
+     * Global message ID minted by this phone when every server node supports
+     * the mesh extension. The old phone executes one message ID at most once,
+     * whichever node delivers it.
+     */
+    val messageId: String? = null
 ) {
     fun retryEnvelope(): RetryEnvelope = RetryEnvelope(
         idempotencyKey = idempotencyKey,
@@ -162,7 +190,8 @@ data class OutboundTask(
         simId = simId,
         mappingRevision = mappingRevision,
         to = to,
-        text = text
+        text = text,
+        messageId = messageId
     )
 }
 
@@ -173,16 +202,29 @@ data class RetryEnvelope(
     val mappingRevision: Long,
     val to: String,
     val text: String,
-    val savedRequestBody: String? = null
+    val savedRequestBody: String? = null,
+    val messageId: String? = null
 ) {
-    fun requestFields(): Map<String, Any> = mapOf(
-        "gateway_id" to gatewayId,
-        "sim_id" to simId,
-        "mapping_revision" to mappingRevision,
-        "to" to to,
-        "text" to text,
-        "ttl_seconds" to 300
-    )
+    fun requestFields(): Map<String, Any> = buildMap {
+        put("gateway_id", gatewayId)
+        put("sim_id", simId)
+        put("mapping_revision", mappingRevision)
+        put("to", to)
+        put("text", text)
+        put("ttl_seconds", 300)
+        messageId?.let { put("message_id", it) }
+    }
+
+    /**
+     * The same message for another server node: that node's gateway ID and SIM
+     * revision under a fresh idempotency key, keeping the global message ID so
+     * the old phone still sends it at most once.
+     */
+    fun forNode(gatewayId: String, mappingRevision: Long, idempotencyKey: String = newTaskKey()): RetryEnvelope {
+        requireNotNull(messageId) { "only mesh tasks can move between nodes" }
+        return copy(idempotencyKey = idempotencyKey, gatewayId = gatewayId,
+            mappingRevision = mappingRevision, savedRequestBody = null)
+    }
 
     fun requestBody(): String = savedRequestBody ?: JSONObject(requestFields()).toString()
 
@@ -199,7 +241,8 @@ fun SmsRecord.toRetryEnvelope(): RetryEnvelope {
         mappingRevision = mappingRevision ?: error("missing mapping revision"),
         to = to ?: error("missing recipient"),
         text = text,
-        savedRequestBody = saved
+        savedRequestBody = saved,
+        messageId = json.optString("message_id").takeIf { it.isNotBlank() && it != "null" }
     )
     require(json.optString("gateway_id") == envelope.gatewayId)
     require(json.optString("sim_id") == envelope.simId)

@@ -10,7 +10,7 @@ import com.callagent.backup.SmsBackupActivity
 import com.callagent.host.data.HostSession
 import com.callagent.host.data.SessionChanged
 import com.callagent.host.data.SessionStore
-import com.callagent.host.data.clientDatabaseName
+import com.callagent.host.data.databaseName
 import com.callagent.host.data.sameSessionInstance
 import java.io.IOException
 import java.io.Closeable
@@ -208,7 +208,7 @@ internal fun canonicalArchiveSource(apiBaseUrl: String): String {
 
 internal fun archiveDatabaseName(session: HostSession): String {
     canonicalArchiveSource(session.apiBaseUrl)
-    return clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
+    return session.databaseName()
 }
 
 private fun parseArchiveTime(value: String): Long = try {
