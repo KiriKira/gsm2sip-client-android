@@ -18,7 +18,7 @@ import javax.crypto.spec.GCMParameterSpec
  * preferences name. All stores share one process lock so a node switch moves
  * sessions between them atomically with respect to readers and refreshes.
  */
-class SessionStore(context: Context, prefsName: String = ACTIVE_PREFS) {
+class SessionStore @JvmOverloads constructor(context: Context, prefsName: String = ACTIVE_PREFS) {
     private val preferences = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val alias = "gsm2sip-host-session-v1"
 

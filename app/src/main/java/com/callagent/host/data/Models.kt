@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-data class HostSession(
+data class HostSession @JvmOverloads constructor(
     val sessionInstanceId: String,
     val apiBaseUrl: String,
     val ownerId: String,
@@ -46,7 +46,7 @@ fun HostSession.sameSessionInstance(other: HostSession): Boolean =
         deviceId == other.deviceId &&
         role == other.role
 
-data class GatewaySnapshot(
+data class GatewaySnapshot @JvmOverloads constructor(
     val gatewayId: String,
     val deviceName: String,
     val online: Boolean,
