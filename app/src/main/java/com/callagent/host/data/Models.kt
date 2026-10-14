@@ -115,7 +115,12 @@ data class SimRadio(
     val networkType: String?,
     val networkOperator: String?,
     val roaming: Boolean?,
-    val updatedAt: String?
+    val updatedAt: String?,
+    /**
+     * ISO 3166-1 alpha-2 country of the SIM, used to normalize SMS peers. Older
+     * servers and gateways never send it.
+     */
+    val countryIso: String? = null
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("signal_level", signalLevel ?: JSONObject.NULL)
@@ -123,8 +128,11 @@ data class SimRadio(
         .put("network_operator", networkOperator ?: JSONObject.NULL)
         .put("roaming", roaming ?: JSONObject.NULL)
         .put("updated_at", updatedAt ?: JSONObject.NULL)
+        .put("country_iso", countryIso ?: JSONObject.NULL)
 
     companion object {
+        private val COUNTRY_ISO = Regex("^[A-Z]{2}$")
+
         /** Parses the server's `radio` object; unknown or malformed members become null. */
         fun fromJson(json: JSONObject?): SimRadio? {
             if (json == null) return null
@@ -135,7 +143,9 @@ data class SimRadio(
                 networkType = text("network_type", 16),
                 networkOperator = text("network_operator", 64),
                 roaming = if (json.isNull("roaming") || !json.has("roaming")) null else json.optBoolean("roaming"),
-                updatedAt = text("updated_at", 64)
+                updatedAt = text("updated_at", 64),
+                // Exactly two uppercase letters; anything else is treated as unknown.
+                countryIso = if (json.isNull("country_iso")) null else json.optString("country_iso").takeIf { COUNTRY_ISO.matches(it) }
             )
         }
     }

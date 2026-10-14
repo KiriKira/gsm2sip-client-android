@@ -10,6 +10,7 @@ import com.callagent.host.data.MessageAccepted
 import com.callagent.host.data.RetryEnvelope
 import com.callagent.host.data.SessionStore
 import com.callagent.host.data.SimLine
+import com.callagent.host.data.SimRadio
 import com.callagent.host.data.SmsRecord
 import com.callagent.host.data.SmsStatus
 import com.callagent.host.data.SmsSubmissionClient
@@ -254,6 +255,46 @@ class MainActivitySmsSubmissionTest {
             controller?.let { runCatching { it.pause().stop().destroy() } }
             cleanupAccount(app, oldSession, oldDatabase)
             cleanupAccount(app, newSession, newDatabase)
+            restoreKeyStore(originalProvider)
+        }
+    }
+
+    @Test
+    fun nationalAndInternationalPeersOpenAsOneConversation() {
+        val app = RuntimeEnvironment.getApplication()
+        val originalProvider = installTestKeyStore()
+        val session = session("submission-e164")
+        val databaseName = clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
+        var controller: ActivityController<MainActivity>? = null
+        try {
+            preparePairedAccount(app, session, "Gateway E164", "sim-cn")
+            ClientDatabase(app, databaseName).apply {
+                replaceSims(loadSims().map { it.copy(radio = SimRadio(3, "LTE", "Carrier", false, null, countryIso = "CN")) })
+                fun sms(id: String, inbound: Boolean, peer: String, at: String) = SmsRecord(
+                    localId = id, serverId = id, commandId = null, simId = "sim-cn", mappingRevision = 42,
+                    direction = if (inbound) "inbound" else "outbound", from = if (inbound) peer else null,
+                    to = if (inbound) null else peer, text = "body $id", status = SmsStatus.DELIVERED, createdAt = at,
+                    expiresAt = null, partCount = 1, parts = emptyList(), taskKey = null,
+                    gatewayId = "gateway-${session.sessionInstanceId}", idempotencyBody = null
+                )
+                upsertRemoteMessage(sms("typed", inbound = false, peer = "13800138000", at = "2026-10-05T10:00:00Z"))
+                upsertRemoteMessage(sms("reply", inbound = true, peer = "+8613800138000", at = "2026-10-05T10:01:00Z"))
+                close()
+            }
+            val activityController = Robolectric.buildActivity(MainActivity::class.java).setup()
+            controller = activityController
+            val activity = activityController.get()
+            activity.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId = R.id.tab_messages
+            val rows = descendants(activity.findViewById(android.R.id.content)).filter { it.id == R.id.sms_thread_item }.toList()
+            assertEquals(1, rows.size)
+            rows.single().performClick()
+            assertEquals("138 0013 8000", activity.findViewById<android.widget.TextView>(R.id.sms_thread_header).text.toString())
+            val texts = allText(activity)
+            assertTrue(texts.contains("body typed"))
+            assertTrue(texts.contains("body reply"))
+        } finally {
+            controller?.let { runCatching { it.pause().stop().destroy() } }
+            cleanupAccount(app, session, databaseName)
             restoreKeyStore(originalProvider)
         }
     }

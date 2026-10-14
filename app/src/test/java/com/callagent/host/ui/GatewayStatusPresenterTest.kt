@@ -95,4 +95,20 @@ class GatewayStatusPresenterTest {
         assertEquals(parsed, SimRadio.fromJson(parsed.toJson()))
         assertNull(SimRadio.fromJson(null))
     }
+
+    @Test
+    fun radioCountryIsoIsOptionalAndStrict() {
+        fun country(member: String) = SimRadio.fromJson(JSONObject("""{"signal_level":3$member}"""))!!.countryIso
+        assertEquals("CN", country(""","country_iso":"CN""""))
+        assertNull(country(""","country_iso":null"""))
+        assertNull(country(""))
+        listOf("\"cn\"", "\"CHN\"", "\" CN\"", "\"C1\"", "\"\"", "86").forEach { invalid ->
+            assertNull(invalid, country(""","country_iso":$invalid"""))
+        }
+        val parsed = SimRadio.fromJson(JSONObject("""{"network_operator":"中国移动","country_iso":"CN"}"""))!!
+        assertEquals(parsed, SimRadio.fromJson(parsed.toJson()))
+        assertEquals(mapOf("sim-1" to "CN"), SmsPeerKey.simCountries(listOf(
+            line(0).copy(simId = "sim-1", radio = parsed), line(1).copy(simId = "sim-2"), line(2).copy(simId = "sim-3", radio = null)
+        )))
+    }
 }
