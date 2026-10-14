@@ -52,14 +52,20 @@ The final debug APK also passes `zipalign -c -P 16 4`, verifying native-library
 ZIP alignment for 16 KB pages. This complements the ELF check; it does not
 replace a runtime test on a 16 KB device.
 
-The build does not set a permissive TLS mode. Runtime configuration in
+The build does not set a permissive TLS mode. By default (`transport` absent or
+`tls` in the server's SIP configuration), runtime configuration in
 `Pjsua2SipEngine` uses one TLS signaling transport with `verifyServer=true`,
 builds a PEM trust bundle from Android's `AndroidCAStore` **system** roots,
 and appends the optional authenticated custom CA. It requires `serverName` to
 match the configured outbound TLS proxy host. Thus the SIPS call-intent URI
 can retain its logical `gsm2sip` host while PJSIP validates the actual proxy
-certificate name. The engine offers no UDP/TCP signaling transport. It
-requires SRTP and permits SDES keying only; signaling must be SIPS. Incoming
+certificate name. In TLS mode the engine offers no UDP/TCP signaling
+transport, requires SRTP and permits SDES keying only; signaling must be SIPS.
+For self-hosted LAN/VPN servers that send `transport: "udp"`, the engine
+instead creates only a UDP transport and accepts only `sip:` URIs (no
+transport or `transport=udp`), including the call-intent URI; with
+`media_encryption: "none"` SRTP is disabled. The two modes are never mixed, and
+a configuration with a different transport recreates the endpoint. Incoming
 INVITEs expose raw SIP `Call-ID`, request URI and the exact trimmed
 `X-GSM2SIP-Call-ID` header as separate fields.
 

@@ -12,10 +12,21 @@ data class SipConfiguration(
     val outboundProxyUri: String? = null,
     val serverName: String? = null,
     val caPem: String? = null,
-    val password: String? = null
+    val password: String? = null,
+    /** SIP signalling transport: [TRANSPORT_TLS] or [TRANSPORT_UDP]. Old servers omit it (TLS). */
+    val transport: String = TRANSPORT_TLS,
+    /** Call media protection: [MEDIA_ENCRYPTION_SDES] or [MEDIA_ENCRYPTION_NONE]. Old servers omit it (SDES). */
+    val mediaEncryption: String = MEDIA_ENCRYPTION_SDES
 ) {
     // Credentials and SIP URIs must never appear in ordinary diagnostic logs.
     override fun toString(): String = "SipConfiguration(available=$available)"
+
+    companion object {
+        const val TRANSPORT_TLS = "tls"
+        const val TRANSPORT_UDP = "udp"
+        const val MEDIA_ENCRYPTION_SDES = "sdes"
+        const val MEDIA_ENCRYPTION_NONE = "none"
+    }
 }
 
 data class CallIntent(

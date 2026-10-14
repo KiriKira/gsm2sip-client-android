@@ -115,7 +115,12 @@ class HostBackgroundPolicyTest {
         assertEquals("wss://api.example.test/v1/ws", hostWakeWebSocketUrl("https://api.example.test/v1"))
         assertEquals("wss://api.example.test/edge/v1/ws", hostWakeWebSocketUrl("https://api.example.test/edge/v1/"))
         assertEquals("https", okhttp3.Request.Builder().url(hostWakeWebSocketUrl("https://api.example.test")).build().url.scheme)
-        assertTrue(runCatching { hostWakeWebSocketUrl("http://api.example.test") }.isFailure)
+        // Plain HTTP (self-hosted LAN/VPN) bases wake over ws://.
+        assertEquals("ws://192.168.1.10:8080/v1/ws", hostWakeWebSocketUrl("http://192.168.1.10:8080"))
+        assertEquals("ws://node.tailnet.ts.net/edge/v1/ws", hostWakeWebSocketUrl("http://node.tailnet.ts.net/edge/v1"))
+        assertEquals("http", okhttp3.Request.Builder().url(hostWakeWebSocketUrl("http://api.example.test")).build().url.scheme)
+        assertTrue(runCatching { hostWakeWebSocketUrl("http://user:password@api.example.test") }.isFailure)
+        assertTrue(runCatching { hostWakeWebSocketUrl("ftp://api.example.test") }.isFailure)
         assertTrue(runCatching { hostWakeWebSocketUrl("https://api.example.test?token=private") }.isFailure)
         assertTrue(runCatching { hostWakeWebSocketUrl("https://user:password@api.example.test") }.isFailure)
     }
