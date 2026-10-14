@@ -30,6 +30,7 @@ import android.widget.GridLayout
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.Insets
 import androidx.core.view.WindowCompat
@@ -101,6 +102,7 @@ import com.callagent.host.ui.HostDestination
 import com.callagent.host.ui.HostNavigationState
 import com.callagent.host.ui.HostTab
 import com.callagent.host.ui.PhoneRowView
+import com.callagent.host.ui.SmsPeerKey
 import com.callagent.host.ui.SmsThread
 import com.callagent.host.ui.SmsThreadIndex
 import com.callagent.host.ui.GatewayStatusPresenter
@@ -864,7 +866,8 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val allThreads = smsThreadCache ?: SmsThreadIndex.build(
-            sims.flatMap { line -> database.loadMessages(line.simId) } + database.loadMessages(null)
+            sims.flatMap { line -> database.loadMessages(line.simId) } + database.loadMessages(null),
+            smsCountryLookup()
         ).also { smsThreadCache = it }
         val threads = SmsThreadIndex.filter(allThreads, searchQuery)
         if (threads.isEmpty()) {
@@ -883,7 +886,7 @@ class MainActivity : AppCompatActivity() {
                     isFocusable = true
                     setOnClickListener {
                         selectedSimId = thread.simId
-                        navigate(navigation.openConversation(thread.simId, thread.peer))
+                        navigate(navigation.openConversation(thread.simId, thread.key))
                     }
                 }
                 val badge = MaterialTextView(this).apply {
@@ -928,6 +931,26 @@ class MainActivity : AppCompatActivity() {
                 list.addView(more)
             }
         }
+    }
+
+    /**
+     * Country used to key SMS peers on each SIM: the gateway SIM's reported
+     * country, else this phone's own. Threads, conversation detail and search
+     * must all key peers through this one lookup.
+     */
+    private fun smsCountryLookup(): (String?) -> String? {
+        val simCountries = SmsPeerKey.simCountries(sims)
+        val fallback = hostCountryIso()
+        return { simId -> SmsPeerKey.countryFor(simId, simCountries, fallback) }
+    }
+
+    private fun hostCountryIso(): String? {
+        val telephony = getSystemService(TelephonyManager::class.java)
+        return SmsPeerKey.hostCountryIso(
+            runCatching { telephony?.simCountryIso }.getOrNull(),
+            runCatching { telephony?.networkCountryIso }.getOrNull(),
+            java.util.Locale.getDefault().country,
+        )
     }
 
     private fun simBadgeLabel(simId: String?): String {
@@ -1522,6 +1545,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderConversation(content: LinearLayout, route: HostDestination.Conversation): View {
         if (route.simId != null && selectedSimId != route.simId) selectedSimId = route.simId
+        // route.peer is a thread key or a typed recipient; both compare by key.
+        val countryIso = smsCountryLookup()(route.simId)
+        val routeKey = if (route.peer.isBlank()) "" else SmsThreadIndex.key(route.peer, countryIso)
         val toolbar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val back = smallButton("返回").apply { id = R.id.screen_back }
         back.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
@@ -1529,7 +1555,7 @@ class MainActivity : AppCompatActivity() {
         toolbar.addView(back)
         val heading = MaterialTextView(this).apply {
             id = R.id.sms_thread_header
-            text = route.peer.ifBlank { "新短信" }
+            text = if (routeKey.isBlank()) "新短信" else SmsPeerKey.display(routeKey, countryIso)
             setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge)
             setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
             setPadding(dp(12), dp(8), 0, dp(8))
@@ -1547,7 +1573,9 @@ class MainActivity : AppCompatActivity() {
         val line = sims.firstOrNull { it.simId == selectedSimId }
         val savedDraft = line?.let { database.loadDraft(it.simId) }
         val transferred = composerTransfer
-        val savedBody = transferred?.second ?: if (route.isNew || savedDraft?.recipient == route.peer) savedDraft?.text.orEmpty() else ""
+        val draftMatches = savedDraft != null && (savedDraft.recipient == route.peer ||
+            (routeKey.isNotBlank() && SmsThreadIndex.key(savedDraft.recipient, countryIso) == routeKey))
+        val savedBody = transferred?.second ?: if (route.isNew || draftMatches) savedDraft?.text.orEmpty() else ""
         bindingDraft = true
         recipient?.setText(transferred?.first ?: savedDraft?.recipient.orEmpty())
 
@@ -1556,8 +1584,9 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
         }
         val records = if (route.simId == null) database.loadMessages(null) else database.loadMessages(route.simId)
-        val threadRecords = if (route.peer.isBlank()) emptyList() else records
-            .filter { it.peerAddress() == route.peer }
+        val peerKeys = HashMap<String, String>()
+        val threadRecords = if (routeKey.isBlank()) emptyList() else records
+            .filter { peerKeys.getOrPut(it.peerAddress()) { SmsThreadIndex.key(it.peerAddress(), countryIso) } == routeKey }
             .sortedBy { timestampMillis(it.createdAt) }
         if (threadRecords.isEmpty()) {
             smsConversationList?.addView(body(if (route.simId == null && !route.isNew) "此对话的 SIM 卡未知。选择线路后才能发送。" else "开始对话"))
@@ -2024,8 +2053,9 @@ class MainActivity : AppCompatActivity() {
         if (simId != null) {
             val records = database.loadMessages(simId).filter { matchesSearch(it, filter) }
             if (records.isEmpty()) list.addView(body("此线路暂时没有已保存的短信。")) else {
-                records.groupBy { it.peerAddress().ifBlank { "Unknown contact" } }.forEach { (peer, messages) ->
-                    list.addView(sectionTitle("对话 · $peer"))
+                val countryIso = smsCountryLookup()(simId)
+                records.groupBy { SmsThreadIndex.key(it.peerAddress(), countryIso) }.forEach { (key, messages) ->
+                    list.addView(sectionTitle("对话 · ${SmsPeerKey.display(key, countryIso)}"))
                     messages.forEach { message -> list.addView(messageCardView(message, canReply = message.simId != null)) }
                 }
             }
@@ -2054,7 +2084,9 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(16), dp(14), dp(16), dp(14))
         }
         card.addView(cardContent)
-        val address = message.peerAddress().ifBlank { "Unknown sender" }
+        val countryIso = smsCountryLookup()(message.simId)
+        val address = message.peerAddress().takeIf { it.isNotBlank() }
+            ?.let { SmsPeerKey.display(SmsPeerKey.key(it, countryIso), countryIso) } ?: "Unknown sender"
         cardContent.addView(label(if (message.direction == "inbound") "来自 $address" else "发往 $address"))
         cardContent.addView(body(message.text))
         cardContent.addView(body("${SmsStatus.display(message.status)} · ${message.createdAt}"))
@@ -2162,7 +2194,7 @@ class MainActivity : AppCompatActivity() {
             runCatching { expectedDatabase.clearDraft(line.simId) }
         }
         selectedSimId = line.simId
-        navigation = navigation.openConversation(line.simId, recipient, isNew = false)
+        navigation = navigation.openConversation(line.simId, SmsThreadIndex.key(recipient, smsCountryLookup()(line.simId)), isNew = false)
         composerTransfer = null
         statusMessage = "短信已加入发送队列。"
         renderCurrentScreen(preserveInput = false)
@@ -2776,7 +2808,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun matchesSearch(message: SmsRecord, query: String): Boolean = query.isBlank() ||
-        message.text.lowercase().contains(query) || message.peerAddress().lowercase().contains(query)
+        message.text.lowercase().contains(query) || message.peerAddress().lowercase().contains(query) ||
+        SmsPeerKey.digitsMatch(message.peerAddress(), query)
 
     private fun pairingFailureText(failure: Exception): String = when (failure) {
         is ApiFailure -> "配对失败（${failure.code.ifBlank { "HTTP ${failure.httpStatus}" }}）。请检查服务器地址和一次性配对码。"
