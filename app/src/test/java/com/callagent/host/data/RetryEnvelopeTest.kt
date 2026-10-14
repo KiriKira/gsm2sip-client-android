@@ -109,6 +109,20 @@ class RetryEnvelopeTest {
     }
 
     @Test
+    fun httpsDatabaseScopeIsUnchangedAndHttpIsADistinctScope() {
+        // SHA-256 of the pre-existing "https://host[:port]/path|owner|device" scope: existing installs keep their DB.
+        assertEquals("host-f8b2fbff8a0ed2c4b423d982a7040a00.db", clientDatabaseName("https://api.example.test/v1", "owner-a", "client-a"))
+        assertEquals("host-f8b2fbff8a0ed2c4b423d982a7040a00.db", clientDatabaseName("HTTPS://API.example.test:443/v1/", "owner-a", "client-a"))
+        assertEquals("host-e13c021157603b31784fd32abeeaa659.db", clientDatabaseName("https://api.example.test:8443/edge/v1", "owner-a", "client-a"))
+
+        val http = clientDatabaseName("http://api.example.test/v1", "owner-a", "client-a")
+        assertNotEquals(clientDatabaseName("https://api.example.test/v1", "owner-a", "client-a"), http)
+        assertEquals(http, clientDatabaseName("http://API.example.test:80/v1/", "owner-a", "client-a"))
+        assertNotEquals(http, clientDatabaseName("http://api.example.test:8080/v1", "owner-a", "client-a"))
+        assertTrue(runCatching { clientDatabaseName("ftp://api.example.test/v1", "owner-a", "client-a") }.isFailure)
+    }
+
+    @Test
     fun sessionRefreshKeepsItsInstanceButARePairGetsANewInstance() {
         val session = HostSession(
             sessionInstanceId = "family-a",

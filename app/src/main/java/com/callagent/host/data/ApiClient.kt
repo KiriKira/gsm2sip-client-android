@@ -4,11 +4,11 @@ import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.HttpURLConnection
 import java.net.URL
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.util.UUID
-import javax.net.ssl.HttpsURLConnection
 
 data class EventPage(
     val messages: List<SmsRecord>,
@@ -33,7 +33,7 @@ class ApiClient(
     private val connectTimeoutMillis: Int = 15_000,
     private val readTimeoutMillis: Int = 20_000
 ) {
-    private val apiRoot: String = normalizeBaseUrl(configuredBaseUrl)
+    private val apiRoot: String = normalizeApiBaseUrl(configuredBaseUrl)
     private val boundSession: HostSession? = sessionStore.read()
 
     fun pair(pairingCode: String, deviceName: String): HostSession {
@@ -195,15 +195,6 @@ class ApiClient(
         JSONObject().put("call_id", callId).put("wake_nonce", wakeNonce)
     ))
 
-    private fun parseSipConfiguration(json: JSONObject) = SipConfiguration(
-        available = json.optBoolean("available", false), reason = json.optNullableString("reason"),
-        endpointId = json.optNullableString("endpoint_id"), username = json.optNullableString("auth_username"),
-        realm = json.optNullableString("auth_realm"), aor = json.optNullableString("aor"),
-        registrarUri = json.optNullableString("registrar_uri"), outboundProxyUri = json.optNullableString("outbound_proxy_uri"),
-        serverName = json.optNullableString("server_name"), caPem = json.optNullableString("ca_pem"),
-        password = json.optNullableString("password")
-    )
-
     private fun parseCall(json: JSONObject) = RemoteCall(
         callId = json.getString("call_id"), gatewayId = json.getString("gateway_id"),
         clientId = json.optNullableString("client_id"), simId = json.getString("sim_id"),
@@ -332,7 +323,7 @@ class ApiClient(
         expectBody: Boolean = true,
         rawBody: String? = null
     ): JSONObject {
-        val connection = (URL(apiRoot + path).openConnection() as HttpsURLConnection).apply {
+        val connection = (URL(apiRoot + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = connectTimeoutMillis
             readTimeout = readTimeoutMillis
@@ -351,7 +342,7 @@ class ApiClient(
                 output.write((rawBody ?: body!!.toString()).toByteArray(Charsets.UTF_8))
             }
             val status = connection.responseCode
-            if (status in 300..399) throw IOException("HTTPS endpoint redirected; check the configured server URL")
+            if (status in 300..399) throw IOException("Server endpoint redirected; check the configured server URL")
             if (status !in 200..299) {
                 val errorBody = runCatching { connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } }.getOrNull()
                 val code = runCatching {
@@ -362,7 +353,7 @@ class ApiClient(
                 }.getOrDefault(false)
                 throw ApiFailure(status, code, retryable)
             }
-            if (!expectBody || status == HttpsURLConnection.HTTP_NO_CONTENT) return JSONObject()
+            if (!expectBody || status == HttpURLConnection.HTTP_NO_CONTENT) return JSONObject()
             val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             return if (text.isBlank()) JSONObject() else JSONObject(text)
         } finally {
@@ -417,16 +408,6 @@ class ApiClient(
         )
     }
 
-    private fun normalizeBaseUrl(value: String): String {
-        val uri = runCatching { java.net.URI(value.trim()) }.getOrElse { throw IOException("Enter a valid HTTPS server URL") }
-        if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank() || uri.userInfo != null || uri.query != null || uri.fragment != null) {
-            throw IOException("Server URL must use HTTPS and contain no credentials or query")
-        }
-        val path = uri.rawPath.orEmpty().trimEnd('/')
-        val originAndPath = "https://${uri.rawAuthority}$path"
-        return if (path.endsWith("/v1")) originAndPath else "$originAndPath/v1"
-    }
-
     private fun pathSegment(value: String): String = Uri.encode(value)
 
     private fun parseInstant(value: String): Instant? = runCatching {
@@ -445,6 +426,30 @@ class ApiClient(
         private val refreshLock = Any()
     }
 }
+
+internal fun normalizeApiBaseUrl(value: String): String {
+    val uri = runCatching { java.net.URI(value.trim()) }.getOrElse { throw IOException("Enter a valid http:// or https:// server URL") }
+    val scheme = uri.scheme?.lowercase()
+    // HTTPS is recommended; plain HTTP is accepted for self-hosted LAN/VPN nodes.
+    if ((scheme != "https" && scheme != "http") || uri.host.isNullOrBlank() || uri.userInfo != null || uri.query != null || uri.fragment != null) {
+        throw IOException("Server URL must use http:// or https:// and contain no credentials or query")
+    }
+    val path = uri.rawPath.orEmpty().trimEnd('/')
+    val originAndPath = "$scheme://${uri.rawAuthority}$path"
+    return if (path.endsWith("/v1")) originAndPath else "$originAndPath/v1"
+}
+
+/** Absent `transport`/`media_encryption` (older servers) mean TLS signalling with SDES-SRTP. */
+internal fun parseSipConfiguration(json: JSONObject) = SipConfiguration(
+    available = json.optBoolean("available", false), reason = json.optNullableString("reason"),
+    endpointId = json.optNullableString("endpoint_id"), username = json.optNullableString("auth_username"),
+    realm = json.optNullableString("auth_realm"), aor = json.optNullableString("aor"),
+    registrarUri = json.optNullableString("registrar_uri"), outboundProxyUri = json.optNullableString("outbound_proxy_uri"),
+    serverName = json.optNullableString("server_name"), caPem = json.optNullableString("ca_pem"),
+    password = json.optNullableString("password"),
+    transport = json.optNullableString("transport")?.lowercase() ?: SipConfiguration.TRANSPORT_TLS,
+    mediaEncryption = json.optNullableString("media_encryption")?.lowercase() ?: SipConfiguration.MEDIA_ENCRYPTION_SDES
+)
 
 internal fun parsePairedHosts(json: JSONObject): List<PairedHost> {
     val items = json.optJSONArray("items") ?: JSONArray()

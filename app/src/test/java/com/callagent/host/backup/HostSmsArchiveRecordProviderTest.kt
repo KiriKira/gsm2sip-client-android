@@ -31,6 +31,15 @@ import java.io.Closeable
 @Config(sdk = [34])
 class HostSmsArchiveRecordProviderTest {
     @Test
+    fun archiveProvenanceKeepsHttpsFormAndAcceptsPlainHttpNodes() {
+        assertEquals("https://pair.example.test/root/v1", canonicalArchiveSource("https://PAIR.example.test:443/root"))
+        assertEquals("http://192.168.1.10:8080/v1", canonicalArchiveSource("http://192.168.1.10:8080/v1"))
+        assertEquals("http://node.example.test/v1", canonicalArchiveSource("http://node.example.test:80"))
+        assertTrue(runCatching { canonicalArchiveSource("ftp://node.example.test") }.isFailure)
+        assertTrue(runCatching { canonicalArchiveSource("http://u:p@node.example.test") }.isFailure)
+    }
+
+    @Test
     fun exportsEveryCachedMessageWithUnicodeAndOnlyRevisionMatchedSimLabels() {
         val app = RuntimeEnvironment.getApplication()
         val originalProvider = Security.getProvider("AndroidKeyStore")

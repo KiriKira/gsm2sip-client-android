@@ -95,9 +95,11 @@ internal fun isCurrentBackgroundSession(expected: HostSession, current: HostSess
 internal fun hostWakeWebSocketUrl(configuredBase: String): String {
     val base = configuredBase.toHttpUrlOrNull()
         ?: throw IOException("Invalid paired server URL")
-    if (base.scheme != "https" || base.username.isNotEmpty() || base.password.isNotEmpty() || base.query != null || base.fragment != null) {
-        throw IOException("Paired server URL must be HTTPS")
+    if ((base.scheme != "https" && base.scheme != "http") || base.username.isNotEmpty() || base.password.isNotEmpty() || base.query != null || base.fragment != null) {
+        throw IOException("Paired server URL must be http:// or https://")
     }
     val normalized = if (base.encodedPath.trimEnd('/').endsWith("/v1")) base else base.newBuilder().addPathSegment("v1").build()
-    return normalized.newBuilder().addPathSegment("ws").build().toString().replaceFirst("https://", "wss://")
+    val url = normalized.newBuilder().addPathSegment("ws").build().toString()
+    // An https base wakes over wss://; a plain http (LAN/VPN) base over ws://.
+    return if (base.isHttps) url.replaceFirst("https://", "wss://") else url.replaceFirst("http://", "ws://")
 }

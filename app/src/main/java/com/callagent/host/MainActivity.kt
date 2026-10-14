@@ -1047,7 +1047,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
         }
-        val serverField = inputField("节点服务器地址", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+        val serverField = inputField("节点服务器地址（http:// 或 https://）", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         val codeField = inputField("该服务器的一次性配对码", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
         form.addView(body("先在旧手机的“其他节点”里添加同一台服务器，再在该服务器上为此手机生成配对码。", selectable = false))
         form.addView(serverField)
@@ -1148,7 +1148,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addPairingForm(content: LinearLayout) {
-        val serverField = inputField("服务器地址", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
+        val serverField = inputField("服务器地址（http:// 或 https://）", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         val serverInput = serverField.editText as TextInputEditText
         serverInput.id = R.id.pairing_server
         serverInput.setText(pairingForm.serverUrl)
@@ -2782,7 +2782,7 @@ class MainActivity : AppCompatActivity() {
         is ApiFailure -> "配对失败（${failure.code.ifBlank { "HTTP ${failure.httpStatus}" }}）。请检查服务器地址和一次性配对码。"
         is IOException -> failure.message?.takeIf { it.startsWith("Server URL") || it.startsWith("Enter") || it.startsWith("Pairing code") }
             ?: "无法连接服务器，或配对码被拒绝。"
-        else -> "配对失败，请检查 HTTPS 地址和配对码。"
+        else -> "配对失败，请检查服务器地址和配对码。"
     }
 
     private fun handlePairingOutcome(outcome: com.callagent.host.ui.PairingOperationOutcome) {

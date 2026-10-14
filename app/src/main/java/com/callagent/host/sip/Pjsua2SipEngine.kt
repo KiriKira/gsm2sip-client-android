@@ -32,7 +32,6 @@ import org.pjsip.pjsua2.pjsip_inv_state
 import org.pjsip.pjsua2.pjsip_status_code
 import org.pjsip.pjsua2.pjsip_transport_type_e
 import org.pjsip.pjsua2.pjsua_call_media_status
-import java.net.IDN
 import java.security.KeyStore
 import java.security.cert.X509Certificate
 import java.util.UUID
@@ -41,9 +40,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
-import java.util.regex.Pattern
 
-/** PJSUA2-backed SIP engine. It creates only a TLS signalling transport. */
+/**
+ * PJSUA2-backed SIP engine. Each started engine owns one endpoint with exactly one signalling
+ * transport, TLS or UDP, chosen by the server configuration. A configuration with another transport
+ * needs a new engine: [close] destroys the endpoint and an engine cannot be started twice.
+ */
 class Pjsua2SipEngine(context: Context) : SipEngine {
     private val appContext = context.applicationContext
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -60,6 +62,7 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
     @Volatile private var account: EngineAccount? = null
     @Volatile private var listener: SipEngine.Listener? = null
     @Volatile private var transportId: Int = -1
+    @Volatile private var accountTransport: SipTransport? = null
     @Volatile private var audioDeviceOpened = false
     @Volatile private var hasStarted = false
 
@@ -68,8 +71,8 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
             check(!closed.get()) { "SIP engine is closed" }
             check(!hasStarted) { "SIP engine has already started" }
             this.listener = listener
-            val checked = ValidatedConfig.from(config)
-            val roots = trustedRootsPem(checked.customCaPem)
+            val checked = ValidatedSipConfig.from(config)
+            val roots = if (checked.transport == SipTransport.TLS) trustedRootsPem(checked.customCaPem) else null
 
             val ep = Endpoint()
             try {
@@ -85,15 +88,24 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
                 }
                 ep.libInit(epConfig)
 
-                val tls = TlsConfig().apply {
-                    caBuf = roots
-                    verifyServer = true
+                transportId = when (checked.transport) {
+                    SipTransport.TLS -> {
+                        val tls = TlsConfig().apply {
+                            caBuf = roots
+                            verifyServer = true
+                        }
+                        val tlsTransport = TransportConfig().apply {
+                            port = 0L
+                            tlsConfig = tls
+                        }
+                        ep.transportCreate(pjsip_transport_type_e.PJSIP_TRANSPORT_TLS, tlsTransport)
+                    }
+                    // Plain SIP over UDP for self-hosted LAN/VPN servers that do not offer TLS.
+                    SipTransport.UDP -> ep.transportCreate(
+                        pjsip_transport_type_e.PJSIP_TRANSPORT_UDP,
+                        TransportConfig().apply { port = 0L }
+                    )
                 }
-                val tlsTransport = TransportConfig().apply {
-                    port = 0L
-                    tlsConfig = tls
-                }
-                transportId = ep.transportCreate(pjsip_transport_type_e.PJSIP_TRANSPORT_TLS, tlsTransport)
                 ep.libStart()
                 // PJSUA2 must not open a real microphone or speaker during startup or REGISTER.
                 ep.audDevManager().setNullDev()
@@ -109,6 +121,7 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
 
                 endpoint = ep
                 account = sipAccount
+                accountTransport = checked.transport
                 hasStarted = true
                 startOpusStatsSampler()
             } catch (failure: Throwable) {
@@ -116,6 +129,7 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
                 runCatching { ep.delete() }
                 endpoint = null
                 account = null
+                accountTransport = null
                 transportId = -1
                 throw SafeSipException("Unable to initialize the SIP engine")
             }
@@ -136,8 +150,8 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
 
     override fun makeCall(serverCallId: String, sipUri: String) {
         require(serverCallId.isNotBlank() && serverCallId.length <= 200) { "Invalid call id" }
-        validateCallIntentUri(sipUri)
         val acc = requireAccount()
+        SipUriPolicy.validateCallIntentUri(sipUri, accountTransport ?: error("SIP engine is not initialized"))
         check(registration.get() == SipRegistrationState.REGISTERED) { "SIP account is not registered" }
         check(!calls.containsKey(serverCallId)) { "Call is already active" }
 
@@ -312,6 +326,7 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
                 hasStarted = false
                 audioDeviceOpened = false
                 transportId = -1
+                accountTransport = null
                 listener = null
             }
         }
@@ -357,25 +372,32 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
         }
     }
 
-    private fun makeAccountConfig(config: ValidatedConfig, tlsTransportId: Int): AccountConfig {
+    private fun makeAccountConfig(config: ValidatedSipConfig, signallingTransportId: Int): AccountConfig {
         val result = AccountConfig()
         result.idUri = config.aor
         result.regConfig.registrarUri = config.registrarUri
         result.regConfig.registerOnAdd = false
         result.regConfig.retryIntervalSec = 30L
         result.regConfig.firstRetryIntervalSec = 5L
-        result.sipConfig.transportId = tlsTransportId
+        result.sipConfig.transportId = signallingTransportId
         result.sipConfig.proxies = StringVector(listOf(config.proxyUri))
         result.sipConfig.authCreds = AuthCredInfoVector(
             listOf(AuthCredInfo("Digest", config.realm, config.username, 0, config.password))
         )
 
         val media = result.mediaConfig
-        media.srtpUse = pjmedia_srtp_use.PJMEDIA_SRTP_MANDATORY
-        media.srtpSecureSignaling = 2 // SRTP is accepted only for a SIPS end-to-end request.
-        media.srtpOpt.keyings = org.pjsip.pjsua2.IntVector(
-            listOf(pjmedia_srtp_keying_method.PJMEDIA_SRTP_KEYING_SDES)
-        )
+        if (config.mediaEncrypted) {
+            media.srtpUse = pjmedia_srtp_use.PJMEDIA_SRTP_MANDATORY
+            // Over TLS, SRTP is accepted only for a SIPS end-to-end request. Plain UDP signalling
+            // cannot satisfy that check, so SDES keys there are only as private as the network.
+            media.srtpSecureSignaling = if (config.transport == SipTransport.TLS) 2 else 0
+            media.srtpOpt.keyings = org.pjsip.pjsua2.IntVector(
+                listOf(pjmedia_srtp_keying_method.PJMEDIA_SRTP_KEYING_SDES)
+            )
+        } else {
+            media.srtpUse = pjmedia_srtp_use.PJMEDIA_SRTP_DISABLED
+            media.srtpSecureSignaling = 0
+        }
         result.mediaConfig = media
 
         result.ipChangeConfig.hangupCalls = false
@@ -682,65 +704,6 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
 
     private class SafeSipException(message: String) : IllegalStateException(message)
 
-    private data class ValidatedConfig(
-        val username: String,
-        val realm: String,
-        val aor: String,
-        val registrarUri: String,
-        val proxyUri: String,
-        val serverName: String,
-        val customCaPem: String?,
-        val password: String
-    ) {
-        companion object {
-            fun from(config: SipConfiguration): ValidatedConfig {
-                require(config.available) { "SIP is unavailable" }
-                val username = config.username.requireValue("username")
-                val realm = config.realm.requireValue("realm")
-                val aor = config.aor.requireValue("AOR")
-                val registrar = config.registrarUri.requireValue("registrar")
-                val proxy = config.outboundProxyUri.requireValue("TLS proxy")
-                val serverName = normalizeHost(config.serverName.requireValue("TLS server name"))
-                val password = config.password.requireValue("credential")
-                require(username.length <= 256 && username.none { it.isISOControl() })
-                require(realm.length <= 253 && realm.none { it.isISOControl() })
-
-                val parsedAor = parseSipUri(aor)
-                require(parsedAor.scheme == "sips" && parsedAor.user.isNotBlank()) { "AOR must be a SIPS identity" }
-                val parsedRegistrar = parseSipUri(registrar)
-                require(parsedRegistrar.scheme == "sips" && hasNoOrTlsTransport(registrar)) { "Registrar must use TLS" }
-                val parsedProxy = parseSipUri(proxy)
-                val secureProxy = parsedProxy.transportTls ||
-                    (parsedProxy.scheme == "sips" && hasNoOrTlsTransport(proxy))
-                require(secureProxy && parsedProxy.user.isEmpty()) { "Proxy must use TLS" }
-                require('?' !in registrar && '?' !in proxy) { "SIP configuration URIs cannot contain headers" }
-                require(normalizeHost(parsedProxy.host) == serverName) {
-                    "TLS server name must identify the configured outbound proxy"
-                }
-                val ca = config.caPem?.trim()?.takeIf { it.isNotEmpty() }
-                if (ca != null) require(ca.contains("-----BEGIN CERTIFICATE-----")) { "Custom CA is not PEM" }
-
-                return ValidatedConfig(
-                    username,
-                    realm,
-                    aor,
-                    ensureTlsParam(registrar),
-                    ensureLooseRoute(ensureTlsParam(proxy)),
-                    serverName,
-                    ca,
-                    password
-                )
-            }
-        }
-    }
-
-    private data class SipUriParts(
-        val scheme: String,
-        val user: String,
-        val host: String,
-        val transportTls: Boolean
-    )
-
     private data class InviteHeaders(
         val requestUri: String?,
         val dialogCallId: String?,
@@ -748,14 +711,6 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
     )
 
     companion object {
-        private val SIP_URI = Pattern.compile(
-            "^(sips?):(?:([^@;?]+)@)?(\\[[^]]+]|[^;:?]+)(?::([0-9]{1,5}))?(?:;([^?]*))?(?:\\?.*)?$",
-            Pattern.CASE_INSENSITIVE
-        )
-        private val CALL_INTENT_URI = Pattern.compile(
-            "^sips:call\\.([A-Za-z0-9._~-]{1,180})@gsm2sip;transport=tls$",
-            Pattern.CASE_INSENSITIVE
-        )
         private const val SERVER_CALL_HEADER = "x-gsm2sip-call-id"
 
         fun loadNativeLibrary(): Boolean = try {
@@ -785,53 +740,6 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
             }
             check(pem.isNotEmpty()) { "Android system CA roots are unavailable" }
             return pem.toString()
-        }
-
-        private fun parseSipUri(uri: String): SipUriParts {
-            val match = SIP_URI.matcher(uri.trim())
-            require(match.matches()) { "Invalid SIP URI" }
-            val params = match.group(5).orEmpty().split(';').map { it.substringBefore('=').lowercase() }
-            return SipUriParts(
-                scheme = match.group(1).orEmpty().lowercase(),
-                user = match.group(2).orEmpty(),
-                host = match.group(3).orEmpty().removePrefix("[").removeSuffix("]"),
-                transportTls = "transport" in params && Regex("(?:^|;)transport=tls(?:;|$)", RegexOption.IGNORE_CASE).containsMatchIn(uri)
-            )
-        }
-
-        private fun validateCallIntentUri(uri: String) {
-            require(CALL_INTENT_URI.matcher(uri).matches()) {
-                "Call intents must use the configured SIPS token URI"
-            }
-        }
-
-        private fun ensureTlsParam(uri: String): String {
-            val parsed = parseSipUri(uri)
-            return if (parsed.transportTls) uri else "$uri;transport=tls"
-        }
-
-        private fun hasNoOrTlsTransport(uri: String): Boolean {
-            val parameters = uri.substringBefore('?').substringAfter(';', "").split(';')
-            val transport = parameters.firstOrNull { it.substringBefore('=').equals("transport", true) }
-                ?.substringAfter('=', "")
-            return transport == null || transport.equals("tls", true)
-        }
-
-        private fun ensureLooseRoute(uri: String): String {
-            val params = uri.substringAfter(';', "")
-            if (params.split(';').any { it.equals("lr", true) }) return uri
-            return if (';' in uri) "$uri;lr" else "$uri;lr"
-        }
-
-        private fun normalizeHost(host: String): String {
-            val withoutBrackets = host.removePrefix("[").removeSuffix("]")
-            require(withoutBrackets.isNotBlank() && withoutBrackets.length <= 253)
-            val ascii = IDN.toASCII(withoutBrackets, IDN.USE_STD3_ASCII_RULES).trimEnd('.')
-            require(ascii.isNotBlank() && ascii.split('.').all { label ->
-                label.isNotEmpty() && label.length <= 63 && label.firstOrNull()?.isLetterOrDigit() == true &&
-                    label.lastOrNull()?.isLetterOrDigit() == true
-            }) { "Invalid TLS server name" }
-            return ascii.lowercase()
         }
 
         private fun parseInvite(message: String): InviteHeaders {
@@ -865,9 +773,6 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
                 serverCallIdHeader = uniqueHeader(SERVER_CALL_HEADER)
             )
         }
-
-        private fun String?.requireValue(name: String): String = this?.trim()?.takeIf { it.isNotEmpty() }
-            ?: throw IllegalArgumentException("Missing SIP $name")
 
         private fun sanitizeSipReason(reason: String?): String? = reason
             ?.replace(Regex("[\\r\\n\\u0000-\\u001f]"), " ")

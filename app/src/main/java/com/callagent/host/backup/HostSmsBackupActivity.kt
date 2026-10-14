@@ -192,7 +192,8 @@ internal fun canonicalArchiveSource(apiBaseUrl: String): String {
     } catch (failure: Exception) {
         throw IOException("The paired server URL is invalid", failure)
     }
-    if (!uri.scheme.equals("https", ignoreCase = true) || uri.host.isNullOrBlank() ||
+    val scheme = uri.scheme?.lowercase()
+    if ((scheme != "https" && scheme != "http") || uri.host.isNullOrBlank() ||
         uri.userInfo != null || uri.query != null || uri.fragment != null
     ) {
         throw IOException("The paired server URL cannot be used as archive provenance")
@@ -200,10 +201,11 @@ internal fun canonicalArchiveSource(apiBaseUrl: String): String {
 
     val host = uri.host.lowercase()
     val authorityHost = if (host.contains(':') && !host.startsWith("[")) "[$host]" else host
-    val port = if (uri.port == -1 || uri.port == 443) "" else ":${uri.port}"
+    val defaultPort = if (scheme == "https") 443 else 80
+    val port = if (uri.port == -1 || uri.port == defaultPort) "" else ":${uri.port}"
     val rawPath = uri.rawPath.orEmpty().trimEnd('/')
     val path = if (rawPath == "/v1" || rawPath.endsWith("/v1")) rawPath else "$rawPath/v1"
-    return "https://$authorityHost$port$path"
+    return "$scheme://$authorityHost$port$path"
 }
 
 internal fun archiveDatabaseName(session: HostSession): String {
