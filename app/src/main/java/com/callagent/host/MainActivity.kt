@@ -704,6 +704,10 @@ class MainActivity : AppCompatActivity() {
             true
         }
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(80), Gravity.BOTTOM)
+        // The content host already pads for system bars and the keyboard; Material would
+        // add the same bottom inset again and stretch the bar over the page while typing.
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets -> insets }
+        setPadding(0, 0, 0, 0)
     }
 
     private fun homeChrome(tab: HostTab): View {
