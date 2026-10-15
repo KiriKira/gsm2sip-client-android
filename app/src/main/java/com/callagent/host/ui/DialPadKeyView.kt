@@ -5,11 +5,12 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.text.style.RelativeSizeSpan
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.color.MaterialColors
+import com.google.android.material.R as MaterialR
 
-/** Large, borderless telephone key with its conventional letter hints. */
+/** Rounded tonal telephone key with its conventional letter hints, as on the Google dial pad. */
 class DialPadKeyView(context: Context, digit: String) : MaterialButton(
     context, null, androidx.appcompat.R.attr.borderlessButtonStyle,
 ) {
@@ -26,22 +27,27 @@ class DialPadKeyView(context: Context, digit: String) : MaterialButton(
             "0" -> "+"
             else -> " "
         }
+        val hintColor = HostUi.color(context, MaterialR.attr.colorOnSurfaceVariant)
         text = SpannableString("$digit\n$letters").apply {
-            setSpan(RelativeSizeSpan(0.34f), digit.length + 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(RelativeSizeSpan(0.36f), digit.length + 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(ForegroundColorSpan(hintColor), digit.length + 1, length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         }
-        textSize = 36f
+        textSize = 30f
         isAllCaps = false
         maxLines = 2
         includeFontPadding = false
-        backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
-        setTextColor(MaterialColors.getColor(context, androidx.appcompat.R.attr.colorPrimary, Color.BLACK))
+        setLineSpacing(0f, 0.9f)
+        backgroundTintList = ColorStateList.valueOf(HostUi.color(context, MaterialR.attr.colorSurfaceContainerHigh))
+        rippleColor = ColorStateList.valueOf(HostUi.color(context, MaterialR.attr.colorOnSurface) and 0x1FFFFFFF)
+        setTextColor(HostUi.color(context, MaterialR.attr.colorOnSurface))
+        cornerRadius = dp(40)
         strokeWidth = 0
         insetTop = 0
         insetBottom = 0
         minWidth = 0
         minimumWidth = 0
-        minHeight = dp((80f * resources.configuration.fontScale.coerceAtLeast(1f)).toInt())
-        setPadding(0, dp(6), 0, dp(6))
+        minHeight = dp((64f * resources.configuration.fontScale.coerceAtLeast(1f)).toInt())
+        setPadding(0, dp(4), 0, dp(4))
         contentDescription = digit
     }
 

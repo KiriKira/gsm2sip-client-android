@@ -90,6 +90,7 @@ import com.google.android.material.textfield.TextInputLayout
 import com.google.android.material.textview.MaterialTextView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.snackbar.Snackbar
 import com.callagent.host.ui.AdaptiveLayoutDecision
@@ -110,6 +111,7 @@ import com.callagent.host.ui.GatewayStatusPresenter
 import com.callagent.host.ui.CallReadiness
 import com.callagent.host.ui.GatewayStatusView
 import com.callagent.host.ui.DialPadKeyView
+import com.callagent.host.ui.HostUi
 import com.callagent.host.ui.NodeListView
 import com.callagent.host.ui.NodeRowPresenter
 import com.callagent.host.notify.InboundSmsNotifications
@@ -427,6 +429,7 @@ class MainActivity : AppCompatActivity() {
 
     /** An SMS notification opens its conversation; the group summary opens the message list. */
     private fun smsNotificationNavigation(source: Intent): HostNavigationState {
+        runCatching { InboundSmsNotifications.cancelAllInbound(this) }
         val peer = source.getStringExtra(InboundSmsNotifications.EXTRA_SMS_PEER)?.takeIf { it.isNotBlank() }
             ?: return navigation.selectTab(HostTab.MESSAGES)
         val simId = source.getStringExtra(InboundSmsNotifications.EXTRA_SMS_SIM)
@@ -700,33 +703,45 @@ class MainActivity : AppCompatActivity() {
             navigate(navigation.selectTab(tab))
             true
         }
-        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72), Gravity.BOTTOM)
+        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(80), Gravity.BOTTOM)
     }
 
     private fun homeChrome(tab: HostTab): View {
         val frame = FrameLayout(this)
         val nav = homeNavigation(tab)
-        frame.addView(nav, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72), Gravity.BOTTOM))
-        val fab = FloatingActionButton(this).apply {
-            id = if (tab == HostTab.PHONE) R.id.dialer_open else R.id.sms_compose_fab
-            setImageResource(if (tab == HostTab.PHONE) R.drawable.host_action_dial else R.drawable.host_action_compose)
-            contentDescription = if (tab == HostTab.PHONE) "拨号" else "写短信"
-            backgroundTintList = android.content.res.ColorStateList.valueOf(materialColor(androidx.appcompat.R.attr.colorPrimary))
-            imageTintList = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnPrimary))
-            setOnClickListener {
-                when (tab) {
-                    HostTab.PHONE -> navigate(navigation.openDialer())
-                    HostTab.MESSAGES -> openNewConversation()
-                    HostTab.SETTINGS -> Unit
-                }
+        frame.addView(nav, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(80), Gravity.BOTTOM))
+        val containerColor = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorPrimaryContainer))
+        val onContainer = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnPrimaryContainer))
+        val fab: View = if (tab == HostTab.MESSAGES) {
+            // Google Messages: an extended "start chat" button.
+            ExtendedFloatingActionButton(this).apply {
+                id = R.id.sms_compose_fab
+                text = "写短信"
+                setIconResource(R.drawable.host_action_compose)
+                contentDescription = "写短信"
+                backgroundTintList = containerColor
+                iconTint = onContainer
+                setTextColor(onContainer)
+                setOnClickListener { openNewConversation() }
+            }
+        } else {
+            FloatingActionButton(this).apply {
+                id = R.id.dialer_open
+                setImageResource(R.drawable.host_action_dial)
+                contentDescription = "拨号"
+                backgroundTintList = containerColor
+                imageTintList = onContainer
+                setOnClickListener { navigate(navigation.openDialer()) }
             }
         }
-        val fabParams = FrameLayout.LayoutParams(dp(56), dp(56), Gravity.TOP or Gravity.END).apply {
+        val fabParams = FrameLayout.LayoutParams(
+            if (tab == HostTab.MESSAGES) ViewGroup.LayoutParams.WRAP_CONTENT else dp(56), dp(56), Gravity.TOP or Gravity.END
+        ).apply {
             topMargin = dp(4)
-            marginEnd = dp(20)
+            marginEnd = dp(16)
         }
         frame.addView(fab, fabParams)
-        frame.minimumHeight = dp(136)
+        frame.minimumHeight = dp(80 + 56 + 16)
         return frame
     }
 
@@ -751,11 +766,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderPhoneHome(content: LinearLayout) {
-        if (session != null) content.addView(gatewayStatusCard(compact = true))
-        val search = roundedSearchField("搜索联系人或号码", R.id.call_history_search)
+        val search = roundedSearchField("搜索联系人和号码", R.id.call_history_search)
         search.setText(callSearchQuery)
         callSearchEdit = search
         content.addView(search)
+        if (session != null) content.addView(gatewayStatusCard(compact = true))
         phoneContactsList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(phoneContactsList)
         callHistoryList = LinearLayout(this).apply {
@@ -774,23 +789,38 @@ class MainActivity : AppCompatActivity() {
         })
         renderCallHistoryRows()
         if (callSearchQuery.isNotBlank()) queryPhoneContacts(callSearchQuery)
-        if (session == null) {
-            content.addView(body("完成配对后，通话记录会显示在这里。"))
-            val settings = smallButton("前往设置完成配对")
-            settings.setOnClickListener { navigate(navigation.selectTab(HostTab.SETTINGS)) }
-            content.addView(settings)
+        if (session == null) content.addView(pairingPrompt("完成配对后，通话记录会显示在这里。"))
+    }
+
+    /** Empty-state card pointing an unpaired phone at Settings. */
+    private fun pairingPrompt(message: String): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(dp(24), dp(24), dp(24), dp(24))
+        background = HostUi.tileBackground(this@MainActivity, HostUi.Position.SINGLE)
+        layoutParams = fullWidthParams(top = 16)
+        addView(HostUi.iconBadge(this@MainActivity, R.drawable.ic_ui_server, 48))
+        addView(body(message, selectable = false).apply {
+            gravity = Gravity.CENTER
+            setPadding(0, dp(12), 0, dp(4))
+        }, fullWidthParams())
+        val settings = button("前往设置完成配对").apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
         }
+        settings.setOnClickListener { navigate(navigation.selectTab(HostTab.SETTINGS)) }
+        addView(settings)
     }
 
     private fun renderMessagesHome(content: LinearLayout) {
-        if (session != null) content.addView(gatewayStatusCard(compact = true))
         val search = roundedSearchField("搜索短信", R.id.sms_search)
         search.setText(searchQuery)
         searchEdit = search
         content.addView(search)
+        if (session != null) content.addView(gatewayStatusCard(compact = true))
         smsThreadList = LinearLayout(this).apply {
             id = R.id.sms_thread_list
             orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(4), 0, 0)
         }
         smsList = smsThreadList
         content.addView(smsThreadList)
@@ -804,12 +834,7 @@ class MainActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) = Unit
         })
         renderSmsThreads()
-        if (session == null) {
-            content.addView(body("完成配对后可在这里收发短信。"))
-            val settings = smallButton("前往设置完成配对")
-            settings.setOnClickListener { navigate(navigation.selectTab(HostTab.SETTINGS)) }
-            content.addView(settings)
-        }
+        if (session == null) content.addView(pairingPrompt("完成配对后可在这里收发短信。"))
     }
 
     private fun renderCallHistoryRows() {
@@ -820,27 +845,45 @@ class MainActivity : AppCompatActivity() {
             query.isBlank() || listOfNotNull(call.from, call.to, call.reason).any { it.lowercase().contains(query) }
         }
         if (filtered.isEmpty()) {
-            list.addView(body("暂无通话记录"))
+            list.addView(emptyState("暂无通话记录"))
         } else {
-            filtered.forEachIndexed { index, call ->
-                val incoming = call.direction in setOf("incoming", "inbound")
-                val number = if (incoming) call.from.orEmpty() else call.to.orEmpty()
-                val direction = if (incoming) "来电" else "拨出"
-                val state = when {
-                    call.reason == "answered_elsewhere" -> "其他设备已接听"
-                    call.state == "ended" && incoming && call.answeredAt == null -> "未接"
-                    call.state == "ended" -> "已结束"
-                    else -> "进行中"
+            // Google Phone groups recents by day: 今天 / 昨天 / 更早.
+            filtered.groupBy { dayGroup(it.createdAt) }.forEach { (header, calls) ->
+                list.addView(HostUi.groupHeader(this, header))
+                calls.forEachIndexed { index, call ->
+                    val incoming = call.direction in setOf("incoming", "inbound")
+                    val number = if (incoming) call.from.orEmpty() else call.to.orEmpty()
+                    val missed = call.state == "ended" && incoming && call.answeredAt == null && call.reason != "answered_elsewhere"
+                    val note = when {
+                        call.reason == "answered_elsewhere" -> "其他设备已接听"
+                        missed -> "未接来电"
+                        call.state != "ended" -> "进行中"
+                        else -> null
+                    }
+                    val name = contactName(number)
+                    val detail = listOfNotNull(
+                        note,
+                        sims.firstOrNull { it.simId == call.simId }?.let { "SIM ${it.slotIndex + 1}" },
+                        formatCallTime(call.createdAt),
+                    ).joinToString(" · ")
+                    val row = PhoneRowView(
+                        context = this,
+                        name = name ?: number.ifBlank { "未知号码" },
+                        detail = detail,
+                        missed = missed,
+                        direction = when {
+                            missed -> PhoneRowView.Direction.MISSED
+                            incoming -> PhoneRowView.Direction.INCOMING
+                            else -> PhoneRowView.Direction.OUTGOING
+                        },
+                        avatarName = name,
+                        avatarKey = number,
+                        position = HostUi.position(index, calls.size),
+                        onOpen = { openCall(call) },
+                        onCall = { quickDial(call) },
+                    ).apply { id = R.id.call_history_item }
+                    list.addView(row)
                 }
-                val row = PhoneRowView(
-                    context = this,
-                    name = contactName(number) ?: number.ifBlank { "未知号码" },
-                    detail = "$direction · $state · ${formatHistoryTime(call.createdAt)}",
-                    missed = state == "未接",
-                    onCall = { openCall(call) },
-                ).apply { id = R.id.call_history_item }
-                list.addView(row)
-                if (index < filtered.lastIndex) list.addView(divider())
             }
         }
         if (callHistoryCursor != null) {
@@ -849,6 +892,41 @@ class MainActivity : AppCompatActivity() {
             more.setOnClickListener { loadMoreCallHistory() }
             list.addView(more)
         }
+    }
+
+    /** The trailing call button dials the same number on the same SIM at once, like Google Phone. */
+    private fun quickDial(call: RemoteCall) {
+        val number = (if (call.direction in setOf("incoming", "inbound")) call.from else call.to)?.let(::normalizeDialNumber)
+        val line = sims.firstOrNull { it.simId == call.simId }
+        if (number.isNullOrBlank() || line == null || !callReadiness(line).ready || !validDialAddress(number)) {
+            openCall(call)
+            return
+        }
+        selectedSimId = line.simId
+        beginDial(line, number)
+    }
+
+    private fun dayGroup(value: String): String {
+        val millis = timestampMillis(value)
+        return when {
+            millis <= 0L -> "更早"
+            android.text.format.DateUtils.isToday(millis) -> "今天"
+            android.text.format.DateUtils.isToday(millis + android.text.format.DateUtils.DAY_IN_MILLIS) -> "昨天"
+            else -> "更早"
+        }
+    }
+
+    private fun formatCallTime(value: String): String = runCatching {
+        val millis = timestampMillis(value)
+        val today = android.text.format.DateUtils.isToday(millis) ||
+            android.text.format.DateUtils.isToday(millis + android.text.format.DateUtils.DAY_IN_MILLIS)
+        java.text.SimpleDateFormat(if (today) "HH:mm" else "M月d日", java.util.Locale.getDefault()).format(java.util.Date(millis))
+    }.getOrDefault(value.take(16))
+
+    private fun emptyState(message: String): View = body(message, selectable = false).apply {
+        gravity = Gravity.CENTER
+        setPadding(dp(16), dp(32), dp(16), dp(32))
+        layoutParams = fullWidthParams()
     }
 
     private fun openCall(call: RemoteCall) {
@@ -884,17 +962,19 @@ class MainActivity : AppCompatActivity() {
         ).also { smsThreadCache = it }
         val threads = SmsThreadIndex.filter(allThreads, searchQuery)
         if (threads.isEmpty()) {
-            list.addView(body("暂无短信对话"))
+            list.addView(emptyState("暂无短信对话"))
         } else {
             val visibleThreads = threads.take(smsThreadVisibleCount)
             visibleThreads.forEachIndexed { index, thread ->
+                val position = HostUi.position(index, visibleThreads.size)
                 val row = LinearLayout(this).apply {
                     id = R.id.sms_thread_item
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
                     minimumHeight = dp(76)
-                    setPadding(dp(4), dp(8), dp(4), dp(8))
-                    background = selectableItemBackground()
+                    setPadding(dp(16), dp(12), dp(16), dp(12))
+                    background = HostUi.tileBackground(this@MainActivity, position)
+                    layoutParams = HostUi.tileParams(this@MainActivity, position)
                     isClickable = true
                     isFocusable = true
                     setOnClickListener {
@@ -902,41 +982,42 @@ class MainActivity : AppCompatActivity() {
                         navigate(navigation.openConversation(thread.simId, thread.key))
                     }
                 }
-                val badge = MaterialTextView(this).apply {
-                    id = R.id.sms_thread_sim_badge
-                    text = simBadgeLabel(thread.simId)
-                    gravity = Gravity.CENTER
-                    textSize = 11f
-                    typeface = Typeface.DEFAULT_BOLD
-                    contentDescription = text.toString()
-                    setTextColor(materialColor(com.google.android.material.R.attr.colorOnSecondaryContainer))
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL
-                        setColor(materialColor(com.google.android.material.R.attr.colorSecondaryContainer))
-                    }
-                    layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(14) }
-                }
-                row.addView(badge)
+                val name = contactName(thread.peer)
+                row.addView(HostUi.avatar(this, name, thread.key, 48), LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginEnd = dp(16) })
                 val textColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
                 val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                 val peer = MaterialTextView(this).apply {
-                    text = thread.peer
+                    text = name ?: thread.peer
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
                     setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
                     setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
                 }
                 top.addView(peer, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                top.addView(body(formatHistoryTime(thread.latest.createdAt), selectable = false))
+                val badge = MaterialTextView(this).apply {
+                    id = R.id.sms_thread_sim_badge
+                    text = simBadgeLabel(thread.simId)
+                    contentDescription = text.toString()
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall)
+                    setTextColor(materialColor(com.google.android.material.R.attr.colorOnSecondaryContainer))
+                    background = GradientDrawable().apply {
+                        cornerRadius = dp(8).toFloat()
+                        setColor(materialColor(com.google.android.material.R.attr.colorSecondaryContainer))
+                    }
+                    setPadding(dp(6), dp(2), dp(6), dp(2))
+                }
+                top.addView(badge, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(8); marginEnd = dp(8) })
+                top.addView(MaterialTextView(this).apply {
+                    text = formatHistoryTime(thread.latest.createdAt)
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium)
+                    setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+                })
                 textColumn.addView(top)
                 val summary = thread.latest.text.replace('\n', ' ').trim().ifBlank { SmsStatus.display(thread.latest.status) }
-                textColumn.addView(body(summary.take(90), selectable = false).apply {
-                    maxLines = 1
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                })
+                val prefix = if (thread.latest.direction == "inbound") "" else "你："
+                textColumn.addView(HostUi.subtitle(this, prefix + summary.take(90)).apply { setPadding(0, dp(2), 0, 0) })
                 row.addView(textColumn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 list.addView(row)
-                if (index < visibleThreads.lastIndex) list.addView(divider())
             }
             if (threads.size > visibleThreads.size) {
                 val more = smallButton("更多会话")
@@ -981,7 +1062,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun divider(): View = View(this).apply {
         setBackgroundColor(materialColor(com.google.android.material.R.attr.colorOutlineVariant))
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { marginStart = dp(62) }
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { marginStart = dp(72) }
     }
 
     private fun selectableItemBackground(): android.graphics.drawable.Drawable? =
@@ -994,38 +1075,53 @@ class MainActivity : AppCompatActivity() {
         content.addView(title("设置"))
         settingsMessage?.let { content.addView(messageCard(it, error = true)) }
         if (session == null) {
-            content.addView(sectionTitle("服务器与配对").apply { id = R.id.settings_pairing_section })
-            content.addView(body("连接服务器以使用远程电话和短信。"))
-            addPairingForm(content)
+            content.addView(HostUi.groupHeader(this, "服务器与配对").apply { id = R.id.settings_pairing_section })
+            val form = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(16), dp(16), dp(16), dp(12))
+                background = HostUi.tileBackground(this@MainActivity, HostUi.Position.SINGLE)
+                layoutParams = HostUi.tileParams(this@MainActivity, HostUi.Position.SINGLE)
+            }
+            form.addView(body("连接服务器以使用远程电话和短信。", selectable = false))
+            addPairingForm(form)
+            content.addView(form)
         } else {
-            content.addView(sectionTitle("服务器与设备"))
-            content.addView(body(session?.apiBaseUrl.orEmpty()))
-            content.addView(body("已配对此手机 · 账号 ${shortId(session?.ownerId.orEmpty())}"))
+            content.addView(HostUi.groupHeader(this, "服务器与设备"))
+            content.addView(HostUi.tile(this, HostUi.Position.SINGLE,
+                title = session?.apiBaseUrl.orEmpty(),
+                summary = "已配对此手机 · 账号 ${shortId(session?.ownerId.orEmpty())}",
+                icon = R.drawable.ic_ui_server))
             addServerNodes(content)
-            content.addView(sectionTitle("已配对设备"))
+            content.addView(HostUi.groupHeader(this, "已配对设备"))
             val devices = LinearLayout(this).apply {
                 id = R.id.settings_device_list
                 orientation = LinearLayout.VERTICAL
             }
             when {
-                pairedHostsAvailable == false -> devices.addView(body("当前服务器不提供设备列表。"))
-                pairedHosts.isEmpty() -> devices.addView(body(pairedHostsRefreshIssue ?: "暂无设备记录。"))
-                else -> pairedHosts.forEach { host ->
-                    val self = if (host.isSelf) " · 此手机" else ""
-                    devices.addView(body("${host.name}$self · ${host.pairingStateLabel()}"))
+                pairedHostsAvailable == false -> devices.addView(HostUi.tile(this, HostUi.Position.SINGLE, "当前服务器不提供设备列表。", icon = R.drawable.ic_ui_device))
+                pairedHosts.isEmpty() -> devices.addView(HostUi.tile(this, HostUi.Position.SINGLE, pairedHostsRefreshIssue ?: "暂无设备记录。", icon = R.drawable.ic_ui_device))
+                else -> pairedHosts.forEachIndexed { index, host ->
+                    devices.addView(HostUi.tile(this, HostUi.position(index, pairedHosts.size),
+                        title = host.name,
+                        summary = listOfNotNull(if (host.isSelf) "此手机" else null, host.pairingStateLabel()).joinToString(" · "),
+                        icon = R.drawable.ic_ui_device))
                 }
             }
             content.addView(devices)
-            pairedHostsRefreshIssue?.let { content.addView(body(it)) }
-            content.addView(sectionTitle("旧手机与 SIM 卡"))
+            pairedHostsRefreshIssue?.takeIf { pairedHosts.isNotEmpty() }?.let { content.addView(body(it)) }
+            content.addView(HostUi.groupHeader(this, "旧手机与 SIM 卡"))
             content.addView(gatewayStatusCard(compact = false))
-            val unpair = smallButton("解除此手机配对").apply { id = R.id.settings_unpair }
-            unpair.setOnClickListener { confirmUnpair() }
-            content.addView(unpair)
+            content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "解除此手机配对",
+                summary = "删除此手机上的配对凭据和本机缓存",
+                icon = R.drawable.ic_ui_link_off,
+                onClick = { confirmUnpair() }).apply {
+                id = R.id.settings_unpair
+                (getChildAt(1) as? LinearLayout)?.getChildAt(0)?.let { (it as? TextView)?.setTextColor(materialColor(androidx.appcompat.R.attr.colorError)) }
+            })
         }
-        content.addView(sectionTitle("权限与后台"))
+        content.addView(HostUi.groupHeader(this, "通知与权限"))
         addPermissionSettings(content)
-        content.addView(sectionTitle("短信备份与归档"))
+        content.addView(HostUi.groupHeader(this, "短信备份与归档"))
         content.addView(smsArchiveEntryButton())
         settingsMessage = null
     }
@@ -1039,7 +1135,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Server nodes in priority order; the phone uses the first healthy one. */
     private fun addServerNodes(content: LinearLayout) {
-        content.addView(sectionTitle("服务器节点").apply { id = R.id.settings_nodes_section })
+        content.addView(HostUi.groupHeader(this, "服务器节点").apply { id = R.id.settings_nodes_section })
         val nodes = HostNodes.nodes(this)
         if (nodes.size < 2) {
             content.addView(body("可再添加一台服务器作为备用节点（例如家里的局域网服务器和外网 VPS）。当前节点不通或延迟过高时自动切换，恢复后切回优先级更高的节点。"))
@@ -1055,15 +1151,11 @@ class MainActivity : AppCompatActivity() {
                 onRemove = { row -> confirmRemoveNode(row.key, row.title) },
                 onSelect = { row -> showNodeDetails(row.key) }
             ).apply { id = R.id.settings_node_list; layoutParams = fullWidthParams(top = 4, bottom = 4) })
-            content.addView(smallButton("立即检测节点").apply {
-                id = R.id.settings_nodes_probe
-                setOnClickListener { probeNodes(force = true); showToast("正在检测各节点…") }
-            })
+            content.addView(HostUi.tile(this, HostUi.Position.FIRST, "立即检测节点", icon = R.drawable.ic_ui_refresh,
+                onClick = { probeNodes(force = true); showToast("正在检测各节点…") }).apply { id = R.id.settings_nodes_probe })
         }
-        content.addView(smallButton("添加服务器节点").apply {
-            id = R.id.settings_nodes_add
-            setOnClickListener { showAddNodeDialog() }
-        })
+        content.addView(HostUi.tile(this, if (nodes.size < 2) HostUi.Position.SINGLE else HostUi.Position.LAST, "添加服务器节点",
+            icon = R.drawable.ic_ui_add, onClick = { showAddNodeDialog() }).apply { id = R.id.settings_nodes_add })
     }
 
     private fun showNodeDetails(key: String) {
@@ -1148,9 +1240,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun addPermissionSettings(content: LinearLayout) {
         val status = runCatching { HostBackgroundRuntime.snapshot(this) }.getOrNull()
-        val notifications = smallButton("通知权限 · ${if (status?.notificationsEnabled == true) "已允许" else "未允许"}").apply {
-            id = R.id.settings_notifications
-            setOnClickListener {
+        content.addView(HostUi.tile(this, HostUi.Position.FIRST, "通知",
+            summary = if (status?.notificationsEnabled == true) "已允许 · 来电弹窗、短信内容和后台同步" else "未允许 · 来电和短信将无法提醒",
+            icon = R.drawable.ic_ui_notifications,
+            trailing = HostUi.chevron(this),
+            onClick = {
                 val latest = runCatching { HostBackgroundRuntime.snapshot(this@MainActivity) }.getOrNull()
                 if (latest?.notificationsEnabled == true) {
                     HostBackgroundRuntime.openNotificationSettings(this@MainActivity)
@@ -1159,28 +1253,52 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     HostBackgroundRuntime.openNotificationSettings(this@MainActivity)
                 }
-            }
-        }
-        content.addView(notifications)
+            }).apply { id = R.id.settings_notifications })
 
-        val battery = smallButton(if (status?.batteryExempt == true) "电池优化 · 已豁免" else "电池优化设置").apply {
-            id = R.id.settings_battery
-            setOnClickListener { HostBackgroundRuntime.openBatterySettings(this@MainActivity) }
+        val autoCopy = MaterialSwitch(this).apply {
+            isChecked = InboundSmsNotifications.autoCopyCodes(this@MainActivity)
+            isSaveEnabled = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            isClickable = false
+            isFocusable = false
         }
-        content.addView(battery)
+        content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "自动复制验证码",
+            summary = "收到验证码短信时直接复制到剪贴板；通知上也有“复制验证码”按钮",
+            icon = R.drawable.ic_ui_copy,
+            trailing = autoCopy,
+            onClick = {
+                autoCopy.isChecked = !autoCopy.isChecked
+                InboundSmsNotifications.setAutoCopyCodes(this@MainActivity, autoCopy.isChecked)
+            }).apply {
+            id = R.id.settings_auto_copy_codes
+            accessibilityDelegate = object : View.AccessibilityDelegate() {
+                override fun onInitializeAccessibilityNodeInfo(host: View, info: android.view.accessibility.AccessibilityNodeInfo) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    info.className = android.widget.Switch::class.java.name
+                    info.isCheckable = true
+                    info.isChecked = autoCopy.isChecked
+                }
+            }
+        })
+
+        content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "电池优化",
+            summary = if (status?.batteryExempt == true) "已豁免 · 后台同步不受限制" else "建议豁免，避免后台收不到短信和来电",
+            icon = R.drawable.ic_ui_battery,
+            trailing = HostUi.chevron(this),
+            onClick = { HostBackgroundRuntime.openBatterySettings(this@MainActivity) }).apply { id = R.id.settings_battery })
 
         val contactsGranted = checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
-        val contacts = smallButton(if (contactsGranted) "联系人权限 · 已允许" else "允许访问联系人").apply {
-            id = R.id.settings_contacts
-            setOnClickListener {
+        content.addView(HostUi.tile(this, HostUi.Position.LAST, if (contactsGranted) "联系人" else "允许访问联系人",
+            summary = if (contactsGranted) "已允许 · 通话记录、短信和来电显示联系人姓名" else "用本机联系人显示姓名并搜索号码",
+            icon = R.drawable.ic_ui_contacts,
+            trailing = HostUi.chevron(this),
+            onClick = {
                 if (checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
                     startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
                 } else {
                     requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_CONTACTS)
                 }
-            }
-        }
-        content.addView(contacts)
+            }).apply { id = R.id.settings_contacts })
     }
 
     private fun addPairingForm(content: LinearLayout) {
@@ -1236,27 +1354,79 @@ class MainActivity : AppCompatActivity() {
         content.addView(pair)
     }
 
-    private fun renderDialer(content: LinearLayout) {
-        val toolbar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val back = smallButton("返回").apply { id = R.id.screen_back }
-        back.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        back.setOnClickListener { navigate(navigation.goHome()) }
-        toolbar.addView(back)
-        toolbar.addView(title("拨号"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        content.addView(toolbar)
+    /** Top app bar: a round back arrow and the page title (the arrow keeps the "返回" id and description). */
+    private fun topBar(titleText: String, extra: View? = null): LinearLayout {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(64)
+            layoutParams = fullWidthParams()
+        }
+        val back = MaterialButton(this, null, androidx.appcompat.R.attr.borderlessButtonStyle).apply {
+            id = R.id.screen_back
+            setIconResource(R.drawable.call_ui_back)
+            iconTint = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnSurface))
+            iconSize = dp(24)
+            iconPadding = 0
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+            contentDescription = "返回"
+            cornerRadius = dp(24)
+            insetTop = 0
+            insetBottom = 0
+            minWidth = 0
+            minimumWidth = 0
+            setOnClickListener { navigate(navigation.goHome()) }
+        }
+        bar.addView(back, LinearLayout.LayoutParams(dp(48), dp(48)))
+        extra?.let { bar.addView(it) }
+        bar.addView(MaterialTextView(this).apply {
+            text = titleText
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge)
+            setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(dp(12), 0, dp(8), 0)
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        return bar
+    }
 
-        val destinationField = inputField("联系人或号码", InputType.TYPE_CLASS_PHONE)
-        val destination = destinationField.editText as TextInputEditText
+    /** Caps a full-width child of a vertical LinearLayout at [maxDp], centered. */
+    private fun limitWidth(view: View, maxDp: Int) {
+        view.addOnLayoutChangeListener { changed, _, _, _, _, _, _, _, _ ->
+            val parentWidth = (changed.parent as? View)?.let { it.width - it.paddingLeft - it.paddingRight } ?: return@addOnLayoutChangeListener
+            val params = changed.layoutParams as? LinearLayout.LayoutParams ?: return@addOnLayoutChangeListener
+            val target = if (parentWidth > dp(maxDp)) dp(maxDp) else ViewGroup.LayoutParams.MATCH_PARENT
+            if (params.width != target) changed.post { params.width = target; changed.layoutParams = params }
+        }
+    }
+
+    private fun renderDialer(content: LinearLayout) {
+        content.addView(topBar("拨号"))
+
+        // Google dial pad: a large, borderless number display driven by the on-screen keys.
+        val destination = TextInputEditText(this).apply {
+            hint = "输入号码"
+            inputType = InputType.TYPE_CLASS_PHONE
+            gravity = Gravity.CENTER
+            background = null
+            textSize = 34f
+            minHeight = dp(72)
+            showSoftInputOnFocus = false
+            setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
+            setHintTextColor(materialColor(com.google.android.material.R.attr.colorOutline))
+            layoutParams = fullWidthParams(top = 8, bottom = 4)
+        }
         destination.id = R.id.dialer_destination
         destination.setSingleLine(true)
         destination.setText(callDestination)
         callDestinationEdit = destination
-        content.addView(destinationField)
+        content.addView(destination)
 
         val contactHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             val allow = smallButton("允许访问联系人")
             allow.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            contactHeader.gravity = Gravity.CENTER
             allow.setOnClickListener { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_CONTACTS) }
             contactHeader.addView(allow)
         }
@@ -1283,8 +1453,13 @@ class MainActivity : AppCompatActivity() {
             rowCount = 4
             useDefaultMargins = false
             alignmentMode = GridLayout.ALIGN_BOUNDS
-            layoutParams = fullWidthParams()
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(8)
+            }
         }
+        // Keep the keys finger-sized on wide and unfolded screens.
+        limitWidth(keypad, 380)
         val keys = listOf(
             "1" to R.id.keypad_1, "2" to R.id.keypad_2, "3" to R.id.keypad_3,
             "4" to R.id.keypad_4, "5" to R.id.keypad_5, "6" to R.id.keypad_6,
@@ -1298,7 +1473,7 @@ class MainActivity : AppCompatActivity() {
                     width = 0
                     height = ViewGroup.LayoutParams.WRAP_CONTENT
                     columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                    setMargins(0, 0, 0, 0)
+                    setMargins(dp(6), dp(5), dp(6), dp(5))
                 }
                 setOnClickListener {
                     val at = destination.selectionStart.coerceAtLeast(0)
@@ -1316,7 +1491,10 @@ class MainActivity : AppCompatActivity() {
             isSingleSelection = true
             isSelectionRequired = false
             chipSpacingHorizontal = dp(8)
-            layoutParams = fullWidthParams(top = 4, bottom = 4)
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(12)
+            }
         }
         sims.sortedBy { it.slotIndex }.forEach { line ->
             val chip = Chip(this).apply {
@@ -1326,6 +1504,10 @@ class MainActivity : AppCompatActivity() {
                 maxLines = 1
                 minHeight = dp(48)
                 isChecked = line.simId == selectedSimId
+                setChipIconResource(R.drawable.ic_ui_sim)
+                isChipIconVisible = true
+                chipIconTint = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+                isCheckedIconVisible = false
                 contentDescription = "SIM ${line.slotIndex + 1}, ${line.label}${line.phoneNumber?.let { ", $it" }.orEmpty()}"
                 isSaveEnabled = false
                 isSaveFromParentEnabled = false
@@ -1338,12 +1520,40 @@ class MainActivity : AppCompatActivity() {
         }
         content.addView(selector)
         val selected = sims.firstOrNull { it.simId == selectedSimId }
-        val backspace = smallButton("⌫").apply {
+        val bottomRow = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(12)
+            }
+        }
+        limitWidth(bottomRow, 380)
+        val dial = button("")
+        dial.id = R.id.dialer_call_button
+        dial.contentDescription = "拨出"
+        dial.setIconResource(R.drawable.call_ui_phone)
+        dial.iconSize = dp(28)
+        dial.iconPadding = 0
+        dial.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+        dial.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(24, 128, 56))
+        dial.iconTint = android.content.res.ColorStateList.valueOf(Color.WHITE)
+        dial.setTextColor(Color.WHITE)
+        dial.cornerRadius = dp(32)
+        dial.insetTop = 0
+        dial.insetBottom = 0
+        dial.setOnClickListener { beginDial(selected, destination.text?.toString().orEmpty()) }
+        dialerCallButton = dial
+        bottomRow.addView(dial, FrameLayout.LayoutParams(dp(104), dp(64), Gravity.CENTER))
+        val backspace = MaterialButton(this, null, androidx.appcompat.R.attr.borderlessButtonStyle).apply {
             id = R.id.dialer_backspace
             setIconResource(R.drawable.host_action_backspace)
-            text = ""
+            iconTint = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+            iconSize = dp(26)
+            iconPadding = 0
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
             contentDescription = "删除号码"
-            layoutParams = LinearLayout.LayoutParams(dp(56), dp(48)).apply { gravity = Gravity.END }
+            cornerRadius = dp(32)
+            insetTop = 0
+            insetBottom = 0
         }
         backspace.setOnClickListener {
             val input = destination.text ?: return@setOnClickListener
@@ -1351,20 +1561,10 @@ class MainActivity : AppCompatActivity() {
             val end = destination.selectionEnd.coerceAtLeast(0)
             if (start != end) input.delete(start, end) else if (start > 0) input.delete(start - 1, start)
         }
-        content.addView(backspace)
-        val dial = button("")
-        dial.id = R.id.dialer_call_button
-        dial.contentDescription = "拨出"
-        dial.setIconResource(R.drawable.call_ui_phone)
-        dial.iconSize = dp(28)
-        dial.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(24, 132, 74))
-        dial.iconTint = android.content.res.ColorStateList.valueOf(Color.WHITE)
-        dial.setTextColor(Color.WHITE)
-        dial.cornerRadius = dp(36)
-        dial.layoutParams = LinearLayout.LayoutParams(dp(68), dp(68)).apply { gravity = Gravity.CENTER_HORIZONTAL }
-        dial.setOnClickListener { beginDial(selected, destination.text?.toString().orEmpty()) }
-        dialerCallButton = dial
-        content.addView(dial)
+        backspace.setOnLongClickListener { destination.text?.clear(); true }
+        // Same column as the "#" key, like the Google dial pad.
+        bottomRow.addView(backspace, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(30) })
+        content.addView(bottomRow)
         dialerReadinessText = body("").apply {
             id = R.id.dialer_readiness
             gravity = Gravity.CENTER_HORIZONTAL
@@ -1379,37 +1579,45 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun contactTile(entry: ContactEntry, position: HostUi.Position, onClick: () -> Unit): View =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(64)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            background = HostUi.tileBackground(this@MainActivity, position)
+            layoutParams = HostUi.tileParams(this@MainActivity, position)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+            addView(HostUi.avatar(this@MainActivity, entry.name, entry.normalizedNumber ?: entry.number),
+                LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(16) })
+            val texts = LinearLayout(this@MainActivity).apply { orientation = LinearLayout.VERTICAL }
+            texts.addView(HostUi.title(this@MainActivity, entry.name))
+            texts.addView(HostUi.subtitle(this@MainActivity, entry.number))
+            addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+
     private fun renderDialerContacts() {
         val list = dialerContactsList ?: return
         list.removeAllViews()
         if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
-            list.addView(body("允许访问联系人以查找姓名和号码。"))
+            list.addView(body("允许访问联系人以查找姓名和号码。", selectable = false).apply { gravity = Gravity.CENTER })
             return
         }
         val query = contactsQuery.trim()
         val matching = dialerContacts.filter { query.isBlank() || it.name.contains(query, true) || it.number.contains(query, true) }.take(3)
         if (matching.isEmpty()) {
-            if (query.isNotBlank()) list.addView(body("没有匹配的联系人。"))
+            if (query.isNotBlank()) list.addView(body("没有匹配的联系人。", selectable = false).apply { gravity = Gravity.CENTER })
             return
         }
         matching.forEachIndexed { index, entry ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(8), dp(8), dp(8), dp(8))
-                background = selectableItemBackground()
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    val number = entry.normalizedNumber?.takeIf { it.isNotBlank() } ?: entry.number
-                    callDestination = normalizeDialNumber(number)
-                    callDestinationEdit?.setText(callDestination)
-                    callDestinationEdit?.setSelection(callDestination.length)
-                }
-            }
-            row.addView(label(entry.name))
-            row.addView(body(entry.number, selectable = false))
-            list.addView(row)
-            if (index < matching.lastIndex) list.addView(divider())
+            list.addView(contactTile(entry, HostUi.position(index, matching.size)) {
+                val number = entry.normalizedNumber?.takeIf { it.isNotBlank() } ?: entry.number
+                callDestination = normalizeDialNumber(number)
+                callDestinationEdit?.setText(callDestination)
+                callDestinationEdit?.setSelection(callDestination.length)
+            })
         }
     }
 
@@ -1417,22 +1625,13 @@ class MainActivity : AppCompatActivity() {
         val list = phoneContactsList ?: return
         list.removeAllViews()
         val visible = matches.take(3)
+        if (visible.isEmpty()) return
+        list.addView(HostUi.groupHeader(this, "联系人"))
         visible.forEachIndexed { index, entry ->
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(8), dp(8), dp(8), dp(8))
-                background = selectableItemBackground()
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    callDestination = normalizeDialNumber(entry.normalizedNumber?.takeIf(String::isNotBlank) ?: entry.number)
-                    navigate(navigation.openDialer())
-                }
-            }
-            row.addView(label(entry.name))
-            row.addView(body(entry.number, selectable = false))
-            list.addView(row)
-            if (index < visible.lastIndex) list.addView(divider())
+            list.addView(contactTile(entry, HostUi.position(index, visible.size)) {
+                callDestination = normalizeDialNumber(entry.normalizedNumber?.takeIf(String::isNotBlank) ?: entry.number)
+                navigate(navigation.openDialer())
+            })
         }
     }
 
@@ -1450,22 +1649,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Google-style search pill with a leading magnifier. */
     private fun roundedSearchField(hint: String, id: Int): TextInputEditText = TextInputEditText(this).apply {
         this.id = id
         this.hint = hint
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
         maxLines = 1
-        minHeight = dp(52)
-        setPadding(dp(18), dp(12), dp(18), dp(12))
-        background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(28).toFloat()
-            setColor(materialColor(com.google.android.material.R.attr.colorSurfaceVariant))
-        }
+        minHeight = dp(56)
+        setPadding(dp(20), dp(12), dp(20), dp(12))
+        background = HostUi.pill(this@MainActivity)
+        setCompoundDrawablesRelativeWithIntrinsicBounds(
+            HostUi.tint(this@MainActivity, R.drawable.ic_ui_search, com.google.android.material.R.attr.colorOnSurfaceVariant), null, null, null
+        )
+        compoundDrawablePadding = dp(16)
+        setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
         setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
         setHintTextColor(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
         setSingleLine(true)
-        layoutParams = fullWidthParams(top = 6, bottom = 8)
+        layoutParams = fullWidthParams(top = 4, bottom = 12)
     }
 
     private fun normalizeDialNumber(value: String): String = value.filter { it.isDigit() || it in "+*#" }
@@ -1562,20 +1763,17 @@ class MainActivity : AppCompatActivity() {
         // route.peer is a thread key or a typed recipient; both compare by key.
         val countryIso = smsCountryLookup()(route.simId)
         val routeKey = if (route.peer.isBlank()) "" else SmsThreadIndex.key(route.peer, countryIso)
-        val toolbar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val back = smallButton("返回").apply { id = R.id.screen_back }
-        back.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        back.setOnClickListener { navigate(navigation.goHome()) }
-        toolbar.addView(back)
-        val heading = MaterialTextView(this).apply {
+        val headerText = if (routeKey.isBlank()) "新短信" else SmsPeerKey.display(routeKey, countryIso)
+        val bar = topBar(headerText, extra = if (routeKey.isBlank()) null else
+            HostUi.avatar(this, contactName(headerText), routeKey, 40).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginStart = dp(4) }
+            })
+        // The title keeps its smoke/test anchor.
+        (0 until bar.childCount).map(bar::getChildAt).filterIsInstance<MaterialTextView>().lastOrNull()?.apply {
             id = R.id.sms_thread_header
-            text = if (routeKey.isBlank()) "新短信" else SmsPeerKey.display(routeKey, countryIso)
-            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleLarge)
-            setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
-            setPadding(dp(12), dp(8), 0, dp(8))
+            contactName(headerText)?.let { name -> contentDescription = "$name $headerText" }
         }
-        toolbar.addView(heading, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        content.addView(toolbar)
+        content.addView(bar)
 
         val recipient = if (route.isNew) {
             val recipientField = inputField("收件人号码", InputType.TYPE_CLASS_PHONE)
@@ -1603,7 +1801,7 @@ class MainActivity : AppCompatActivity() {
             .filter { peerKeys.getOrPut(it.peerAddress()) { SmsThreadIndex.key(it.peerAddress(), countryIso) } == routeKey }
             .sortedBy { timestampMillis(it.createdAt) }
         if (threadRecords.isEmpty()) {
-            smsConversationList?.addView(body(if (route.simId == null && !route.isNew) "此对话的 SIM 卡未知。选择线路后才能发送。" else "开始对话"))
+            smsConversationList?.addView(emptyState(if (route.simId == null && !route.isNew) "此对话的 SIM 卡未知。选择线路后才能发送。" else "开始对话"))
         } else {
             val visibleRecords = threadRecords.takeLast(smsConversationVisibleCount)
             if (threadRecords.size > visibleRecords.size) {
@@ -1611,7 +1809,21 @@ class MainActivity : AppCompatActivity() {
                 earlier.setOnClickListener { smsConversationVisibleCount += 100; renderCurrentScreen(preserveInput = true) }
                 smsConversationList?.addView(earlier)
             }
-            visibleRecords.forEach { message -> smsConversationList?.addView(conversationMessage(message)) }
+            var previousDay: String? = null
+            visibleRecords.forEach { message ->
+                val day = conversationDay(message.createdAt)
+                if (day != previousDay) {
+                    smsConversationList?.addView(MaterialTextView(this).apply {
+                        text = day
+                        gravity = Gravity.CENTER
+                        setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelMedium)
+                        setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+                        setPadding(0, dp(16), 0, dp(8))
+                    }, fullWidthParams())
+                    previousDay = day
+                }
+                smsConversationList?.addView(conversationMessage(message))
+            }
         }
         content.addView(smsConversationList)
 
@@ -1620,15 +1832,36 @@ class MainActivity : AppCompatActivity() {
             setPadding(dp(12), dp(8), dp(12), dp(12))
             setBackgroundColor(materialColor(com.google.android.material.R.attr.colorSurface))
         }
-        val simButton = smallButton(line?.let { "SIM ${it.slotIndex + 1} · ${it.label}" } ?: "选择 SIM 卡").apply {
+        // Google Messages: SIM switch, a pill-shaped text box and a round send button in one row.
+        val simButton = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonTonalStyle).apply {
             id = R.id.sms_thread_sim_selector
+            text = line?.let { "SIM ${it.slotIndex + 1}" } ?: "SIM"
+            contentDescription = line?.let { "发送线路 SIM ${it.slotIndex + 1} · ${it.label}，点按切换" } ?: "选择 SIM 卡"
+            isAllCaps = false
+            setIconResource(R.drawable.ic_ui_sim)
+            iconSize = dp(18)
+            iconPadding = dp(4)
+            cornerRadius = dp(24)
+            minWidth = 0
+            minimumWidth = 0
+            insetTop = 0
+            insetBottom = 0
+            setPadding(dp(12), 0, dp(12), 0)
             setOnClickListener { chooseConversationSim(route) }
         }
         simButton.isEnabled = sims.isNotEmpty()
-        composer.addView(simButton)
         val inputRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
-        val bodyField = inputField("短信内容", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_MULTI_LINE)
-        val bodyInput = bodyField.editText as TextInputEditText
+        inputRow.addView(simButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(52)).apply { marginEnd = dp(8) })
+        val bodyInput = TextInputEditText(this).apply {
+            hint = "短信"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            background = HostUi.pill(this@MainActivity)
+            minHeight = dp(52)
+            setPadding(dp(20), dp(12), dp(20), dp(12))
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
+            setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
+            setHintTextColor(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+        }
         bodyInput.id = R.id.sms_body
         bodyInput.minLines = 1
         bodyInput.maxLines = 4
@@ -1649,13 +1882,21 @@ class MainActivity : AppCompatActivity() {
         }
         recipient?.addTextChangedListener(watcher)
         bodyInput.addTextChangedListener(watcher)
-        inputRow.addView(bodyField, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        inputRow.addView(bodyInput, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val send = MaterialButton(this).apply {
             id = R.id.sms_thread_send
-            text = "发送"
-            isAllCaps = false
-            minWidth = dp(64)
-            minHeight = dp(48)
+            contentDescription = "发送"
+            setIconResource(R.drawable.ic_ui_send)
+            iconSize = dp(22)
+            iconPadding = 0
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+            cornerRadius = dp(26)
+            insetTop = 0
+            insetBottom = 0
+            minWidth = 0
+            minimumWidth = 0
+            minHeight = 0
+            minimumHeight = 0
             setOnClickListener {
                 val selected = sims.firstOrNull { it.simId == selectedSimId }
                 if (selected == null) showToast("请选择 SIM 卡。")
@@ -1663,52 +1904,65 @@ class MainActivity : AppCompatActivity() {
             }
         }
         smsThreadSendButton = send
-        inputRow.addView(send)
+        inputRow.addView(send, LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginStart = dp(8) })
         composer.addView(inputRow)
         updateSendButtonState()
         return composer
     }
 
+    private fun conversationDay(value: String): String = runCatching {
+        val millis = timestampMillis(value)
+        if (android.text.format.DateUtils.isToday(millis)) "今天"
+        else java.text.SimpleDateFormat("M月d日 EEEE", java.util.Locale.getDefault()).format(java.util.Date(millis))
+    }.getOrDefault(value.take(10))
+
+    /** A chat bubble: incoming on the left in a neutral tone, sent on the right in the primary color. */
     private fun conversationMessage(message: SmsRecord): View {
         val inbound = message.direction == "inbound"
-        val bubble = MaterialCardView(this).apply {
-            radius = dp(18).toFloat()
-            cardElevation = 0f
-            strokeWidth = 0
-            setCardBackgroundColor(materialColor(if (inbound) com.google.android.material.R.attr.colorSurfaceVariant else com.google.android.material.R.attr.colorSecondaryContainer))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                gravity = if (inbound) Gravity.START else Gravity.END
-                topMargin = dp(4)
-                bottomMargin = dp(4)
-                marginStart = dp(8)
-                marginEnd = dp(8)
-            }
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = if (inbound) Gravity.START else Gravity.END
+            layoutParams = fullWidthParams(top = 2, bottom = 2)
         }
-        bubble.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
-            val parentWidth = (view.parent as? View)?.width ?: return@addOnLayoutChangeListener
-            val targetWidth = (parentWidth * 0.78f).toInt().coerceAtLeast(dp(80))
-            val params = view.layoutParams as? LinearLayout.LayoutParams ?: return@addOnLayoutChangeListener
-            val available = (targetWidth - params.marginStart - params.marginEnd).coerceAtLeast(dp(80))
-            if (params.width != available) {
-                params.width = available
-                view.layoutParams = params
+        val large = dp(20).toFloat()
+        val small = dp(6).toFloat()
+        val radii = if (inbound) floatArrayOf(large, large, large, large, large, large, small, small)
+        else floatArrayOf(large, large, large, large, small, small, large, large)
+        val bubbleText = MaterialTextView(this).apply {
+            text = message.text
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyLarge)
+            setTextColor(materialColor(if (inbound) com.google.android.material.R.attr.colorOnSurface else com.google.android.material.R.attr.colorOnPrimary))
+            setLinkTextColor(materialColor(if (inbound) androidx.appcompat.R.attr.colorPrimary else com.google.android.material.R.attr.colorOnPrimary))
+            setTextIsSelectable(true)
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            background = GradientDrawable().apply {
+                cornerRadii = radii
+                setColor(materialColor(if (inbound) com.google.android.material.R.attr.colorSurfaceContainerHigh else androidx.appcompat.R.attr.colorPrimary))
             }
+            maxWidth = (resources.displayMetrics.widthPixels * 0.75f).toInt().coerceAtMost(dp(520))
         }
-        val stack = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(10)) }
-        stack.addView(body(message.text))
-        val state = if (inbound) "收到 · ${formatHistoryTime(message.createdAt)}" else "${SmsStatus.display(message.status)} · ${formatHistoryTime(message.createdAt)}"
-        stack.addView(label(state))
+        column.addView(bubbleText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            if (inbound) marginEnd = dp(48) else marginStart = dp(48)
+        })
+        val time = runCatching {
+            java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestampMillis(message.createdAt)))
+        }.getOrDefault("")
+        val state = if (inbound) time else "$time · ${SmsStatus.display(message.status)}"
+        column.addView(MaterialTextView(this).apply {
+            text = state
+            setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall)
+            setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+            setPadding(dp(8), dp(2), dp(8), dp(4))
+        })
         if (message.taskKey != null && (message.status == SmsStatus.UNKNOWN || message.status == SmsStatus.SUBMITTING)) {
             val action = if (retryAction(message.taskKey, message.serverId) == RetryAction.RETRY_SAME_KEY) "重试发送" else "查询状态"
-            val retry = smallButton(action)
+            val retry = smallButton(action).apply {
+                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
             retry.setOnClickListener { retryOrCheck(message) }
-            stack.addView(retry)
+            column.addView(retry)
         }
-        bubble.addView(stack)
-        return bubble
+        return column
     }
 
     private fun chooseConversationSim(route: HostDestination.Conversation) {
@@ -2928,7 +3182,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun verticalRoot(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(16), dp(20), dp(28))
+        setPadding(dp(16), dp(12), dp(16), dp(24))
     }
 
     private fun installContent(
@@ -3415,9 +3669,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun title(text: String): TextView = MaterialTextView(this).apply {
         this.text = text
-        setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_HeadlineMedium)
+        setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_DisplaySmall)
         setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
-        setPadding(0, dp(8), dp(8), dp(10))
+        setPadding(dp(4), dp(32), dp(8), dp(12))
     }
 
     private fun sectionTitle(text: String): TextView = MaterialTextView(this).apply {
@@ -3498,12 +3752,12 @@ class MainActivity : AppCompatActivity() {
         iconTint = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnSecondaryContainer))
     }
 
-    private fun smsArchiveEntryButton(): MaterialButton = smallButton("短信备份与归档").apply {
-        id = R.id.sms_backup_archive_entry
-        setOnClickListener {
-            startActivity(Intent(this@MainActivity, com.callagent.host.backup.HostSmsBackupActivity::class.java))
-        }
-    }
+    private fun smsArchiveEntryButton(): View = HostUi.tile(this, HostUi.Position.SINGLE, "短信备份与归档",
+        summary = "导出加密备份、导入 SMS Backup & Restore 归档",
+        icon = R.drawable.ic_ui_archive,
+        trailing = HostUi.chevron(this),
+        onClick = { startActivity(Intent(this, com.callagent.host.backup.HostSmsBackupActivity::class.java)) }
+    ).apply { id = R.id.sms_backup_archive_entry }
 
     private fun fullWidthParams(top: Int = 0, bottom: Int = 0): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {

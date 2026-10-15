@@ -48,7 +48,7 @@ class CallActionActivityTest {
         try {
             val views = descendants(controller.get().findViewById(android.R.id.content)).toList()
             assertTrue(views.filterIsInstance<TextView>().any { it.text.toString() == "正在呼叫…" })
-            assertTrue(views.filterIsInstance<MaterialButton>().any { it.text.toString() == "挂断" })
+            assertTrue(views.filterIsInstance<MaterialButton>().any { it.contentDescription?.toString() == "挂断" })
             controller.recreate()
             assertEquals(CallPhase.REGISTERING, coordinator.current?.phase)
         } finally { controller.pause().stop().destroy() }
@@ -66,13 +66,13 @@ class CallActionActivityTest {
         try {
             val activity = controller.get()
             descendants(activity.findViewById(android.R.id.content)).filterIsInstance<MaterialButton>()
-                .first { it.text.toString() == "键盘" }.performClick()
+                .first { it.contentDescription?.toString() == "键盘" }.performClick()
             descendants(activity.findViewById(android.R.id.content)).filterIsInstance<MaterialButton>()
                 .first { it.contentDescription?.toString() == "发送按键 5" }.performClick()
             controller.recreate()
             val views = descendants(controller.get().findViewById(android.R.id.content)).toList()
             assertTrue(views.any { it.contentDescription?.toString() == "已发送的按键 5" })
-            views.filterIsInstance<MaterialButton>().first { it.text.toString() == "返回" }.performClick()
+            views.filterIsInstance<MaterialButton>().first { it.contentDescription?.toString() == "返回" }.performClick()
             assertTrue(controller.get().isFinishing)
             assertEquals(CallPhase.ACTIVE, coordinator.current?.phase)
         } finally { controller.pause().stop().destroy() }
@@ -88,8 +88,8 @@ class CallActionActivityTest {
         val controller = Robolectric.buildActivity(CallActionActivity::class.java, intent).setup()
         try {
             val views = descendants(controller.get().findViewById(android.R.id.content)).toList()
-            assertTrue(views.filterIsInstance<MaterialButton>().any { it.text.toString() == "接听" })
-            assertTrue(views.filterIsInstance<MaterialButton>().any { it.text.toString() == "拒接" })
+            assertTrue(views.filterIsInstance<MaterialButton>().any { it.contentDescription?.toString() == "接听" })
+            assertTrue(views.filterIsInstance<MaterialButton>().any { it.contentDescription?.toString() == "拒接" })
             assertEquals(CallPhase.INCOMING_RINGING, coordinator.current?.phase)
             assertNull(Shadows.shadowOf(controller.get()).lastRequestedPermission)
         } finally { controller.pause().stop().destroy() }

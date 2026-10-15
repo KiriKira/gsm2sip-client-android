@@ -1,6 +1,5 @@
 package com.callagent.host.notify
 
-import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -17,9 +16,7 @@ class SmsNotificationActionReceiver : BroadcastReceiver() {
                     ?.let { InboundSmsNotifications.copy(context, it) }
             }
             InboundSmsNotifications.ACTION_MARK_READ -> {
-                if (tag != null) {
-                    (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(tag, id)
-                }
+                if (tag != null) InboundSmsNotifications.cancelConversation(context, tag, id)
             }
         }
     }

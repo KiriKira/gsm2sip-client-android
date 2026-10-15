@@ -169,6 +169,31 @@ object InboundSmsNotifications {
         }
     }
 
+    /**
+     * Removes one conversation's notification, and the group summary once no
+     * conversation is left, so an empty "新短信" summary never lingers.
+     */
+    fun cancelConversation(context: Context, tag: String, id: Int) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        manager.cancel(tag, id)
+        runCatching {
+            val remaining = manager.activeNotifications.filter { it.tag == tag && it.id != id }
+            if (remaining.all { it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 }) {
+                remaining.forEach { manager.cancel(tag, it.id) }
+            }
+        }
+    }
+
+    /** Opening the messages screen from a notification clears every SMS notification, as Google Messages does. */
+    fun cancelAllInbound(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        runCatching {
+            manager.activeNotifications
+                .filter { Build.VERSION.SDK_INT >= 26 && it.notification.channelId == HostNotificationChannels.INBOUND_SMS }
+                .forEach { manager.cancel(it.tag, it.id) }
+        }
+    }
+
     /** Removes every SMS notification posted under [tag]. */
     fun cancelAll(context: Context, tag: String) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return

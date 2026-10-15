@@ -30,6 +30,8 @@ import androidx.window.layout.WindowInfoTracker
 import androidx.window.layout.WindowLayoutInfo
 import com.callagent.host.R
 import com.callagent.host.contacts.HostContactsRepository
+import com.callagent.host.ui.DialPadKeyView
+import com.callagent.host.ui.HostUi
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
@@ -67,6 +69,8 @@ class CallActionActivity : AppCompatActivity() {
         const val EXTRA_PENDING_SIM = "com.callagent.host.calls.PENDING_SIM"
         const val EXTRA_PENDING_NUMBER = "com.callagent.host.calls.PENDING_NUMBER"
         private const val REQUEST_MICROPHONE = 7201
+        private const val ANSWER_GREEN = 0xFF188038.toInt()
+        private const val DECLINE_RED = 0xFFD93025.toInt()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -192,7 +196,7 @@ class CallActionActivity : AppCompatActivity() {
         val previousScrollY = surface?.scrollY ?: savedScrollY
         val scroll = ScrollView(this).apply {
             isFillViewport = true
-            setBackgroundColor(color(com.google.android.material.R.attr.colorSurface))
+            setBackgroundColor(color(com.google.android.material.R.attr.colorSurfaceContainer))
         }
         surface = scroll
         val root = LinearLayout(this).apply {
@@ -202,83 +206,107 @@ class CallActionActivity : AppCompatActivity() {
         }
         scroll.addView(root, ViewGroup.LayoutParams(-1, -1))
         val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        top.addView(control("返回", R.drawable.call_ui_back) { finish() }, LinearLayout.LayoutParams(dp(64), dp(64)))
-        top.addView(label("电话", 16f), LinearLayout.LayoutParams(0, dp(56), 1f))
+        top.addView(iconButton("返回", R.drawable.call_ui_back) { finish() }, LinearLayout.LayoutParams(dp(48), dp(48)))
+        top.addView(label(simLabel(call?.simId), 14f).apply {
+            setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant))
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(android.view.View(this), LinearLayout.LayoutParams(dp(48), dp(48)))
         root.addView(top, LinearLayout.LayoutParams(-1, -2))
-        if (!keypadVisible) root.addView(ImageView(this).apply {
-            setImageResource(R.drawable.call_ui_phone)
-            imageTintList = ColorStateList.valueOf(color(androidx.appcompat.R.attr.colorPrimary))
-            setPadding(dp(24), dp(24), dp(24), dp(24))
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(color(com.google.android.material.R.attr.colorPrimaryContainer))
-            }
-            importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }, LinearLayout.LayoutParams(dp(88), dp(88)).apply { topMargin = dp(24); bottomMargin = dp(24) })
+
+        // Caller block in the style of the Google Phone in-call screen.
         val number = call?.remoteNumber?.takeIf { it.isNotBlank() } ?: "电话"
-        root.addView(label(contactName ?: number, if (keypadVisible) 24f else 30f))
-        if (contactName != null) root.addView(label(number, 16f))
-        root.addView(label(simLabel(call?.simId), 15f).apply { setPadding(0, dp(8), 0, dp(8)) })
-        root.addView(label(phaseLabel(call?.phase), 18f).apply {
+        val compact = keypadVisible
+        if (!compact) {
+            root.addView(HostUi.avatar(this, contactName, number, 112).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(112), dp(112)).apply { topMargin = dp(32); bottomMargin = dp(20) }
+            })
+        }
+        root.addView(label(contactName ?: number, if (compact) 26f else 34f).apply {
+            setPadding(0, dp(if (compact) 8 else 0), 0, 0)
+        })
+        if (contactName != null) root.addView(label(number, 16f).apply {
+            setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant))
+        })
+        root.addView(label(phaseLabel(call?.phase), 16f).apply {
             setTextColor(color(androidx.appcompat.R.attr.colorPrimary))
-            setPadding(0, 0, 0, dp(if (keypadVisible) 12 else 24))
+            setPadding(0, dp(8), 0, dp(if (compact) 8 else 16))
         })
         call?.endNotice?.takeIf { it.isNotBlank() }?.let { root.addView(label(it, 15f)) }
         if (call?.phase == CallPhase.FAILED) root.addView(label("连接失败，请检查网络后重试", 15f))
         if (call?.phase == CallPhase.ACTIVE && CallRuntime.currentStatus.let { it.contains("网络") || it.contains("恢复") }) {
             root.addView(label("网络连接不稳定，正在恢复…", 15f))
         }
+        // Push the controls towards the bottom, where the thumb is.
+        root.addView(android.view.View(this), LinearLayout.LayoutParams(1, 0, 1f))
         if (call?.phase == CallPhase.ACTIVE && activeId != null) {
+            if (keypadVisible) {
+                root.addView(label(dtmfDigits, 24f).apply {
+                    contentDescription = "已发送的按键 $dtmfDigits"
+                    setPadding(0, 0, 0, dp(8))
+                })
+                val pad = android.widget.GridLayout(this).apply {
+                    columnCount = 3
+                    useDefaultMargins = false
+                }
+                "123456789*0#".forEach { digit ->
+                    pad.addView(DialPadKeyView(this, digit.toString()).apply {
+                        contentDescription = "发送按键 $digit"
+                        layoutParams = android.widget.GridLayout.LayoutParams().apply {
+                            width = 0
+                            height = ViewGroup.LayoutParams.WRAP_CONTENT
+                            columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
+                            setMargins(dp(6), dp(4), dp(6), dp(4))
+                        }
+                        setOnClickListener {
+                            if (CallRuntime.snapshot(activeId)?.phase == CallPhase.ACTIVE) {
+                                dtmfDigits = (dtmfDigits + digit).takeLast(24)
+                                CallRuntime.sendDtmf(this@CallActionActivity, activeId, digit.toString())
+                                render()
+                            }
+                        }
+                    })
+                }
+                root.addView(pad, LinearLayout.LayoutParams(dp(340).coerceAtMost(resources.displayMetrics.widthPixels - dp(40)), ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { bottomMargin = dp(12) })
+            }
             val controls = LinearLayout(this).apply { gravity = Gravity.CENTER }
-            controls.addView(control(if (call.muted) "取消静音" else "静音", R.drawable.call_ui_mic, call.muted) {
+            controls.addView(roundControl(if (call.muted) "取消静音" else "静音", R.drawable.call_ui_mic, call.muted) {
                 CallRuntime.setMuted(this, activeId, !call.muted)
-            }, LinearLayout.LayoutParams(0, dp(84), 1f))
-            controls.addView(control("键盘", R.drawable.call_ui_keypad, keypadVisible) { keypadVisible = !keypadVisible; render() }, LinearLayout.LayoutParams(0, dp(84), 1f))
-            controls.addView(control("音频", R.drawable.call_ui_speaker, call.speaker) {
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            controls.addView(roundControl("键盘", R.drawable.call_ui_keypad, keypadVisible) { keypadVisible = !keypadVisible; render() },
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            controls.addView(roundControl("音频", R.drawable.call_ui_speaker, call.speaker) {
                 val endpoints = CallRuntime.audioEndpoints(activeId)
                 if (endpoints.isEmpty()) CallRuntime.toggleSpeaker(this, activeId, !call.speaker)
                 else MaterialAlertDialogBuilder(this).setTitle("音频输出")
                     .setItems(endpoints.map { it.displayName() }.toTypedArray()) { _, which ->
                         CallRuntime.selectAudioEndpoint(this, activeId, endpoints[which])
                     }.show()
-            }, LinearLayout.LayoutParams(0, dp(84), 1f))
-            root.addView(controls, LinearLayout.LayoutParams(-1, -2))
-            if (keypadVisible) {
-                root.addView(label(dtmfDigits, 22f).apply { contentDescription = "已发送的按键 $dtmfDigits" })
-                listOf("123", "456", "789", "*0#").forEach { digits ->
-                    val row = LinearLayout(this)
-                    digits.forEach { digit ->
-                        row.addView(MaterialButton(this, null, androidx.appcompat.R.attr.borderlessButtonStyle).apply {
-                            text = digit.toString()
-                            textSize = 27f
-                            contentDescription = "发送按键 $digit"
-                            setOnClickListener {
-                                if (CallRuntime.snapshot(activeId)?.phase == CallPhase.ACTIVE) {
-                                    dtmfDigits = (dtmfDigits + digit).takeLast(24)
-                                    CallRuntime.sendDtmf(this@CallActionActivity, activeId, digit.toString())
-                                    render()
-                                }
-                            }
-                        }, LinearLayout.LayoutParams(0, dp(64), 1f))
-                    }
-                    root.addView(row, LinearLayout.LayoutParams(-1, -2))
-                }
-            }
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            root.addView(controls, LinearLayout.LayoutParams(dp(360).coerceAtMost(resources.displayMetrics.widthPixels - dp(40)), ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         when (call?.phase) {
             CallPhase.INCOMING_RINGING -> {
-                root.addView(action("接听", 0xFF188038.toInt(), R.drawable.call_ui_phone) {
-                    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) CallRuntime.answerFromVisibleUser(this, activeId!!)
-                    else requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MICROPHONE)
-                })
-                root.addView(action("拒接", 0xFFBA1A1A.toInt(), R.drawable.call_ui_end) { CallRuntime.rejectFromUi(this, activeId!!) })
+                // Decline on the left, answer on the right, like the system incoming-call screen.
+                val choices = LinearLayout(this).apply { gravity = Gravity.CENTER }
+                choices.addView(roundAction("拒接", R.drawable.call_ui_end, DECLINE_RED) { CallRuntime.rejectFromUi(this, activeId!!) },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                choices.addView(roundAction("接听", R.drawable.call_ui_phone, ANSWER_GREEN) { answer(activeId!!) },
+                    LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                root.addView(choices, LinearLayout.LayoutParams(dp(360).coerceAtMost(resources.displayMetrics.widthPixels - dp(40)), ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { topMargin = dp(24); bottomMargin = dp(24) })
             }
             CallPhase.ACTIVE, CallPhase.AUTHORIZING_OUTBOUND, CallPhase.REGISTERING, CallPhase.DIALING,
-            CallPhase.OUTBOUND_RINGING, CallPhase.ANSWERING -> root.addView(action("挂断", 0xFFBA1A1A.toInt(), R.drawable.call_ui_end) {
+            CallPhase.OUTBOUND_RINGING, CallPhase.ANSWERING -> root.addView(hangupButton("挂断") {
                 CallRuntime.hangupFromUi(this, activeId!!)
             })
-            CallPhase.DISCONNECTING -> root.addView(label("正在挂断…", 16f))
-            else -> root.addView(action("返回", color(androidx.appcompat.R.attr.colorPrimary), R.drawable.call_ui_back) { finish() })
+            CallPhase.DISCONNECTING -> root.addView(label("正在挂断…", 16f).apply { setPadding(0, dp(24), 0, dp(24)) })
+            else -> root.addView(MaterialButton(this, null, com.google.android.material.R.attr.materialButtonTonalStyle).apply {
+                text = "关闭"
+                contentDescription = "关闭"
+                cornerRadius = dp(28)
+                setOnClickListener { finish() }
+            }, LinearLayout.LayoutParams(dp(160), dp(56)).apply { topMargin = dp(24); bottomMargin = dp(24) })
         }
         setContentView(scroll)
         ViewCompat.setOnApplyWindowInsetsListener(scroll) { view, insets ->
@@ -331,36 +359,79 @@ class CallActionActivity : AppCompatActivity() {
         }
     }
 
-    private fun control(text: String, drawable: Int, selected: Boolean = false, click: () -> Unit) =
+    private fun iconButton(description: String, drawable: Int, click: () -> Unit) =
         MaterialButton(this, null, androidx.appcompat.R.attr.borderlessButtonStyle).apply {
-            this.text = text
-            textSize = 12f
             icon = ContextCompat.getDrawable(this@CallActionActivity, drawable)
-            iconGravity = MaterialButton.ICON_GRAVITY_TOP
-            iconSize = dp(26)
-            contentDescription = text
-            isCheckable = true
-            isChecked = selected
-            val foreground = color(if (selected) com.google.android.material.R.attr.colorOnPrimaryContainer else com.google.android.material.R.attr.colorOnSurface)
-            iconTint = ColorStateList.valueOf(foreground)
-            setTextColor(foreground)
-            backgroundTintList = ColorStateList.valueOf(
-                if (selected) color(com.google.android.material.R.attr.colorPrimaryContainer) else android.graphics.Color.TRANSPARENT
-            )
+            iconTint = ColorStateList.valueOf(color(com.google.android.material.R.attr.colorOnSurface))
+            iconSize = dp(24)
+            iconPadding = 0
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+            contentDescription = description
+            cornerRadius = dp(24)
+            insetTop = 0
+            insetBottom = 0
+            minWidth = 0
+            minimumWidth = 0
             setOnClickListener { click() }
         }
 
-    private fun action(text: String, background: Int, drawable: Int, click: () -> Unit) = MaterialButton(this).apply {
-        this.text = text
-        icon = ContextCompat.getDrawable(this@CallActionActivity, drawable)
-        iconSize = dp(26)
+    /** A round in-call toggle with its label underneath; filled while [selected]. */
+    private fun roundControl(text: String, drawable: Int, selected: Boolean = false, click: () -> Unit): LinearLayout {
+        val fill = color(if (selected) androidx.appcompat.R.attr.colorPrimary else com.google.android.material.R.attr.colorSurfaceContainerHighest)
+        val onFill = color(if (selected) com.google.android.material.R.attr.colorOnPrimary else com.google.android.material.R.attr.colorOnSurface)
+        return roundButton(text, drawable, fill, onFill, 72, click).also { column ->
+            (column.getChildAt(0) as MaterialButton).apply {
+                isCheckable = true
+                isChecked = selected
+            }
+        }
+    }
+
+    /** A large round answer/decline button with its label underneath. */
+    private fun roundAction(text: String, drawable: Int, fill: Int, click: () -> Unit) =
+        roundButton(text, drawable, fill, android.graphics.Color.WHITE, 80, click)
+
+    private fun roundButton(text: String, drawable: Int, fill: Int, onFill: Int, sizeDp: Int, click: () -> Unit): LinearLayout {
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        column.addView(MaterialButton(this).apply {
+            icon = ContextCompat.getDrawable(this@CallActionActivity, drawable)
+            iconTint = ColorStateList.valueOf(onFill)
+            iconSize = dp(if (sizeDp >= 80) 32 else 28)
+            iconPadding = 0
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+            backgroundTintList = ColorStateList.valueOf(fill)
+            cornerRadius = dp(sizeDp / 2)
+            insetTop = 0
+            insetBottom = 0
+            minWidth = 0
+            minimumWidth = 0
+            contentDescription = text
+            setOnClickListener { click() }
+        }, LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)))
+        column.addView(label(text, 13f).apply {
+            setPadding(0, dp(8), 0, 0)
+            importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        })
+        return column
+    }
+
+    /** The red end-call pill, centered at the bottom. */
+    private fun hangupButton(text: String, click: () -> Unit) = MaterialButton(this).apply {
+        icon = ContextCompat.getDrawable(this@CallActionActivity, R.drawable.call_ui_end)
+        iconSize = dp(32)
+        iconPadding = 0
+        iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
         iconTint = ColorStateList.valueOf(android.graphics.Color.WHITE)
-        setTextColor(android.graphics.Color.WHITE)
-        backgroundTintList = ColorStateList.valueOf(background)
+        backgroundTintList = ColorStateList.valueOf(DECLINE_RED)
         cornerRadius = dp(36)
-        minHeight = dp(64)
-        layoutParams = LinearLayout.LayoutParams(dp(168), dp(64)).apply { topMargin = dp(24) }
+        insetTop = 0
+        insetBottom = 0
         contentDescription = text
+        layoutParams = LinearLayout.LayoutParams(dp(112), dp(72)).apply { topMargin = dp(24); bottomMargin = dp(24) }
         setOnClickListener { click() }
     }
 
