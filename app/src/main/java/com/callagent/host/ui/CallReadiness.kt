@@ -20,10 +20,12 @@ object CallReadiness {
         line: SimLine?,
         callServerAvailable: Boolean?,
         callServerReason: String?,
-        localEngineAvailable: Boolean
+        localEngineAvailable: Boolean,
+        server: ServerLink = ServerLink.Connected
     ): Result {
         val blocker = when {
             !paired -> "请先在设置中完成配对。"
+            server is ServerLink.Unreachable -> "无法连接服务器，暂时无法拨号。请检查本机网络或服务器。"
             callServerAvailable == null -> "正在检查服务器通话能力…"
             callServerAvailable == false -> when (callServerReason) {
                 null, "" -> "服务器未启用通话。"
@@ -31,6 +33,7 @@ object CallReadiness {
                 else -> if (callServerReason.any { it.code > 0x7f }) callServerReason else "服务器未启用通话（$callServerReason）。"
             }
             !localEngineAvailable -> "本机通话组件不可用。"
+            !gatewayOnline && server is ServerLink.Checking -> "正在连接服务器…"
             !gatewayOnline -> "旧手机离线，暂时无法拨号。"
             line == null -> "请选择用于拨号的 SIM 卡。"
             !line.canSend -> "SIM ${line.slotIndex + 1} 需在旧手机上确认后才能使用。"

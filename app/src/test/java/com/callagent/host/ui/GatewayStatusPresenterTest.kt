@@ -60,6 +60,31 @@ class GatewayStatusPresenterTest {
     }
 
     @Test
+    fun staleSnapshotWithoutTheServerIsUnknownNotOffline() {
+        val stale = gateway(lastSeen = "2026-10-11T07:50:00Z")
+        val unreachable = GatewayStatusPresenter.present(stale, listOf(line(0)), now, ZoneOffset.UTC,
+            server = ServerLink.Unreachable("无法连接服务器"))
+        assertFalse(unreachable.online)
+        assertEquals(Tone.WARNING, unreachable.tone)
+        assertEquals("旧小米 · 状态未知", unreachable.headline)
+        assertEquals("无法连接服务器，无法确认旧手机状态 · 旧手机最后上报 10 分钟前", unreachable.detail)
+        assertNull(unreachable.sims.single().signalLevel)
+
+        val checking = GatewayStatusPresenter.present(stale, listOf(line(0)), now, ZoneOffset.UTC, server = ServerLink.Checking)
+        assertEquals("旧小米 · 状态未知", checking.headline)
+        assertTrue(checking.detail.startsWith("正在连接服务器…"))
+
+        // A fresh snapshot is still shown while the next sync is pending.
+        assertEquals("旧小米 · 在线", GatewayStatusPresenter.present(gateway(), listOf(line(0)), now, ZoneOffset.UTC,
+            server = ServerLink.Checking).headline)
+        // Only a successful sync can report the old phone offline.
+        assertEquals("旧小米 · 离线", GatewayStatusPresenter.present(stale, listOf(line(0)), now, ZoneOffset.UTC,
+            server = ServerLink.Connected).headline)
+        assertEquals("无法连接服务器", GatewayStatusPresenter.present(null, emptyList(), now,
+            server = ServerLink.Unreachable("服务器返回错误 502")).headline)
+    }
+
+    @Test
     fun unusableSimsExplainWhatToDoOnTheOldPhone() {
         val status = GatewayStatusPresenter.present(gateway(sip = false),
             listOf(line(0, state = "unverified", verified = false), line(1, service = "out_of_service", radio = null)),

@@ -11,8 +11,17 @@ class CallReadinessTest {
 
     private fun evaluate(
         paired: Boolean = true, online: Boolean = true, sip: Boolean? = true, revision: Long? = 4,
-        selected: SimLine? = line, server: Boolean? = true, reason: String? = null, engine: Boolean = true
-    ) = CallReadiness.evaluate(paired, online, sip, revision, selected, server, reason, engine)
+        selected: SimLine? = line, server: Boolean? = true, reason: String? = null, engine: Boolean = true,
+        link: ServerLink = ServerLink.Connected
+    ) = CallReadiness.evaluate(paired, online, sip, revision, selected, server, reason, engine, link)
+
+    @Test
+    fun anUnreachableServerIsNotBlamedOnTheOldPhone() {
+        assertEquals("无法连接服务器，暂时无法拨号。请检查本机网络或服务器。",
+            evaluate(online = false, link = ServerLink.Unreachable("无法连接服务器")).blocker)
+        assertEquals("正在连接服务器…", evaluate(online = false, link = ServerLink.Checking).blocker)
+        assertTrue(evaluate(link = ServerLink.Checking).ready)
+    }
 
     @Test
     fun blockersFollowTheOrderAUserCanFixThem() {
