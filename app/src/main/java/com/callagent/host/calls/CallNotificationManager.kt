@@ -90,6 +90,17 @@ internal object CallNotificationManager {
             .build()
     }
 
+    /** Shown only for the instant a foreground start that cannot be honoured is closed again. */
+    fun placeholderNotification(context: Context): Notification {
+        prepare(context)
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.sym_action_call)
+            .setContentTitle("远程 SIM 通话")
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setSilent(true)
+            .build()
+    }
+
     fun cancel(context: Context) {
         (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID)
     }
