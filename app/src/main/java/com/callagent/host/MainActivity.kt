@@ -1405,7 +1405,8 @@ class MainActivity : AppCompatActivity() {
 
         // Google dial pad: a large, borderless number display driven by the on-screen keys.
         val destination = TextInputEditText(this).apply {
-            hint = "输入号码"
+            // The smoke fixture recognises an empty field by this hint.
+            hint = "联系人或号码"
             inputType = InputType.TYPE_CLASS_PHONE
             gravity = Gravity.CENTER
             background = null
@@ -3757,7 +3758,10 @@ class MainActivity : AppCompatActivity() {
         icon = R.drawable.ic_ui_archive,
         trailing = HostUi.chevron(this),
         onClick = { startActivity(Intent(this, com.callagent.host.backup.HostSmsBackupActivity::class.java)) }
-    ).apply { id = R.id.sms_backup_archive_entry }
+    ).apply {
+        id = R.id.sms_backup_archive_entry
+        contentDescription = "短信备份与归档"
+    }
 
     private fun fullWidthParams(top: Int = 0, bottom: Int = 0): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
