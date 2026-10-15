@@ -53,9 +53,14 @@ object GatewayStatusPresenter {
         gateway: GatewaySnapshot?,
         sims: List<SimLine>,
         nowMillis: Long,
-        zone: ZoneId = ZoneId.systemDefault()
+        zone: ZoneId = ZoneId.systemDefault(),
+        server: ServerLink = ServerLink.Connected
     ): GatewayStatus {
         if (gateway == null) {
+            if (server is ServerLink.Unreachable) {
+                return GatewayStatus("无法连接服务器", server.reason, Tone.WARNING,
+                    online = false, voiceReady = false, sims = emptyList())
+            }
             return GatewayStatus("尚未连接旧手机", "旧手机完成配对并上报后会显示在这里。", Tone.UNKNOWN,
                 online = false, voiceReady = false, sims = emptyList())
         }
@@ -63,6 +68,17 @@ object GatewayStatusPresenter {
         val online = isOnline(gateway, lastSeen, nowMillis)
         val name = gateway.deviceName.ifBlank { "旧手机" }
         val voiceReady = online && gateway.sipRegistered == true
+        if (!online && server !is ServerLink.Connected) {
+            // A stale snapshot only means this phone has not heard from the
+            // server lately, not that the old phone went away.
+            val seen = lastSeen?.let { "旧手机最后上报 ${relativeTime(it.toEpochMilli(), nowMillis, zone)}" }
+            val detail = when (server) {
+                is ServerLink.Unreachable -> listOfNotNull("${server.reason}，无法确认旧手机状态", seen)
+                else -> listOfNotNull("正在连接服务器…", seen)
+            }.joinToString(" · ")
+            return GatewayStatus("$name · 状态未知", detail, Tone.WARNING, online = false, voiceReady = false,
+                sims = sims.sortedBy { it.slotIndex }.map { simStatus(it, gatewayOnline = false) })
+        }
         val headline = if (online) "$name · 在线" else "$name · 离线"
         val detail = if (online) {
             listOfNotNull(

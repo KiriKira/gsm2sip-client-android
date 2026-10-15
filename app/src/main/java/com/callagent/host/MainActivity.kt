@@ -95,6 +95,7 @@ import com.google.android.material.snackbar.Snackbar
 import com.callagent.host.ui.AdaptiveLayoutDecision
 import com.callagent.host.ui.AdaptiveWindowLayoutPolicy
 import com.callagent.host.ui.FoldGeometry
+import com.callagent.host.ui.ServerLink
 import com.callagent.host.ui.HorizontalPaneSelection
 import com.callagent.host.ui.PairingOperationState
 import com.callagent.host.ui.PairingFormViewModel
@@ -142,6 +143,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var database: ClientDatabase
     private var session: HostSession? = null
     private var gateway: GatewaySnapshot? = null
+    /** Result of this screen's latest server sync; a stale gateway snapshot is only "offline" when Connected. */
+    private var serverLink: ServerLink = ServerLink.Checking
     private var pairedHosts: List<PairedHost> = emptyList()
     private var pairedHostsAvailable: Boolean? = null
     private var pairedHostsRefreshIssue: String? = null
@@ -719,7 +722,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Remote old-phone status: compact strip on home tabs, full card in settings. */
     private fun gatewayStatusCard(compact: Boolean): View {
-        val status = GatewayStatusPresenter.present(gateway, sims, System.currentTimeMillis())
+        val status = GatewayStatusPresenter.present(gateway, sims, System.currentTimeMillis(), server = serverLink)
         return GatewayStatusView(this, status, compact,
             onClick = if (compact) ({ navigate(navigation.selectTab(HostTab.SETTINGS)) }) else null).apply {
             id = R.id.gateway_status_card
@@ -1479,7 +1482,8 @@ class MainActivity : AppCompatActivity() {
             line = line,
             callServerAvailable = callServerAvailable,
             callServerReason = callServerReason,
-            localEngineAvailable = localSipEngineAvailable()
+            localEngineAvailable = localSipEngineAvailable(),
+            server = serverLink
         )
     }
 
@@ -2465,7 +2469,7 @@ class MainActivity : AppCompatActivity() {
                 val oldRevision = expectedDatabase.loadGateway()?.mappingRevision
                 val remoteGateways = api.listGateways()
                 val current = remoteGateways.firstOrNull()
-                    ?: throw IOException("此账户还没有配对旧手机网关")
+                    ?: throw NoPairedGateway()
                 val (_, remoteSims) = api.listSims(current.gatewayId)
                 val mappingChanged = oldRevision != null && oldRevision != current.mappingRevision
                 expectedDatabase.saveGateway(current)
@@ -2499,6 +2503,7 @@ class MainActivity : AppCompatActivity() {
                         return@post
                     }
                     session = sessionStore.read()
+                    serverLink = ServerLink.Connected
                     gateway = current
                     sims = remoteSims
                     if (remoteCallPage != null) {
@@ -2540,11 +2545,18 @@ class MainActivity : AppCompatActivity() {
                         session = null
                         switchDatabase(null)
                         showPairing("配对会话已过期或被撤销，请重新配对此手机。")
+                    } else if (failure is NoPairedGateway) {
+                        serverLink = ServerLink.Connected
+                        statusMessage = failure.message.orEmpty()
+                        refreshGatewayStatusCard()
+                        updateDialButtonState()
                     } else {
+                        serverLink = ServerLink.Unreachable(serverUnreachableReason(failure))
                         statusMessage = "$OFFLINE_STATUS_PREFIX，当前显示缓存的旧手机、SIM 和短信。${apiFailureText(failure)}"
                         // Cached data did not change; rebuilding the whole screen every
                         // failed 30 s sync would flicker and drop taps. Only re-age the status card.
                         refreshGatewayStatusCard()
+                        updateDialButtonState()
                     }
                 }
             }
@@ -2724,6 +2736,7 @@ class MainActivity : AppCompatActivity() {
         databaseScope = nextScope
         database = ClientDatabase(this, nextName, nextScope)
         database.markInterruptedSubmissionsUnknown()
+        serverLink = ServerLink.Checking
         gateway = database.loadGateway()
         sims = database.loadSims()
         loadPairedHostsFromCache()
@@ -2861,6 +2874,12 @@ class MainActivity : AppCompatActivity() {
         val safe = pairingFailureText(failure)
         statusMessage = safe
         showPairing(safe)
+    }
+
+    /** Short cause for the status card: the server answered with an error, or could not be reached at all. */
+    private fun serverUnreachableReason(failure: Exception): String = when (failure) {
+        is ApiFailure -> "服务器返回错误 ${failure.httpStatus}"
+        else -> "无法连接服务器"
     }
 
     private fun apiFailureText(failure: Exception): String = when (failure) {
@@ -3475,3 +3494,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun showToast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
 }
+
+/** The server answered, but this account has no paired old phone yet. */
+private class NoPairedGateway : IOException("此账户还没有配对旧手机网关")

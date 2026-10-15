@@ -41,6 +41,7 @@ import java.util.concurrent.atomic.AtomicReference
 /** Short-lived service owner for SIP signaling and call control. Idle SIP is never promoted to FGS. */
 class HostCallService : android.app.Service() {
     private val io: ExecutorService = Executors.newSingleThreadExecutor()
+    private val ringback = OutboundRingback()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val sessionStore by lazy { SessionStore(this) }
     private val credentialStore by lazy { SipCredentialStore(this) }
@@ -125,6 +126,7 @@ class HostCallService : android.app.Service() {
 
     override fun onDestroy() {
         destroying = true
+        ringback.stop()
         unregisterNetworkCallbackForDestroy()
         mainHandler.removeCallbacks(pollPendingCalls)
         inboundExpiryCallbacks.values.forEach(mainHandler::removeCallbacks)
@@ -585,6 +587,7 @@ class HostCallService : android.app.Service() {
         when (snapshot.state) {
             SipCallState.EARLY, SipCallState.RINGING -> {
                 if (current.direction == CallDirection.OUTGOING) {
+                    ringback.start(serverCallId)
                     CallRuntime.coordinator.outboundRinging(serverCallId)
                     CallRuntime.setStatus("等待远程 SIM 接听…", serverCallId)
                     CallNotificationManager.showConnecting(this, CallRuntime.snapshot(serverCallId) ?: return)
@@ -592,6 +595,7 @@ class HostCallService : android.app.Service() {
                 }
             }
             SipCallState.CONFIRMED -> {
+                ringback.stop(serverCallId)
                 if (CallRuntime.coordinator.connected(serverCallId)) {
                     CallTelecomController.setActive(serverCallId)
                     CallNotificationManager.showOngoing(this, CallRuntime.snapshot(serverCallId) ?: return)
@@ -720,6 +724,7 @@ class HostCallService : android.app.Service() {
         endNotice: String? = null,
         statusText: String? = null
     ) {
+        ringback.stop(callId)
         val current = CallRuntime.snapshot(callId) ?: return
         if (current.phase in setOf(CallPhase.ENDED, CallPhase.FAILED)) return
         networkRecoveryPolicy.invalidate()
