@@ -22,9 +22,18 @@ even if its input is true. Manual runs on any non-main ref, including tags, do
 not receive the release signing secrets; they run the debug assemble, unit
 tests and lint for build validation.
 
-The Android `versionCode` is `10000 + GITHUB_RUN_NUMBER` and must be within
-`1..2100000000`. The current app version code is 4. Retrying the same workflow
-run preserves its version code; a new workflow run receives a new run number.
+Every release uses the same Android `versionCode`, `1000000000`. Android
+refuses to install a lower `versionCode` over an installed app but accepts an
+equal one, so any release can be installed over any other: rolling back to an
+older release needs no uninstall and keeps the app's data. The fixed code is
+above every earlier per-run code (`10000 + GITHUB_RUN_NUMBER`), so the first
+release with it installs over those builds; builds made before this change
+cannot be rolled back to. Releases are told apart by `versionName` and tag.
+
+The local databases accept a downgrade (an older release keeps the newer
+schema), and their migrations are idempotent so a later upgrade can run them
+again. Keep new migrations that way, and only add columns or tables.
+
 The stable tag itself supplies `versionName` for a pushed version tag.
 
 ## Configure the permanent signing identity

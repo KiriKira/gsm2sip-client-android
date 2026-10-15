@@ -62,6 +62,9 @@ class SmsArchiveStore(context: Context) : SQLiteOpenHelper(
         }
     }
 
+    /** Releases share one versionCode; an older release keeps the newer archive schema. */
+    override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+
     /** Adds a live record at the explicit retention point chosen by the gateway. */
     fun put(record: SmsArchiveRecord): PutResult = operationLock.withLock {
         validateRecord(record)

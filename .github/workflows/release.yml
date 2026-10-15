@@ -59,7 +59,11 @@ jobs:
         run: |
           set -euo pipefail
           sha7="${GITHUB_SHA:0:7}"
-          version_code="$((10000 + GITHUB_RUN_NUMBER))"
+          # Every release shares one versionCode so any release can be installed over
+          # any other: Android refuses a lower versionCode but accepts an equal one,
+          # so users can roll back without uninstalling and keep their data. It sits
+          # above every earlier per-run code (10000 + run number).
+          version_code=1000000000
           if (( version_code < 1 || version_code > 2100000000 )); then
             echo "::error::Computed Android versionCode is outside the supported range 1..2100000000."
             exit 1
