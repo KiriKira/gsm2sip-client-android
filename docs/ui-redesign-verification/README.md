@@ -5,14 +5,14 @@
 ## 运行来源
 
 - 仓库：`KiriKira/gsm2sip-client-android`
-- 源提交：`4c82dcc06ad7a8b19fc64e37e18b326af2cb07d1`
-- GitHub Actions run：[38734858852](https://github.com/KiriKira/gsm2sip-client-android/actions/runs/38734858852)
-- artifact ID：`11973701799`
-- artifact digest：`sha256:df6f076240cea55b03c5b9c98a37c3966de13211e9f9760afb8bcefeba45a4ee`
-- APK：`app-debug.apk`，SHA-256 `dd6dbac4a6e2643337859786d24fa35df7d1234a7db38bc336b44573a31c88bf`，19681021 字节
-- artifact 内未配对 smoke：`pass`（2026-10-15T12:36:05.142240+00:00）
-- artifact 内配对 fixture：`pass`（2026-10-15T12:40:02.946085+00:00）
-- 报告生成时间：`2026-10-15T12:40:18Z`
+- 源提交：`e0531f704c3949ae471ced3d46c0cbd9b8681b53`
+- GitHub Actions run：[38744777415](https://github.com/KiriKira/gsm2sip-client-android/actions/runs/38744777415)
+- artifact ID：`11978876806`
+- artifact digest：`sha256:56446168dd187bd0859bf53fa396ae8038aeedf314d30c7cdf0d5ca83b0f7a78`
+- APK：`app-debug.apk`，SHA-256 `aac765452049e40da0efe3d03e5f2e63900720826d6600272f18b845850f7448`，19681021 字节
+- artifact 内未配对 smoke：`pass`（2026-10-15T13:48:44.645758+00:00）
+- artifact 内配对 fixture：`pass`（2026-10-15T13:52:22.706759+00:00）
+- 报告生成时间：`2026-10-15T13:52:35Z`
 
 ## 验证范围
 
@@ -26,43 +26,43 @@
 
 | 页面 | PNG | 尺寸 | 文件 SHA-256 |
 |---|---|---:|---|
-| 三标签导航 | [`images/host_navigation_initial.png`](images/host_navigation_initial.png) | 1768 × 2208 | `5618a9becf90ccbd7a2d1be3920a363137b59f0318617db329d3a2939c6213eb` |
-| 未配对电话记录页 | [`images/host_call_history.png`](images/host_call_history.png) | 1768 × 2208 | `89f02edee4fb20d3fe2bfaf1be1b126baa5ae6d9c48aaf4a793409e6eb95c837` |
-| 独立拨号键盘 | [`images/host_dialpad.png`](images/host_dialpad.png) | 1768 × 2208 | `1960cc1f6a70e90e23e36300b04f9283c00daa817b3d556b46632f4d5ccfe529` |
-| 短信会话列表 | [`images/host_sms_thread_list.png`](images/host_sms_thread_list.png) | 1768 × 2208 | `562671d3d20d37db6fb8008bc7163b47c78c65ae8a75d4cd584c3583198da912` |
-| 设置与配对表单 | [`images/host_settings_tab.png`](images/host_settings_tab.png) | 1768 × 2208 | `f4b4a7b5bc71eb18493a388ff3d41eaa7ae7708b23db267c217c2b3c1fbf5ed2` |
-| 设置中的短信备份入口 | [`images/host_settings_backup_entry.png`](images/host_settings_backup_entry.png) | 1768 × 2208 | `3ab96dd1edfebd929db763352e9046072558042a5e6544b7c3e543a52a64f356` |
-| 主界面合拢窗口 | [`images/folded_ui.png`](images/folded_ui.png) | 1768 × 2208 | `fb8de1155859b0923a632cd2935cf4477a47eeca6babd8ebfbc962452ab3e90b` |
-| 主界面展开窗口 | [`images/unfolded_ui.png`](images/unfolded_ui.png) | 1768 × 2208 | `8b57de28112d03159a60613a6b354231b4e6b59a6791c85198763861b27954c2` |
-| 显示挖孔时的主界面 | [`images/hole_cutout_enabled.png`](images/hole_cutout_enabled.png) | 1768 × 2208 | `20a84c09313cbb816ba4c2854a350ab39559ff31ffa21c09f31d1904a7b46227` |
-| 滚动后可见的备份入口 | [`images/main-backup-entry-host.png`](images/main-backup-entry-host.png) | 1768 × 2208 | `3321e46302982f735a4e6855ba33a179c10f7a63b8aa9d636ffc15cf38616110` |
-| 短信备份与归档页面 | [`images/backup-overview.png`](images/backup-overview.png) | 1768 × 2208 | `6a6e75041c2c61370f0a3889ea0459d12439a92dc1e72b117826abcc482d6fd9` |
-| 备份页面横屏 | [`images/backup-rotation-landscape.png`](images/backup-rotation-landscape.png) | 2208 × 1768 | `e840cb8355cead04746f1282d0a26eb08430a91004d93ad93d243696ce3d3688` |
-| 备份页面竖屏 | [`images/backup-rotation-portrait.png`](images/backup-rotation-portrait.png) | 1768 × 2208 | `f890b953336bf4ec95590e3ab3d51cbf07b03cdf3bab7dc062e3b88b530821d5` |
-| 备份页面合拢 | [`images/backup-folded.png`](images/backup-folded.png) | 1768 × 2208 | `a5f3812cb30d3023c4c72674feadb0bffb8115d60b0dcf12318d5418494c0f02` |
-| 备份页面展开 | [`images/backup-unfolded.png`](images/backup-unfolded.png) | 1768 × 2208 | `6df32c16b773a0675d557530a2768df8d9b6767cd624e5874693b98f1d5729bf` |
-| 挖孔安全区中的备份页面 | [`images/backup-cutout.png`](images/backup-cutout.png) | 1768 × 2208 | `6df32c16b773a0675d557530a2768df8d9b6767cd624e5874693b98f1d5729bf` |
-| 合成短信归档导入预览 | [`images/backup-import-preview.png`](images/backup-import-preview.png) | 1768 × 2208 | `c9283c1fe52277659a8d037f508d0141497079e2e4536cce469bab2e0aebceee` |
-| 导入后的归档历史 | [`images/backup-imported-history.png`](images/backup-imported-history.png) | 1768 × 2208 | `104b27a88c05d6a921e9007edce47388116f5b7111c536da008a150f8118cf31` |
-| 配对状态下的三标签 | [`images/paired-fixture/paired_three_tabs.png`](images/paired-fixture/paired_three_tabs.png) | 1768 × 2208 | `7307b651cf6e7d6f7b3dac85a755870ca465f9ffd2a8b4f016500771d6e244fc` |
-| 双 SIM 合成通话记录 | [`images/paired-fixture/paired_call_history.png`](images/paired-fixture/paired_call_history.png) | 1768 × 2208 | `d1c19c889df12c6476e14e3d6366be4981a09c17736590d132ee2e9771d21393` |
-| 从通话记录预填号码的拨号页 | [`images/paired-fixture/paired_dialpad_from_history.png`](images/paired-fixture/paired_dialpad_from_history.png) | 1768 × 2208 | `e57aed2aac02615a0e1dfbed51cb49c1a2bd62e7a87df3f9213889fe7039402d` |
-| 配对状态下的独立拨号键盘 | [`images/paired-fixture/paired_dialpad.png`](images/paired-fixture/paired_dialpad.png) | 1768 × 2208 | `e57aed2aac02615a0e1dfbed51cb49c1a2bd62e7a87df3f9213889fe7039402d` |
-| 三条合成短信会话 | [`images/paired-fixture/paired_sms_threads.png`](images/paired-fixture/paired_sms_threads.png) | 1768 × 2208 | `3af325bf81f12eabad30a76aaf82e5006ba080d295a6e91c109bd183d5bd86ed` |
-| 合拢窗口中的短信会话 | [`images/paired-fixture/paired_sms_threads_folded.png`](images/paired-fixture/paired_sms_threads_folded.png) | 1768 × 2208 | `da9186052753ccc0ba5f01c1f3157138ff31e17d30a264781794513ca0ac3ffb` |
-| 展开窗口中的短信会话 | [`images/paired-fixture/paired_sms_threads_unfolded.png`](images/paired-fixture/paired_sms_threads_unfolded.png) | 1768 × 2208 | `3af325bf81f12eabad30a76aaf82e5006ba080d295a6e91c109bd183d5bd86ed` |
-| 既有短信对话与回复框 | [`images/paired-fixture/paired_sms_conversation.png`](images/paired-fixture/paired_sms_conversation.png) | 1768 × 2208 | `7667ffc52730fa312fd87280faa726430ff84b512fc7fe6e796e3f8f98d5731b` |
-| 新短信编辑页 | [`images/paired-fixture/paired_new_message.png`](images/paired-fixture/paired_new_message.png) | 1768 × 2208 | `cd58cb107bb491a80aaf2635314f7bbdf068f192268ce6fb6220a1dd6fb527ab` |
-| 选择 SIM 2 的新短信页 | [`images/paired-fixture/paired_new_message_sim_b.png`](images/paired-fixture/paired_new_message_sim_b.png) | 1768 × 2208 | `fe71b6f14a657a90b2a0c28d79ae1713c771dda4a79c29046d1ba82f6d6d291e` |
-| 横屏且键盘显示时的短信草稿 | [`images/paired-fixture/paired_new_message_landscape.png`](images/paired-fixture/paired_new_message_landscape.png) | 2208 × 1768 | `6a545388134313bb59fc256d5b6d7c5abcddef9076854f56d5c6bea151561a49` |
-| 合拢窗口中的短信草稿 | [`images/paired-fixture/paired_new_message_folded.png`](images/paired-fixture/paired_new_message_folded.png) | 1768 × 2208 | `0f73e51f0ad4e068f386bb511872331ad50f939b33d1c8782381ce0bd114c2bc` |
-| 展开窗口中的短信草稿 | [`images/paired-fixture/paired_new_message_unfolded.png`](images/paired-fixture/paired_new_message_unfolded.png) | 1768 × 2208 | `637f51f0b69ebe2edc380fe2b79a35521c8c0d2a4b267a5ecc9ad38706a072ad` |
-| 配对状态下的设置 | [`images/paired-fixture/paired_settings.png`](images/paired-fixture/paired_settings.png) | 1768 × 2208 | `f8b0e1fa514b18252164c152fa16a28b782251d8113446c9502b893ae8a08fa5` |
-| 配对设置中的短信备份入口 | [`images/paired-fixture/paired_settings_backup.png`](images/paired-fixture/paired_settings_backup.png) | 1768 × 2208 | `4a8876d13689958e92a7b826c78a325a1f15060990c65753e14e0a4862c78fea` |
-| 合成出站呼叫准备界面 | [`images/paired-fixture/call-synthetic-dialing.png`](images/paired-fixture/call-synthetic-dialing.png) | 1768 × 2208 | `283470c4a3a9599f08fab16f82b9c2732254eb1acddc1af75ab06e58078f71cf` |
-| 合成通话中界面 | [`images/paired-fixture/call-synthetic-active.png`](images/paired-fixture/call-synthetic-active.png) | 1768 × 2208 | `ed3efd1cd9bc17fb9a3d17137d9f9d78c8d85f0c16546a135a4d0db2614fcae6` |
-| 合成通话键盘界面 | [`images/paired-fixture/call-synthetic-keypad.png`](images/paired-fixture/call-synthetic-keypad.png) | 1768 × 2208 | `76e8f4d436d928cdc9b7c5bf9fa26a36aea8aef919dc8e3c3f84147edb6c85ba` |
-| 合成来电界面 | [`images/paired-fixture/call-synthetic-incoming.png`](images/paired-fixture/call-synthetic-incoming.png) | 1768 × 2208 | `fb07e6e0051340a7825cf54c540cd61f23a737febeddd2f1959162ec610cfff5` |
+| 三标签导航 | [`images/host_navigation_initial.png`](images/host_navigation_initial.png) | 1768 × 2208 | `fadaa4aaefff7522ecc4396d1ab040693a6e3da3ea9c62eb826b80ccc696d014` |
+| 未配对电话记录页 | [`images/host_call_history.png`](images/host_call_history.png) | 1768 × 2208 | `08b829c8ced40c2d3b2061beb32521bfb314fadc00780a0d0af56ee55dddd468` |
+| 独立拨号键盘 | [`images/host_dialpad.png`](images/host_dialpad.png) | 1768 × 2208 | `49e84aaa544dec62c6a9b3ef41986c6d84443e08b63bb83a6a0be964c04b7f58` |
+| 短信会话列表 | [`images/host_sms_thread_list.png`](images/host_sms_thread_list.png) | 1768 × 2208 | `d8c1bc9b4bec3ca790626a47059ee8fa7da9badf1eb380add11db455e5ef649a` |
+| 设置与配对表单 | [`images/host_settings_tab.png`](images/host_settings_tab.png) | 1768 × 2208 | `5987c11c96afd8894258a6458d8244d03f334c6371e089171782c803325629c4` |
+| 设置中的短信备份入口 | [`images/host_settings_backup_entry.png`](images/host_settings_backup_entry.png) | 1768 × 2208 | `41796579c0623da3baae0d2607910a95234027b4337f9eb89ab4be8d0a5ec5a1` |
+| 主界面合拢窗口 | [`images/folded_ui.png`](images/folded_ui.png) | 1768 × 2208 | `0e1e654aa61bc6f7df0565f87bfae70561addd99796ce695a6c2f2965e09293f` |
+| 主界面展开窗口 | [`images/unfolded_ui.png`](images/unfolded_ui.png) | 1768 × 2208 | `fed7fc22cce0d5b6f0e7f162bdb8fbcb3cd4287c9821132459d313f87fe6cc11` |
+| 显示挖孔时的主界面 | [`images/hole_cutout_enabled.png`](images/hole_cutout_enabled.png) | 1768 × 2208 | `725c539b902442b65810ac43daf523901d9cf92f32bf4829f6f884e50def5533` |
+| 滚动后可见的备份入口 | [`images/main-backup-entry-host.png`](images/main-backup-entry-host.png) | 1768 × 2208 | `f4e0f668feaa6e88128caf038f32bdb74aca1f077bc1154d0953104ef0090128` |
+| 短信备份与归档页面 | [`images/backup-overview.png`](images/backup-overview.png) | 1768 × 2208 | `ec9b5c19b447ff2e6528e83d0459f59937e9c9a18e8839eef9327367a1ab2527` |
+| 备份页面横屏 | [`images/backup-rotation-landscape.png`](images/backup-rotation-landscape.png) | 2208 × 1768 | `a6fed1e335559db01d90398e8b87416eef669a749a712e36ba09bd9c862c0d2a` |
+| 备份页面竖屏 | [`images/backup-rotation-portrait.png`](images/backup-rotation-portrait.png) | 1768 × 2208 | `8f38768056e6bc9ccbd42410e79a7acdc1be5c72072e8b490a2c94a66132bd02` |
+| 备份页面合拢 | [`images/backup-folded.png`](images/backup-folded.png) | 1768 × 2208 | `5b345674da34723843de7e91a8ee6da732b765f9ef51df491738867a3cfb56f0` |
+| 备份页面展开 | [`images/backup-unfolded.png`](images/backup-unfolded.png) | 1768 × 2208 | `a31efa7e6656d8d095b41ae41561d3dcabaece1a51c4a3ab6d326295cb4d0ddd` |
+| 挖孔安全区中的备份页面 | [`images/backup-cutout.png`](images/backup-cutout.png) | 1768 × 2208 | `a31efa7e6656d8d095b41ae41561d3dcabaece1a51c4a3ab6d326295cb4d0ddd` |
+| 合成短信归档导入预览 | [`images/backup-import-preview.png`](images/backup-import-preview.png) | 1768 × 2208 | `ab95b1ae369d0c17a8ed97e8d2a39db75d0f447bac2062a8cc71a23b08bed1a4` |
+| 导入后的归档历史 | [`images/backup-imported-history.png`](images/backup-imported-history.png) | 1768 × 2208 | `e8ee1f97c8e7f5cd44de2850721c22ebbd5f0b17b173dc08d9fef42bb1897b97` |
+| 配对状态下的三标签 | [`images/paired-fixture/paired_three_tabs.png`](images/paired-fixture/paired_three_tabs.png) | 1768 × 2208 | `ed537a1e0b1ac16f38d6e51f04be36ea7d2e1a4c3b98b0b543d21b08710d0392` |
+| 双 SIM 合成通话记录 | [`images/paired-fixture/paired_call_history.png`](images/paired-fixture/paired_call_history.png) | 1768 × 2208 | `b0e0e247429278b22034d12a88800c5d4cb34b604a16ad811e364341e54b154a` |
+| 从通话记录预填号码的拨号页 | [`images/paired-fixture/paired_dialpad_from_history.png`](images/paired-fixture/paired_dialpad_from_history.png) | 1768 × 2208 | `5faf3ab4748df706d1796249e345c1976c9181e342ae38e4aab2605fdf6cfad0` |
+| 配对状态下的独立拨号键盘 | [`images/paired-fixture/paired_dialpad.png`](images/paired-fixture/paired_dialpad.png) | 1768 × 2208 | `5faf3ab4748df706d1796249e345c1976c9181e342ae38e4aab2605fdf6cfad0` |
+| 三条合成短信会话 | [`images/paired-fixture/paired_sms_threads.png`](images/paired-fixture/paired_sms_threads.png) | 1768 × 2208 | `90b6526e4c61d3ca17059a76d1d540ac2c70000a6d7ff479fd08fac72222d802` |
+| 合拢窗口中的短信会话 | [`images/paired-fixture/paired_sms_threads_folded.png`](images/paired-fixture/paired_sms_threads_folded.png) | 1768 × 2208 | `5feda1db8467efe2b08b3b1d0cacd871a5d32dae5ed0d99968d83c69f5ddeeaa` |
+| 展开窗口中的短信会话 | [`images/paired-fixture/paired_sms_threads_unfolded.png`](images/paired-fixture/paired_sms_threads_unfolded.png) | 1768 × 2208 | `62c9c9dda36cc5a1932549ac698c6833c66c1b535388ace2bfc9b15a08e63b34` |
+| 既有短信对话与回复框 | [`images/paired-fixture/paired_sms_conversation.png`](images/paired-fixture/paired_sms_conversation.png) | 1768 × 2208 | `1a7da2c7c988c53baf3de53039ee4b831a02b8e796c7a9859e5100dcc1a0463a` |
+| 新短信编辑页 | [`images/paired-fixture/paired_new_message.png`](images/paired-fixture/paired_new_message.png) | 1768 × 2208 | `93cfbe507ff638e8fe43ecba80f3e05c64fb194c9b26835821ee6bfd6b6a362a` |
+| 选择 SIM 2 的新短信页 | [`images/paired-fixture/paired_new_message_sim_b.png`](images/paired-fixture/paired_new_message_sim_b.png) | 1768 × 2208 | `f91f3295fb519743d61bdab9b05f370d332982d047519a47aaf359b7ca0338a0` |
+| 横屏且键盘显示时的短信草稿 | [`images/paired-fixture/paired_new_message_landscape.png`](images/paired-fixture/paired_new_message_landscape.png) | 2208 × 1768 | `ee08b7463ade4215ceb02a3a7f2aee0f4847bce115dcfd00b1e9c484f2a37057` |
+| 合拢窗口中的短信草稿 | [`images/paired-fixture/paired_new_message_folded.png`](images/paired-fixture/paired_new_message_folded.png) | 1768 × 2208 | `b73a76b92d43d45eda8b8bdad76f6d6c3ee8dc61ff8af788cac3d1cfc6de68b2` |
+| 展开窗口中的短信草稿 | [`images/paired-fixture/paired_new_message_unfolded.png`](images/paired-fixture/paired_new_message_unfolded.png) | 1768 × 2208 | `828d8ac2e7fb5d24bfa1facf13caee7af55d12307d704c295ac899d7e3683a3b` |
+| 配对状态下的设置 | [`images/paired-fixture/paired_settings.png`](images/paired-fixture/paired_settings.png) | 1768 × 2208 | `4a38c25b3b3054ef3885bd636a6ccab836472e656cd4d9ecaa350a8ec48a745f` |
+| 配对设置中的短信备份入口 | [`images/paired-fixture/paired_settings_backup.png`](images/paired-fixture/paired_settings_backup.png) | 1768 × 2208 | `d830e8aa3cea11b2f61e4bc1b1ce6013fbd9af5c6991022028e31365c992335a` |
+| 合成出站呼叫准备界面 | [`images/paired-fixture/call-synthetic-dialing.png`](images/paired-fixture/call-synthetic-dialing.png) | 1768 × 2208 | `b322475770e5e28ff3876d3f769984216790605d69c3698fa4bf71c5cc3df065` |
+| 合成通话中界面 | [`images/paired-fixture/call-synthetic-active.png`](images/paired-fixture/call-synthetic-active.png) | 1768 × 2208 | `ce58db9d999eb680043ff6134b40cde2480b4a08a675af5a4c83fbaf4e93708b` |
+| 合成通话键盘界面 | [`images/paired-fixture/call-synthetic-keypad.png`](images/paired-fixture/call-synthetic-keypad.png) | 1768 × 2208 | `c45a22e901d111ace2288931999c1979da84c7b7624d61a163c2cdc758c527cc` |
+| 合成来电界面 | [`images/paired-fixture/call-synthetic-incoming.png`](images/paired-fixture/call-synthetic-incoming.png) | 1768 × 2208 | `dee357ce8aca1ecde8ba549c5e5892f0fe1c8a5bfabf616e02b612efcc4bdd4f` |
 
 ## 截图
 
@@ -234,9 +234,9 @@
 
 | artifact 文件 | SHA-256 |
 |---|---|
-| `results.json` | `37fb99142098ca4d1a0ec9969bc33df0e3d94508f75a042ff26837d4f0bec3ec` |
-| `screenshot_manifest.json` | `2de7af079561926115da326d1bc686bd8087682a0061f6ab40f75e99bd18b1c0` |
-| `paired-fixture/results.json` | `ffd2cabdfb288c11aba7dbcf19cfa1a39e7fbd4dd5555d68eb3e017a78c8d869` |
-| `paired-fixture/fixture_manifest.json` | `8f4a61ce795146eba2a72f6136a5eb9411ca9ca75691d71ba307fbc612e1f505` |
+| `results.json` | `3a52746f64c24f83b6e863f3f6e27b0071702425c61d80b5773047c131a675ad` |
+| `screenshot_manifest.json` | `e2182e2ba74f2854a716195eaf3a8d075b98e1474471a088fbd01c5e3cf0e771` |
+| `paired-fixture/results.json` | `aad4555548ae9454952742e52a225ee5fff08ae00ded6492386e14b71caad635` |
+| `paired-fixture/fixture_manifest.json` | `6078bdd1b2a7ddb2337f92f097e0268a78719526f5f5723a4477876078f1cd45` |
 
 初始评审材料保留在 `images-initial/`、`initial-evidence.json`、`initial-ui-results.json` 和 `local-checks.json`；它们与本次通过的 KVM 截图分开保存。机器可读运行信息见 [`verified-run.json`](verified-run.json)。
