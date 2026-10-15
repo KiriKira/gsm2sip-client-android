@@ -32,6 +32,7 @@ import org.pjsip.pjsua2.pjsip_inv_state
 import org.pjsip.pjsua2.pjsip_status_code
 import org.pjsip.pjsua2.pjsip_transport_type_e
 import org.pjsip.pjsua2.pjsua_call_media_status
+import org.pjsip.pjsua2.pjsua_snd_dev_id
 import java.security.KeyStore
 import java.security.cert.X509Certificate
 import java.util.UUID
@@ -400,6 +401,11 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
         }
         result.mediaConfig = media
 
+        // PJSUA picks the SDP address from the default route, which a VPN or tethering interface
+        // can own (seen: 172.19.0.1) even when SIP itself leaves over Wi-Fi. Advertise the address
+        // the registrar saw instead, so the server can send media back before it latches on.
+        result.natConfig.sdpNatRewriteUse = 1
+
         result.ipChangeConfig.hangupCalls = false
         result.ipChangeConfig.shutdownTp = true
         return result
@@ -418,7 +424,12 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
 
     private fun openAudioDevice() {
         if (audioDeviceOpened) return
-        requireEndpoint().audDevManager().setSndDevMode(0L)
+        // After setNullDev() PJSUA's selected devices are the null device, so re-applying the
+        // current selection (setSndDevMode) keeps it: no microphone, no speaker. Select the
+        // default devices explicitly; setCaptureDev also moves playback off the null device.
+        val audio = requireEndpoint().audDevManager()
+        audio.setCaptureDev(pjsua_snd_dev_id.PJSUA_SND_DEFAULT_CAPTURE_DEV)
+        audio.setPlaybackDev(pjsua_snd_dev_id.PJSUA_SND_DEFAULT_PLAYBACK_DEV)
         audioDeviceOpened = true
     }
 
