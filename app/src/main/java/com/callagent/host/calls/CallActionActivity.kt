@@ -30,9 +30,6 @@ import androidx.window.layout.WindowInfoTracker
 import androidx.window.layout.WindowLayoutInfo
 import com.callagent.host.R
 import com.callagent.host.contacts.HostContactsRepository
-import com.callagent.host.data.ClientDatabase
-import com.callagent.host.data.SessionStore
-import com.callagent.host.data.databaseName
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
@@ -293,15 +290,7 @@ class CallActionActivity : AppCompatActivity() {
         scroll.post { scroll.scrollTo(0, previousScrollY) }
     }
 
-    private fun simLabel(simId: String?): String {
-        if (simId == null) return ""
-        return runCatching {
-            val session = SessionStore(this).read() ?: return@runCatching "远程 SIM"
-            ClientDatabase(this, session.databaseName()).use { db ->
-                db.loadSims().firstOrNull { it.simId == simId }?.let { "SIM${it.slotIndex + 1}${it.phoneNumber?.let { number -> " · $number" }.orEmpty()}" } ?: "远程 SIM"
-            }
-        }.getOrDefault("远程 SIM")
-    }
+    private fun simLabel(simId: String?): String = SimLabels.describe(this, simId)
 
     private fun loadContactName(number: String?) {
         if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
