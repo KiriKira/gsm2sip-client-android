@@ -12,6 +12,8 @@ import androidx.core.content.ContextCompat
 
 /** Exists only while a Telecom call is dialing, ringing or active. */
 class CallForegroundService : Service() {
+    private var inForeground = false
+
     override fun onCreate() {
         super.onCreate()
         CallNotificationManager.prepare(this)
@@ -22,12 +24,12 @@ class CallForegroundService : Service() {
         val withMicrophone = intent?.getBooleanExtra(EXTRA_MICROPHONE, false) == true
         val call = callId?.let(CallRuntime::snapshot)
         if (call == null || call.phase in setOf(CallPhase.DISCONNECTING, CallPhase.ENDED, CallPhase.FAILED)) {
-            stopSelf(startId)
+            stopUnstarted(startId)
             return START_NOT_STICKY
         }
         if (withMicrophone && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            stopUnstarted(startId)
             callId?.let { CallRuntime.onForegroundStartFailed(it, withMicrophone) }
-            stopSelf(startId)
             return START_NOT_STICKY
         }
         try {
@@ -44,17 +46,38 @@ class CallForegroundService : Service() {
                 @Suppress("DEPRECATION")
                 startForeground(CallNotificationManager.NOTIFICATION_ID, notification)
             }
+            inForeground = true
             CallRuntime.onForegroundReady(call.callId, withMicrophone)
-        } catch (_: SecurityException) {
-            CallRuntime.onForegroundStartFailed(call.callId, withMicrophone)
-            stopSelf(startId)
-            return START_NOT_STICKY
         } catch (_: RuntimeException) {
+            // SecurityException included: Android refused this foreground type now.
+            stopUnstarted(startId)
             CallRuntime.onForegroundStartFailed(call.callId, withMicrophone)
-            stopSelf(startId)
             return START_NOT_STICKY
         }
         return START_NOT_STICKY
+    }
+
+    /**
+     * Stops after a start command that cannot be honoured. Every
+     * startForegroundService() must still be answered with startForeground(),
+     * even right before stopping: otherwise Android kills the whole app with
+     * "Context.startForegroundService() did not then call Service.startForeground()".
+     */
+    private fun stopUnstarted(startId: Int) {
+        if (!inForeground) {
+            runCatching {
+                val placeholder = CallNotificationManager.placeholderNotification(this)
+                when {
+                    Build.VERSION.SDK_INT >= 34 -> startForeground(PLACEHOLDER_NOTIFICATION_ID, placeholder,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SHORT_SERVICE)
+                    Build.VERSION.SDK_INT >= 29 -> startForeground(PLACEHOLDER_NOTIFICATION_ID, placeholder,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL)
+                    else -> startForeground(PLACEHOLDER_NOTIFICATION_ID, placeholder)
+                }
+            }
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        }
+        stopSelf(startId)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -68,6 +91,7 @@ class CallForegroundService : Service() {
     }
 
     companion object {
+        private const val PLACEHOLDER_NOTIFICATION_ID = CallNotificationManager.NOTIFICATION_ID + 1
         private const val ACTION_START = "com.callagent.host.calls.START_FGS"
         private const val ACTION_STOP = "com.callagent.host.calls.STOP_FGS"
         private const val EXTRA_CALL_ID = CallActionActivity.EXTRA_CALL_ID
