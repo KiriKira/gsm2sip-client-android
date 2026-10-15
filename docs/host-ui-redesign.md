@@ -2,6 +2,20 @@
 
 The host app has three primary destinations: **电话**, **短信**, and **设置**. Dialing and SMS conversations open as separate pages. The layout keeps the same navigation model on compact and foldable windows, with system bars, the display cutout, the keyboard, and the hinge accounted for during resize and rotation.
 
+## Visual style
+
+The screens follow the Google Phone and Google Messages apps (Material 3 Expressive, dynamic color on Android 12+):
+
+- Phone and Messages open with a full-width search pill; the old-phone status sits below it as a tonal card.
+- Lists are stacks of rounded tiles: large corners at the ends of a group, small corners and 2 dp gaps between items. Call history is grouped into 今天 / 昨天 / 更早, with a direction arrow (incoming, outgoing, missed in red), SIM and time; the trailing phone button redials on the same SIM when calling is ready, otherwise it opens the dial pad.
+- People get a colored circle with the first letter of the contact name, or a person icon for bare numbers.
+- The dial pad shows a large centered number above pill-shaped tonal keys, SIM chips, a green call button and a backspace in the "#" column (long-press clears).
+- Conversations use chat bubbles (incoming left in a neutral tone, sent right in the primary color) with day separators, and a composer row of SIM button, pill text box and round send button.
+- Settings is a list of grouped tiles with icons, including the 自动复制验证码 switch.
+- The in-call screen has a large avatar, round 静音 / 键盘 / 音频 toggles, a red hang-up pill, and round 拒接 / 接听 buttons for incoming calls.
+
+Buttons that became icons keep their former label as the accessibility description (返回, 发送, 挂断, 接听, 拒接, 键盘), so the smoke anchors still find them by text.
+
 ## Screen map
 
 | Screen | Main content | Smoke anchors |

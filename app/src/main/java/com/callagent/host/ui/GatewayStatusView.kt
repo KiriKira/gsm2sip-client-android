@@ -28,11 +28,12 @@ class GatewayStatusView(
     onClick: (() -> Unit)? = null
 ) : MaterialCardView(context) {
     init {
-        radius = dp(20).toFloat()
+        radius = dp(if (compact) 20 else 24).toFloat()
         cardElevation = 0f
-        strokeWidth = dp(1)
+        // Only a problem gets an outline; otherwise the card is a quiet tonal tile.
+        strokeWidth = if (status.tone == Tone.ERROR) dp(1) else 0
         setStrokeColor(android.content.res.ColorStateList.valueOf(color(toneOutline(status.tone))))
-        setCardBackgroundColor(color(MaterialR.attr.colorSurfaceContainerLow))
+        setCardBackgroundColor(color(MaterialR.attr.colorSurfaceContainer))
         contentDescription = status.accessibilitySummary
         if (onClick != null) {
             isClickable = true

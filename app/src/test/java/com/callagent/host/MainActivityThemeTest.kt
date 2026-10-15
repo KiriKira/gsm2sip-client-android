@@ -311,9 +311,10 @@ class MainActivityThemeTest {
         if (activity.findViewById<View>(R.id.main_bottom_navigation)?.let { (it as BottomNavigationView).selectedItemId } != R.id.tab_settings) {
             selectTab(activity, R.id.tab_settings)
         }
-        val entry = activity.findViewById<MaterialButton>(R.id.sms_backup_archive_entry)
-        assertEquals("短信备份与归档", entry.text.toString())
-        assertTrue("archive entry must remain reachable on paired and unpaired screens", entry.isEnabled)
+        val entry = activity.findViewById<View>(R.id.sms_backup_archive_entry)
+        assertTrue(descendants(entry).filterIsInstance<android.widget.TextView>().any { it.text.toString() == "短信备份与归档" })
+        assertTrue("archive entry must remain reachable on paired and unpaired screens", entry.isEnabled && entry.isClickable)
+        assertTrue(activity.findViewById<View>(R.id.settings_auto_copy_codes) != null)
         assertTrue(activity.findViewById<View>(R.id.settings_notifications) != null)
         assertTrue(activity.findViewById<View>(R.id.settings_battery) != null)
         assertTrue(activity.findViewById<View>(R.id.settings_contacts) != null)

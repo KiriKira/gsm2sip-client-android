@@ -63,9 +63,26 @@ class ClientDatabase @JvmOverloads constructor(
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // Migrations must stay idempotent: after a rollback to an older release and
+        // a later upgrade, they run again over a schema that already has them.
         // Version 2 caches the gateway's per-SIM radio telemetry for offline display.
-        if (oldVersion < 2) db.execSQL("ALTER TABLE sim_lines ADD COLUMN radio_json TEXT")
+        if (oldVersion < 2 && !hasColumn(db, "sim_lines", "radio_json")) {
+            db.execSQL("ALTER TABLE sim_lines ADD COLUMN radio_json TEXT")
+        }
     }
+
+    /**
+     * Releases share one versionCode, so an older release can be installed over a
+     * newer one. Keep the newer schema (it only adds columns) instead of
+     * Android's default of refusing to open the database.
+     */
+    override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+
+    private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean =
+        db.rawQuery("PRAGMA table_info($table)", null).use { cursor ->
+            val name = cursor.getColumnIndex("name")
+            generateSequence { if (cursor.moveToNext()) cursor.getString(name) else null }.any { it == column }
+        }
 
     /**
      * Gateway and SIM rows carry node-local IDs and revisions. They are only
@@ -530,6 +547,20 @@ class ClientDatabase @JvmOverloads constructor(
             put("key", "background_sms_pending_alerts")
             put("value", "[]")
         }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    /** Cached messages with these server IDs, for showing inbound SMS in notifications. */
+    @Synchronized
+    fun loadMessagesByServerIds(ids: List<String>): List<SmsRecord> {
+        if (ids.isEmpty()) return emptyList()
+        val found = ArrayList<SmsRecord>()
+        ids.distinct().chunked(500).forEach { chunk ->
+            val marks = chunk.joinToString(",") { "?" }
+            readableDatabase.query(
+                "messages", null, "server_id IN ($marks)", chunk.toTypedArray(), null, null, null
+            ).use { cursor -> while (cursor.moveToNext()) found += cursor.toSmsRecord() }
+        }
+        return found
     }
 
     @Synchronized

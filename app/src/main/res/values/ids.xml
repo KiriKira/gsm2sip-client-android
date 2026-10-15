@@ -62,4 +62,5 @@
     <item name="settings_node_list" type="id" />
     <item name="settings_nodes_probe" type="id" />
     <item name="settings_nodes_add" type="id" />
+    <item name="settings_auto_copy_codes" type="id" />
 </resources>
