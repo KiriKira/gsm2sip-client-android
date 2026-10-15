@@ -59,11 +59,29 @@ class HostContactsRepository private constructor(
         }
     }
 
-    private companion object {
+    companion object {
+        /**
+         * Synchronous single-number lookup for notifications. Returns null
+         * without Contacts permission or when the number is unknown.
+         */
+        fun lookupName(context: Context, number: String?): String? {
+            if (number.isNullOrBlank() || number.none(Char::isDigit)) return null
+            val app = context.applicationContext
+            if (app.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) return null
+            return runCatching {
+                val uri = android.net.Uri.withAppendedPath(
+                    ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                    android.net.Uri.encode(number)
+                )
+                app.contentResolver.query(uri, arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME), null, null, null)
+                    ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0)?.trim()?.takeIf(String::isNotBlank) else null }
+            }.getOrNull()
+        }
+
         private val sharedWorker = Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "host-local-contacts").apply { isDaemon = true }
         }
-        private val mainThread = Executor { command -> Handler(Looper.getMainLooper()).post(command) }
+        private val mainThread: Executor = Executor { command -> Handler(Looper.getMainLooper()).post(command) }
 
         private fun queryProvider(context: Context, query: String?): List<ContactEntry> {
             val columns = arrayOf(

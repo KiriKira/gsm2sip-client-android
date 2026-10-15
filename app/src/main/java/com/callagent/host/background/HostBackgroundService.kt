@@ -1,7 +1,6 @@
 package com.callagent.host.background
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -26,6 +25,9 @@ import com.callagent.host.data.databaseName
 import com.callagent.host.data.sameProfile
 import com.callagent.host.data.sameSessionInstance
 import com.callagent.host.calls.CallRuntime
+import com.callagent.host.calls.SimLabels
+import com.callagent.host.notify.HostNotificationChannels
+import com.callagent.host.notify.InboundSmsNotifications
 import com.callagent.host.mesh.NodeMonitor
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -501,19 +503,7 @@ class HostBackgroundService : Service() {
     }
 
     private fun createNotificationChannels() {
-        if (Build.VERSION.SDK_INT < 26) return
-        notificationManager.createNotificationChannel(
-            NotificationChannel(CHANNEL_SERVICE, "Background server sync", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "Shows when secure server synchronization is active."
-                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-            }
-        )
-        notificationManager.createNotificationChannel(
-            NotificationChannel(CHANNEL_INBOUND, "Inbound SMS alerts", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Generic alerts when new inbound SMS records arrive."
-                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-            }
-        )
+        HostNotificationChannels.ensure(this)
     }
 
     private fun foregroundNotification(): Notification {
@@ -524,15 +514,16 @@ class HostBackgroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return notificationBuilder(CHANNEL_SERVICE)
-            .setSmallIcon(R.drawable.host_icon)
-            .setContentTitle("GSM2SIP background sync")
-            .setContentText("Secure server sync is active")
+            .setSmallIcon(R.drawable.ic_stat_host)
+            .setContentTitle("短信同步运行中")
+            .setContentText("正在通过服务器接收远程 SIM 的短信")
             .setContentIntent(openAppPendingIntent())
             .setCategory(Notification.CATEGORY_SERVICE)
-            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setVisibility(Notification.VISIBILITY_SECRET)
+            .setShowWhen(false)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .addAction(0, "Stop", stopIntent)
+            .addAction(0, "停止", stopIntent)
             .build()
     }
 
@@ -614,26 +605,31 @@ class HostBackgroundService : Service() {
                     scheduleFlushLocked(FALLBACK_SYNC_MS)
                     return
                 }
-                val summary = notificationBuilder(CHANNEL_INBOUND)
-                    .setSmallIcon(R.drawable.host_icon)
-                    .setContentTitle("New SMS received")
-                    .setContentText(if (pending.size == 1) "Open the app to view the message." else "${pending.size} new messages are available.")
-                    .setContentIntent(openAppPendingIntent(openSms = true))
-                    .setVisibility(Notification.VISIBILITY_PRIVATE)
-                    .setPublicVersion(notificationBuilder(CHANNEL_INBOUND)
-                        .setSmallIcon(R.drawable.host_icon)
-                        .setContentTitle("New SMS")
-                        .setContentText("Open the app to view.")
-                        .setVisibility(Notification.VISIBILITY_PUBLIC)
-                    .build())
-                    .setAutoCancel(true)
-                    .setOnlyAlertOnce(pending == lastUnacknowledgedPostIds)
-                    .build()
+                val stamp = sessionStamp(boundSession)
+                val records = runCatching {
+                    ClientDatabase(context, databaseName).use { it.loadMessagesByServerIds(pending) }
+                }.getOrDefault(emptyList()).filter { it.direction == "inbound" }
+                val posts = runCatching {
+                    InboundSmsNotifications.compose(context, stamp, INBOUND_NOTIFICATION_ID, records) { simId ->
+                        SimLabels.describe(context, simId)
+                    }
+                }.getOrDefault(emptyList()).ifEmpty {
+                    // The cache could not supply the messages: fall back to a count-only alert.
+                    listOf(InboundSmsNotifications.Post(INBOUND_NOTIFICATION_ID, notificationBuilder(CHANNEL_INBOUND)
+                        .setSmallIcon(R.drawable.ic_stat_sms)
+                        .setContentTitle("新短信")
+                        .setContentText(if (pending.size == 1) "打开应用查看短信。" else "收到 ${pending.size} 条新短信。")
+                        .setContentIntent(openAppPendingIntent(openSms = true))
+                        .setVisibility(Notification.VISIBILITY_PRIVATE)
+                        .setAutoCancel(true)
+                        .setOnlyAlertOnce(pending == lastUnacknowledgedPostIds)
+                        .build()))
+                }
                 val oldPending = pending
                 val oldNotified = readIds(NOTIFIED_IDS)
                 val oldPostedAt = preferences.getLong(LAST_POSTED_AT, 0L)
                 val result = InboundNotificationDelivery.postThenAcknowledge(
-                    post = { manager.notify(sessionStamp(boundSession), INBOUND_NOTIFICATION_ID, summary) },
+                    post = { posts.forEach { manager.notify(stamp, it.id, it.notification) } },
                     acknowledge = {
                         val recentlyNotified = (oldNotified + pending).distinct().takeLast(MAX_SEEN_NOTIFICATION_IDS)
                         val persisted = preferences.edit()
@@ -647,6 +643,9 @@ class HostBackgroundService : Service() {
                         restorePreferenceSnapshot(oldPending, oldNotified, oldPostedAt)
                     }
                 )
+                if (result != InboundNotificationDelivery.Result.POST_FAILED) {
+                    runCatching { InboundSmsNotifications.autoCopy(context, records) }
+                }
                 when (result) {
                     InboundNotificationDelivery.Result.ACKNOWLEDGED -> lastUnacknowledgedPostIds = emptyList()
                     InboundNotificationDelivery.Result.POST_FAILED -> {
@@ -700,8 +699,8 @@ class HostBackgroundService : Service() {
         private const val STOP_PENDING_INTENT = 7103
         private const val OPEN_APP_PENDING_INTENT = 7104
         private const val OPEN_SMS_PENDING_INTENT = 7105
-        internal const val CHANNEL_SERVICE = "host-background-service"
-        internal const val CHANNEL_INBOUND = "host-inbound-sms"
+        internal const val CHANNEL_SERVICE = HostNotificationChannels.BACKGROUND_SERVICE
+        internal const val CHANNEL_INBOUND = HostNotificationChannels.INBOUND_SMS
         private const val WAKE_LOCK_TIMEOUT_MS = 60_000L
         private const val FALLBACK_SYNC_MS = 30_000L
         private const val NOTIFICATION_WINDOW_MS = 12_000L
@@ -738,6 +737,7 @@ class HostBackgroundService : Service() {
             if (!belongsToNewPairing) clearBackgroundAlertQueue(context.applicationContext, databaseName)
             if (sessionStamp != null) {
                 (context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(sessionStamp, INBOUND_NOTIFICATION_ID)
+                InboundSmsNotifications.cancelAll(context, sessionStamp)
             }
         }
     }

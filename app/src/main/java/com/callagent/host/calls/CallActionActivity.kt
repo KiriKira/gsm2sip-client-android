@@ -60,6 +60,8 @@ class CallActionActivity : AppCompatActivity() {
 
     companion object {
         const val ACTION_SHOW_INCOMING = "com.callagent.host.calls.SHOW_INCOMING"
+        /** The notification's Answer button: answer at once, asking for the microphone first if needed. */
+        const val ACTION_ANSWER = "com.callagent.host.calls.ANSWER"
         const val ACTION_SHOW_CALL = "com.callagent.host.calls.SHOW_CALL"
         const val EXTRA_CALL_ID = "com.callagent.host.calls.CALL_ID"
         const val EXTRA_PENDING_SIM = "com.callagent.host.calls.PENDING_SIM"
@@ -78,7 +80,22 @@ class CallActionActivity : AppCompatActivity() {
         pendingNumber = savedInstanceState?.getString("pendingNumber") ?: intent.getStringExtra(EXTRA_PENDING_NUMBER)
         pendingSim = savedInstanceState?.getString("pendingSim") ?: intent.getStringExtra(EXTRA_PENDING_SIM)
         rememberPendingCall()
+        if (savedInstanceState == null) answerIfRequested(intent)
         render()
+    }
+
+    private fun answerIfRequested(source: Intent?) {
+        if (source?.action != ACTION_ANSWER) return
+        // Handle once: a recreated Activity must not answer again.
+        source.action = ACTION_SHOW_CALL
+        val call = visibleCall() ?: return
+        if (call.phase != CallPhase.INCOMING_RINGING) return
+        answer(call.callId)
+    }
+
+    private fun answer(activeId: String) {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) CallRuntime.answerFromVisibleUser(this, activeId)
+        else requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_MICROPHONE)
     }
 
     private fun rememberPendingCall() {
@@ -118,6 +135,7 @@ class CallActionActivity : AppCompatActivity() {
         pendingSim = pendingSim ?: intent.getStringExtra(EXTRA_PENDING_SIM)
         pendingNumber = pendingNumber ?: intent.getStringExtra(EXTRA_PENDING_NUMBER)
         rememberPendingCall()
+        answerIfRequested(intent)
         render()
     }
 

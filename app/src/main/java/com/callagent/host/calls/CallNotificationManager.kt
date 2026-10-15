@@ -1,7 +1,6 @@
 package com.callagent.host.calls
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -9,28 +8,27 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person as CompatPerson
+import com.callagent.host.R
+import com.callagent.host.contacts.HostContactsRepository
+import com.callagent.host.notify.HostNotificationChannels
 
+/**
+ * Call notifications in the style of the system dialer: a ringing heads-up
+ * with Answer/Decline while a call is incoming, then a silent ongoing-call
+ * notification with Hang up. Both share [NOTIFICATION_ID], so answering
+ * replaces the ringing notification and stops its ringtone.
+ */
 internal object CallNotificationManager {
-    const val CHANNEL_ID = "remote_calls"
     const val NOTIFICATION_ID = 7401
 
     fun prepare(context: Context) {
-        if (Build.VERSION.SDK_INT < 26) return
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "远程通话", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "远程 SIM 呼入、通话状态和接听操作"
-                    lockscreenVisibility = Notification.VISIBILITY_PRIVATE
-                }
-            )
-        }
+        HostNotificationChannels.ensure(context)
     }
 
     fun notificationsEnabled(context: Context): Boolean {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelAllowed = Build.VERSION.SDK_INT < 26 || manager.getNotificationChannel(CHANNEL_ID)?.importance != NotificationManager.IMPORTANCE_NONE
-        return manager.areNotificationsEnabled() && channelAllowed &&
+        return manager.areNotificationsEnabled() &&
+            HostNotificationChannels.channelAllowed(context, HostNotificationChannels.INCOMING_CALLS) &&
             (Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED)
     }
 
@@ -45,19 +43,22 @@ internal object CallNotificationManager {
 
     fun incomingNotification(context: Context, call: CallSession): Notification {
         prepare(context)
-        val notificationBuilder = builder(context, call)
+        val caller = caller(context, call)
+        val notificationBuilder = builder(context, call, caller, HostNotificationChannels.INCOMING_CALLS)
             .setStyle(
                 NotificationCompat.CallStyle.forIncomingCall(
-                    person(call),
+                    person(caller),
                     declineIntent(context, call.callId),
                     answerIntent(context, call.callId)
                 ).setIsVideo(false)
             )
             .setContentIntent(incomingUiIntent(context, call.callId))
+        // Locked: the full-screen call screen. Unlocked: Android shows a heads-up with the two buttons.
         if (fullScreenAllowed(context)) {
             notificationBuilder.setFullScreenIntent(incomingUiIntent(context, call.callId), true)
         }
-        return notificationBuilder.build()
+        // Ring like a phone call until it is answered, rejected or replaced.
+        return notificationBuilder.build().apply { flags = flags or Notification.FLAG_INSISTENT }
     }
 
     fun showOngoing(context: Context, call: CallSession) {
@@ -65,27 +66,21 @@ internal object CallNotificationManager {
             .notify(NOTIFICATION_ID, ongoingNotification(context, call))
     }
 
-    fun ongoingNotification(context: Context, call: CallSession): Notification {
-        prepare(context)
-        val hangup = actionIntent(context, CallActionReceiver.ACTION_HANGUP, call.callId)
-        return builder(context, call)
-            .setStyle(NotificationCompat.CallStyle.forOngoingCall(person(call), hangup).setIsVideo(false))
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "挂断", hangup)
-            .setContentIntent(incomingUiIntent(context, call.callId))
-            .build()
-    }
+    fun ongoingNotification(context: Context, call: CallSession): Notification = ongoing(context, call)
 
     fun showConnecting(context: Context, call: CallSession) {
         (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
             .notify(NOTIFICATION_ID, connectingNotification(context, call))
     }
 
-    fun connectingNotification(context: Context, call: CallSession): Notification {
+    fun connectingNotification(context: Context, call: CallSession): Notification = ongoing(context, call)
+
+    private fun ongoing(context: Context, call: CallSession): Notification {
         prepare(context)
+        val caller = caller(context, call)
         val hangup = actionIntent(context, CallActionReceiver.ACTION_HANGUP, call.callId)
-        return builder(context, call)
-            .setStyle(NotificationCompat.CallStyle.forOngoingCall(person(call), hangup).setIsVideo(false))
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "取消", hangup)
+        return builder(context, call, caller, HostNotificationChannels.ONGOING_CALLS)
+            .setStyle(NotificationCompat.CallStyle.forOngoingCall(person(caller), hangup).setIsVideo(false))
             .setContentIntent(incomingUiIntent(context, call.callId))
             .build()
     }
@@ -93,8 +88,8 @@ internal object CallNotificationManager {
     /** Shown only for the instant a foreground start that cannot be honoured is closed again. */
     fun placeholderNotification(context: Context): Notification {
         prepare(context)
-        return NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.sym_action_call)
+        return NotificationCompat.Builder(context, HostNotificationChannels.ONGOING_CALLS)
+            .setSmallIcon(R.drawable.ic_stat_call)
             .setContentTitle("远程 SIM 通话")
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setSilent(true)
@@ -105,11 +100,21 @@ internal object CallNotificationManager {
         (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIFICATION_ID)
     }
 
-    private fun builder(context: Context, call: CallSession): NotificationCompat.Builder {
-        val publicVersion = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.sym_action_call)
-            .setContentTitle("远程 SIM 通话")
-            .setContentText(if (call.direction == CallDirection.INCOMING) "来电" else "通话进行中")
+    private data class Caller(val name: String?, val number: String?) {
+        val title: String get() = name ?: number ?: "未知号码"
+    }
+
+    private fun caller(context: Context, call: CallSession): Caller {
+        val number = call.remoteNumber?.takeIf { it.isNotBlank() }
+        return Caller(HostContactsRepository.lookupName(context, number), number)
+    }
+
+    private fun builder(context: Context, call: CallSession, caller: Caller, channel: String): NotificationCompat.Builder {
+        val incoming = call.phase == CallPhase.INCOMING_RINGING
+        val publicVersion = NotificationCompat.Builder(context, channel)
+            .setSmallIcon(R.drawable.ic_stat_call)
+            .setContentTitle(if (call.direction == CallDirection.INCOMING && incoming) "来电" else "通话进行中")
+            .setContentText("远程 SIM 通话")
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
@@ -121,30 +126,34 @@ internal object CallNotificationManager {
             CallPhase.DISCONNECTING -> "正在结束通话"
             else -> "通话"
         }
-        return NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.sym_action_call)
-            .setContentTitle(call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程 SIM")
-            .setContentText("$state · ${SimLabels.describe(context, call.simId)}")
+        val detail = listOfNotNull(state, caller.name?.let { caller.number }, SimLabels.describe(context, call.simId))
+            .joinToString(" · ")
+        return NotificationCompat.Builder(context, channel)
+            .setSmallIcon(R.drawable.ic_stat_call)
+            .setContentTitle(caller.title)
+            .setContentText(detail)
             .setCategory(NotificationCompat.CATEGORY_CALL)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setPriority(if (incoming) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_DEFAULT)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion)
             .setOngoing(call.phase !in setOf(CallPhase.ENDED, CallPhase.FAILED))
-            .setOnlyAlertOnce(call.phase != CallPhase.INCOMING_RINGING)
+            .setOnlyAlertOnce(!incoming)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
     }
 
-    private fun person(call: CallSession): CompatPerson = CompatPerson.Builder()
-        .setName(call.remoteNumber?.takeIf { it.isNotBlank() } ?: "未知号码")
+    private fun person(caller: Caller): CompatPerson = CompatPerson.Builder()
+        .setName(caller.title)
+        .apply { caller.number?.let { setUri("tel:$it") } }
         .setImportant(true)
         .build()
 
+    /** Answer goes through an Activity so a missing microphone grant can still be requested. */
     private fun answerIntent(context: Context, callId: String): PendingIntent =
         PendingIntent.getActivity(
             context,
             requestCode(callId, 1),
             Intent(context, CallActionActivity::class.java)
-                .setAction(CallActionActivity.ACTION_SHOW_INCOMING)
+                .setAction(CallActionActivity.ACTION_ANSWER)
                 .putExtra(CallActionActivity.EXTRA_CALL_ID, callId),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

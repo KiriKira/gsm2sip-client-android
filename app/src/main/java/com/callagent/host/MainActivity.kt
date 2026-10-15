@@ -112,6 +112,7 @@ import com.callagent.host.ui.GatewayStatusView
 import com.callagent.host.ui.DialPadKeyView
 import com.callagent.host.ui.NodeListView
 import com.callagent.host.ui.NodeRowPresenter
+import com.callagent.host.notify.InboundSmsNotifications
 import com.callagent.host.mesh.HostNodes
 import com.callagent.host.mesh.JoinEntry
 import com.callagent.host.mesh.JoinLink
@@ -337,7 +338,7 @@ class MainActivity : AppCompatActivity() {
         selectedSimId = selectedRestoreSimId
         setUpWindow()
         if (savedInstanceState == null && intent?.action == ACTION_SHOW_SMS) {
-            navigation = navigation.selectTab(HostTab.MESSAGES)
+            navigation = smsNotificationNavigation(intent)
         }
         showDashboard()
         if (session != null) syncFromServer(showProgress = false)
@@ -419,9 +420,18 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.action == ACTION_SHOW_SMS) {
-            navigate(navigation.selectTab(HostTab.MESSAGES))
+            navigate(smsNotificationNavigation(intent))
         }
         handleJoinLink(intent)
+    }
+
+    /** An SMS notification opens its conversation; the group summary opens the message list. */
+    private fun smsNotificationNavigation(source: Intent): HostNavigationState {
+        val peer = source.getStringExtra(InboundSmsNotifications.EXTRA_SMS_PEER)?.takeIf { it.isNotBlank() }
+            ?: return navigation.selectTab(HostTab.MESSAGES)
+        val simId = source.getStringExtra(InboundSmsNotifications.EXTRA_SMS_SIM)
+        selectedSimId = simId
+        return navigation.openConversation(simId, peer)
     }
 
     /**

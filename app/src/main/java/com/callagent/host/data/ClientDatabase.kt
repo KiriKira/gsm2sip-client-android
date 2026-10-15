@@ -532,6 +532,20 @@ class ClientDatabase @JvmOverloads constructor(
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    /** Cached messages with these server IDs, for showing inbound SMS in notifications. */
+    @Synchronized
+    fun loadMessagesByServerIds(ids: List<String>): List<SmsRecord> {
+        if (ids.isEmpty()) return emptyList()
+        val found = ArrayList<SmsRecord>()
+        ids.distinct().chunked(500).forEach { chunk ->
+            val marks = chunk.joinToString(",") { "?" }
+            readableDatabase.query(
+                "messages", null, "server_id IN ($marks)", chunk.toTypedArray(), null, null, null
+            ).use { cursor -> while (cursor.moveToNext()) found += cursor.toSmsRecord() }
+        }
+        return found
+    }
+
     @Synchronized
     fun existingServerMessageIds(ids: List<String>): Set<String> {
         if (ids.isEmpty()) return emptySet()
