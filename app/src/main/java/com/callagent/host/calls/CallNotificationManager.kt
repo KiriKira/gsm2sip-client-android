@@ -124,7 +124,7 @@ internal object CallNotificationManager {
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.sym_action_call)
             .setContentTitle(call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程 SIM")
-            .setContentText("$state · ${call.simId}")
+            .setContentText("$state · ${SimLabels.describe(context, call.simId)}")
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)

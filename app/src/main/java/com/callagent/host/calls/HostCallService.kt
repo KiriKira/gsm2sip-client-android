@@ -671,7 +671,7 @@ class HostCallService : android.app.Service() {
             val call = CallRuntime.snapshot(serverCallId) ?: return
             scheduleInboundExpiry(call)
             CallRuntime.setStatus("远程 SIM 来电：${authority.simId}", serverCallId)
-            CallTelecomController.addIncoming(this, TelecomCallDetails(serverCallId, CallDirection.INCOMING, authority.from, authority.simId))
+            CallTelecomController.addIncoming(this, TelecomCallDetails(serverCallId, CallDirection.INCOMING, authority.from, SimLabels.describe(this, authority.simId)))
             if (!CallForegroundService.start(this, serverCallId, microphone = false)) {
                 failCall(serverCallId, "Android 无法显示入站通话通知。")
                 return
