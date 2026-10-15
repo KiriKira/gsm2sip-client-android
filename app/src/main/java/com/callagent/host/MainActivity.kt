@@ -658,10 +658,7 @@ class MainActivity : AppCompatActivity() {
                     homeNavigation(HostTab.SETTINGS)
                 }
             }
-            HostDestination.Dialer -> {
-                renderDialer(content)
-                null
-            }
+            HostDestination.Dialer -> renderDialer(content)
             is HostDestination.Conversation -> {
                 val composer = renderConversation(content, destination)
                 composer
@@ -1394,44 +1391,19 @@ class MainActivity : AppCompatActivity() {
         return bar
     }
 
-    /** Caps a full-width child of a vertical LinearLayout at [maxDp], centered. */
-    private fun limitWidth(view: View, maxDp: Int) {
-        view.addOnLayoutChangeListener { changed, _, _, _, _, _, _, _, _ ->
-            val parentWidth = (changed.parent as? View)?.let { it.width - it.paddingLeft - it.paddingRight } ?: return@addOnLayoutChangeListener
-            val params = changed.layoutParams as? LinearLayout.LayoutParams ?: return@addOnLayoutChangeListener
-            val target = if (parentWidth > dp(maxDp)) dp(maxDp) else ViewGroup.LayoutParams.MATCH_PARENT
-            if (params.width != target) changed.post { params.width = target; changed.layoutParams = params }
-        }
-    }
-
-    private fun renderDialer(content: LinearLayout) {
+    /**
+     * Dial pad in the style of Google Phone: the page scrolls only the contact
+     * suggestions, while the number, keypad, SIM choice and call button sit in a
+     * panel pinned to the bottom, so the keys never move as suggestions change.
+     * Returns that panel for [installContent] to pin.
+     */
+    private fun renderDialer(content: LinearLayout): View {
         content.addView(topBar("拨号"))
 
-        // Google dial pad: a large, borderless number display driven by the on-screen keys.
-        val destination = TextInputEditText(this).apply {
-            // The smoke fixture recognises an empty field by this hint.
-            hint = "联系人或号码"
-            inputType = InputType.TYPE_CLASS_PHONE
-            gravity = Gravity.CENTER
-            background = null
-            textSize = 34f
-            minHeight = dp(72)
-            showSoftInputOnFocus = false
-            setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
-            setHintTextColor(materialColor(com.google.android.material.R.attr.colorOutline))
-            layoutParams = fullWidthParams(top = 8, bottom = 4)
-        }
-        destination.id = R.id.dialer_destination
-        destination.setSingleLine(true)
-        destination.setText(callDestination)
-        callDestinationEdit = destination
-        content.addView(destination)
-
-        val contactHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val contactHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             val allow = smallButton("允许访问联系人")
             allow.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            contactHeader.gravity = Gravity.CENTER
             allow.setOnClickListener { requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_CONTACTS) }
             contactHeader.addView(allow)
         }
@@ -1441,7 +1413,66 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
         }
         content.addView(dialerContactsList)
-        renderDialerContacts()
+
+        // Size the keys to the window so the pinned panel leaves room for suggestions.
+        val screenHeight = resources.configuration.screenHeightDp
+        val keyHeight = ((screenHeight - 400) / 4).coerceIn(44, 60)
+        val compact = keyHeight < 52
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(8), dp(16), dp(12))
+            background = GradientDrawable().apply {
+                val r = dp(28).toFloat()
+                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+                setColor(materialColor(com.google.android.material.R.attr.colorSurfaceContainer))
+            }
+            isClickable = true
+        }
+
+        // Number row: the number centered, backspace on the right.
+        val numberRow = FrameLayout(this)
+        val destination = TextInputEditText(this).apply {
+            // The smoke fixture recognises an empty field by this hint.
+            hint = "联系人或号码"
+            inputType = InputType.TYPE_CLASS_PHONE
+            gravity = Gravity.CENTER
+            background = null
+            textSize = if (compact) 28f else 34f
+            maxLines = 1
+            showSoftInputOnFocus = false
+            setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurface))
+            setHintTextColor(materialColor(com.google.android.material.R.attr.colorOutline))
+            setPadding(dp(56), dp(4), dp(56), dp(4))
+        }
+        destination.id = R.id.dialer_destination
+        destination.setSingleLine(true)
+        destination.setText(callDestination)
+        callDestinationEdit = destination
+        numberRow.addView(destination, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(if (compact) 52 else 64), Gravity.CENTER_VERTICAL))
+        val backspace = MaterialButton(this, null, androidx.appcompat.R.attr.borderlessButtonStyle).apply {
+            id = R.id.dialer_backspace
+            setIconResource(R.drawable.host_action_backspace)
+            iconTint = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+            iconSize = dp(26)
+            iconPadding = 0
+            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+            contentDescription = "删除号码"
+            cornerRadius = dp(24)
+            insetTop = 0
+            insetBottom = 0
+            minWidth = 0
+            minimumWidth = 0
+        }
+        backspace.setOnClickListener {
+            val input = destination.text ?: return@setOnClickListener
+            val start = destination.selectionStart.coerceAtLeast(0)
+            val end = destination.selectionEnd.coerceAtLeast(0)
+            if (start != end) input.delete(start, end) else if (start > 0) input.delete(start - 1, start)
+        }
+        backspace.setOnLongClickListener { destination.text?.clear(); true }
+        numberRow.addView(backspace, FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER_VERTICAL or Gravity.END))
+        panel.addView(numberRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
         destination.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -1451,6 +1482,7 @@ class MainActivity : AppCompatActivity() {
             }
             override fun afterTextChanged(s: Editable?) = Unit
         })
+        renderDialerContacts()
 
         val keypad = GridLayout(this).apply {
             id = R.id.dialer_keypad
@@ -1458,13 +1490,7 @@ class MainActivity : AppCompatActivity() {
             rowCount = 4
             useDefaultMargins = false
             alignmentMode = GridLayout.ALIGN_BOUNDS
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = dp(8)
-            }
         }
-        // Keep the keys finger-sized on wide and unfolded screens.
-        limitWidth(keypad, 380)
         val keys = listOf(
             "1" to R.id.keypad_1, "2" to R.id.keypad_2, "3" to R.id.keypad_3,
             "4" to R.id.keypad_4, "5" to R.id.keypad_5, "6" to R.id.keypad_6,
@@ -1474,11 +1500,14 @@ class MainActivity : AppCompatActivity() {
         keys.forEach { (key, id) ->
             val keyButton = DialPadKeyView(this, key).apply {
                 this.id = id
+                minHeight = dp(keyHeight)
+                minimumHeight = dp(keyHeight)
+                if (compact) textSize = 24f
                 layoutParams = GridLayout.LayoutParams().apply {
                     width = 0
-                    height = ViewGroup.LayoutParams.WRAP_CONTENT
+                    height = dp(keyHeight)
                     columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
-                    setMargins(dp(6), dp(5), dp(6), dp(5))
+                    setMargins(dp(5), dp(4), dp(5), dp(4))
                 }
                 setOnClickListener {
                     val at = destination.selectionStart.coerceAtLeast(0)
@@ -1488,18 +1517,18 @@ class MainActivity : AppCompatActivity() {
             }
             keypad.addView(keyButton)
         }
-        content.addView(keypad)
+        panel.addView(keypad, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        // Bottom row: SIM choice on the left, the call button in the middle.
+        val bottomRow = FrameLayout(this).apply { setPadding(0, dp(8), 0, 0) }
         val selector = ChipGroup(this).apply {
             id = R.id.dialer_sim_selector
             isSaveEnabled = false
             isSaveFromParentEnabled = false
             isSingleSelection = true
             isSelectionRequired = false
-            chipSpacingHorizontal = dp(8)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = dp(12)
-            }
+            isSingleLine = true
+            chipSpacingHorizontal = dp(6)
         }
         sims.sortedBy { it.slotIndex }.forEach { line ->
             val chip = Chip(this).apply {
@@ -1509,9 +1538,6 @@ class MainActivity : AppCompatActivity() {
                 maxLines = 1
                 minHeight = dp(48)
                 isChecked = line.simId == selectedSimId
-                setChipIconResource(R.drawable.ic_ui_sim)
-                isChipIconVisible = true
-                chipIconTint = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
                 isCheckedIconVisible = false
                 contentDescription = "SIM ${line.slotIndex + 1}, ${line.label}${line.phoneNumber?.let { ", $it" }.orEmpty()}"
                 isSaveEnabled = false
@@ -1523,65 +1549,55 @@ class MainActivity : AppCompatActivity() {
                 renderCurrentScreen(preserveInput = true)
             }
         }
-        content.addView(selector)
         val selected = sims.firstOrNull { it.simId == selectedSimId }
-        val bottomRow = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-                topMargin = dp(12)
-            }
-        }
-        limitWidth(bottomRow, 380)
-        val dial = button("")
-        dial.id = R.id.dialer_call_button
-        dial.contentDescription = "拨出"
-        dial.setIconResource(R.drawable.call_ui_phone)
-        dial.iconSize = dp(28)
-        dial.iconPadding = 0
-        dial.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-        dial.backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(24, 128, 56))
-        dial.iconTint = android.content.res.ColorStateList.valueOf(Color.WHITE)
-        dial.setTextColor(Color.WHITE)
-        dial.cornerRadius = dp(32)
-        dial.insetTop = 0
-        dial.insetBottom = 0
-        dial.setOnClickListener { beginDial(selected, destination.text?.toString().orEmpty()) }
-        dialerCallButton = dial
-        bottomRow.addView(dial, FrameLayout.LayoutParams(dp(104), dp(64), Gravity.CENTER))
-        val backspace = MaterialButton(this, null, androidx.appcompat.R.attr.borderlessButtonStyle).apply {
-            id = R.id.dialer_backspace
-            setIconResource(R.drawable.host_action_backspace)
-            iconTint = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
-            iconSize = dp(26)
-            iconPadding = 0
-            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            contentDescription = "删除号码"
-            cornerRadius = dp(32)
+        val dial = button("拨打").apply {
+            id = R.id.dialer_call_button
+            contentDescription = "拨出"
+            setIconResource(R.drawable.call_ui_phone)
+            iconSize = dp(24)
+            iconPadding = dp(8)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(24, 128, 56))
+            iconTint = android.content.res.ColorStateList.valueOf(Color.WHITE)
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            cornerRadius = dp(28)
             insetTop = 0
             insetBottom = 0
+            setOnClickListener { beginDial(selected, destination.text?.toString().orEmpty()) }
         }
-        backspace.setOnClickListener {
-            val input = destination.text ?: return@setOnClickListener
-            val start = destination.selectionStart.coerceAtLeast(0)
-            val end = destination.selectionEnd.coerceAtLeast(0)
-            if (start != end) input.delete(start, end) else if (start > 0) input.delete(start - 1, start)
+        dialerCallButton = dial
+        bottomRow.addView(dial, FrameLayout.LayoutParams(dp(136), dp(if (compact) 48 else 56), Gravity.CENTER))
+        bottomRow.addView(selector, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER_VERTICAL or Gravity.START))
+        // Two SIM chips and a centered call button overlap on narrow windows; stack them there.
+        bottomRow.addOnLayoutChangeListener { row, _, _, _, _, _, _, _, _ ->
+            val chipsEnd = selector.right
+            val callStart = dial.left
+            if (selector.childCount > 0 && chipsEnd > callStart && selector.layoutParams.let { (it as FrameLayout.LayoutParams).gravity != (Gravity.TOP or Gravity.CENTER_HORIZONTAL) }) {
+                row.post {
+                    selector.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP or Gravity.CENTER_HORIZONTAL)
+                    dial.layoutParams = (dial.layoutParams as FrameLayout.LayoutParams).apply {
+                        gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+                        topMargin = dp(52)
+                    }
+                }
+            }
         }
-        backspace.setOnLongClickListener { destination.text?.clear(); true }
-        // Same column as the "#" key, like the Google dial pad.
-        bottomRow.addView(backspace, FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(30) })
-        content.addView(bottomRow)
+        panel.addView(bottomRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
         dialerReadinessText = body("").apply {
             id = R.id.dialer_readiness
             gravity = Gravity.CENTER_HORIZONTAL
+            maxLines = 2
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
-            layoutParams = fullWidthParams(top = 8)
+            setPadding(0, dp(6), 0, 0)
         }
-        content.addView(dialerReadinessText)
+        panel.addView(dialerReadinessText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         updateDialButtonState()
         if (session != null && callServerAvailable == null) refreshCallAvailability()
         if (checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED && dialerContacts.isEmpty()) {
             queryDialerContacts(contactsQuery)
         }
+        return panel
     }
 
     private fun contactTile(entry: ContactEntry, position: HostUi.Position, onClick: () -> Unit): View =
@@ -3254,7 +3270,9 @@ class MainActivity : AppCompatActivity() {
         mainScroll = scroll
         currentContent = content
         fixedBottomChrome = fixedBottomView
-        fixedBottomChromeIsComposer = navigation.destination is HostDestination.Conversation
+        // The SMS composer and the dial pad panel are centered and width-capped like page content.
+        fixedBottomChromeIsComposer = navigation.destination is HostDestination.Conversation ||
+            navigation.destination == HostDestination.Dialer
         currentPanels = panels
         primaryPanel = primary
         secondaryPanel = secondary
