@@ -2463,6 +2463,9 @@ class MainActivity : AppCompatActivity() {
             showDashboard()
         }
         executor.execute {
+            // Set once the old phone's status and SIMs came back: a later failure
+            // (SMS, call history, hosts) does not make the server unreachable.
+            var fetchedGateway: Pair<GatewaySnapshot, List<SimLine>>? = null
             try {
                 if (sessionStore.read()?.sameSessionInstance(expectedSession) != true) throw SessionChanged()
                 val api = ApiClient(expectedSession.apiBaseUrl, sessionStore)
@@ -2471,6 +2474,7 @@ class MainActivity : AppCompatActivity() {
                 val current = remoteGateways.firstOrNull()
                     ?: throw NoPairedGateway()
                 val (_, remoteSims) = api.listSims(current.gatewayId)
+                fetchedGateway = current to remoteSims
                 val mappingChanged = oldRevision != null && oldRevision != current.mappingRevision
                 expectedDatabase.saveGateway(current)
                 expectedDatabase.replaceSims(remoteSims)
@@ -2548,6 +2552,16 @@ class MainActivity : AppCompatActivity() {
                     } else if (failure is NoPairedGateway) {
                         serverLink = ServerLink.Connected
                         statusMessage = failure.message.orEmpty()
+                        refreshGatewayStatusCard()
+                        updateDialButtonState()
+                    } else if (fetchedGateway != null && database === expectedDatabase &&
+                        sessionStore.read()?.sameSessionInstance(expectedSession) == true
+                    ) {
+                        // The server answered for the old phone; only a later part of the sync failed.
+                        serverLink = ServerLink.Connected
+                        gateway = fetchedGateway?.first
+                        sims = fetchedGateway?.second.orEmpty()
+                        statusMessage = "部分数据同步失败，稍后会自动重试。${apiFailureText(failure)}"
                         refreshGatewayStatusCard()
                         updateDialButtonState()
                     } else {

@@ -21,6 +21,8 @@ class CallReadinessTest {
             evaluate(online = false, link = ServerLink.Unreachable("无法连接服务器")).blocker)
         assertEquals("正在连接服务器…", evaluate(online = false, link = ServerLink.Checking).blocker)
         assertTrue(evaluate(link = ServerLink.Checking).ready)
+        // A failed sync must not block dialing while the old phone's status is fresh.
+        assertTrue(evaluate(link = ServerLink.Unreachable("服务器返回错误 500")).ready)
     }
 
     @Test
