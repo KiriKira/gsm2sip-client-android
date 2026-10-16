@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person as CompatPerson
 import com.callagent.host.R
@@ -36,11 +37,6 @@ internal object CallNotificationManager {
         Build.VERSION.SDK_INT < 34 ||
             (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).canUseFullScreenIntent()
 
-    fun showIncoming(context: Context, call: CallSession) {
-        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .notify(NOTIFICATION_ID, incomingNotification(context, call))
-    }
-
     fun incomingNotification(context: Context, call: CallSession): Notification {
         prepare(context)
         val caller = caller(context, call)
@@ -54,23 +50,31 @@ internal object CallNotificationManager {
             )
             .setContentIntent(incomingUiIntent(context, call.callId))
         // Locked: the full-screen call screen. Unlocked: Android shows a heads-up with the two buttons.
-        if (fullScreenAllowed(context)) {
-            notificationBuilder.setFullScreenIntent(incomingUiIntent(context, call.callId), true)
-        }
+        // Always requested: without the full-screen permission Android shows the heads-up instead,
+        // while a CallStyle notification with neither a full-screen intent nor a running foreground
+        // service is refused outright (IllegalArgumentException).
+        notificationBuilder.setFullScreenIntent(incomingUiIntent(context, call.callId), true)
         // Ring like a phone call until it is answered, rejected or replaced.
         return notificationBuilder.build().apply { flags = flags or Notification.FLAG_INSISTENT }
     }
 
-    fun showOngoing(context: Context, call: CallSession) {
-        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .notify(NOTIFICATION_ID, ongoingNotification(context, call))
-    }
+    fun showOngoing(context: Context, call: CallSession) = post(context, ongoingNotification(context, call))
 
     fun ongoingNotification(context: Context, call: CallSession): Notification = ongoing(context, call)
 
-    fun showConnecting(context: Context, call: CallSession) {
-        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .notify(NOTIFICATION_ID, connectingNotification(context, call))
+    fun showConnecting(context: Context, call: CallSession) = post(context, connectingNotification(context, call))
+
+    /**
+     * Updates the call notification. Android can refuse a CallStyle update
+     * (no foreground service yet); the call itself must go on regardless.
+     */
+    private fun post(context: Context, notification: Notification) {
+        try {
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                .notify(NOTIFICATION_ID, notification)
+        } catch (failure: RuntimeException) {
+            Log.w("HostCall", "Call notification update refused: ${failure.javaClass.simpleName}")
+        }
     }
 
     fun connectingNotification(context: Context, call: CallSession): Notification = ongoing(context, call)
