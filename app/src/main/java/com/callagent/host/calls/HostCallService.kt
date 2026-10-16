@@ -11,6 +11,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.callagent.host.data.ApiClient
 import com.callagent.host.data.ApiFailure
@@ -341,6 +342,7 @@ class HostCallService : android.app.Service() {
     }
 
     internal fun failCall(callId: String, message: String) {
+        Log.w(TAG, "Call failed: $message")
         executeOnIo {
             val call = CallRuntime.snapshot(callId) ?: return@executeOnIo
             if (call.phase in setOf(CallPhase.ENDED, CallPhase.FAILED)) return@executeOnIo
@@ -633,6 +635,7 @@ class HostCallService : android.app.Service() {
     private fun matchIncomingInvite(snapshot: SipCallSnapshot) {
         val serverCallId = snapshot.serverCallIdHeader?.trim()?.takeIf { it.isNotBlank() }
         if (serverCallId == null) {
+            Log.w(TAG, "Declined an INVITE without the server call header")
             runCatching { sipEngine?.reject(snapshot.callId, 603) }
             return
         }
@@ -643,10 +646,12 @@ class HostCallService : android.app.Service() {
             val api = apiForCurrentSession()
             val authority = api.getCall(serverCallId)
             if (authority.callId != serverCallId || authority.clientId != session.deviceId) {
+                Log.w(TAG, "Declined an INVITE the server did not address to this device")
                 runCatching { sipEngine?.reject(snapshot.callId, 603) }
                 return
             }
             if (!authorityStillRinging(api, authority)) {
+                Log.w(TAG, "Declined an INVITE for a call the server no longer rings (state ${authority.state})")
                 runCatching { sipEngine?.reject(snapshot.callId, 603) }
                 return
             }
@@ -663,6 +668,7 @@ class HostCallService : android.app.Service() {
                 nowEpochMillis = System.currentTimeMillis()
             )
             if (!accepted) {
+                Log.w(TAG, "Declined an INVITE while another call is in progress")
                 runCatching { sipEngine?.reject(snapshot.callId, 603) }
                 return
             }
@@ -672,14 +678,18 @@ class HostCallService : android.app.Service() {
             scheduleInboundExpiry(call)
             CallRuntime.setStatus("远程 SIM 来电：${authority.simId}", serverCallId)
             CallTelecomController.addIncoming(this, TelecomCallDetails(serverCallId, CallDirection.INCOMING, authority.from, SimLabels.describe(this, authority.simId)))
+            // The call foreground service posts the ringing notification itself. Posting it from here
+            // as well raced that service: Android refuses a CallStyle notification that is not yet a
+            // foreground service's, and the second post was muted as "recently noisy".
             if (!CallForegroundService.start(this, serverCallId, microphone = false)) {
                 failCall(serverCallId, "Android 无法显示入站通话通知。")
                 return
             }
             stopSignalingForeground()
-            CallNotificationManager.showIncoming(this, call)
             CallRuntime.notifyChanged(serverCallId)
-        } catch (_: Exception) {
+            Log.i(TAG, "Incoming call ringing")
+        } catch (failure: Exception) {
+            Log.w(TAG, "Incoming call handling failed: ${failure.javaClass.simpleName}", failure)
             if (acceptedCallId != null) {
                 failCall(acceptedCallId, "来电处理失败，已结束。")
             } else {
@@ -699,6 +709,7 @@ class HostCallService : android.app.Service() {
                     current.expiresAtEpochMillis > System.currentTimeMillis()
                 ) return@executeOnIo
                 val engineCallId = inboundEngineIds[call.callId]
+                Log.i(TAG, "Incoming call was not answered in time")
                 if (engineCallId != null) runCatching { sipEngine?.reject(engineCallId, 408) }
                 finishCall(call.callId, failed = false, statusText = "来电已超时。")
             }
@@ -1269,6 +1280,7 @@ class HostCallService : android.app.Service() {
     private fun CallPhase.isInProgress(): Boolean = this !in setOf(CallPhase.IDLE, CallPhase.ENDED, CallPhase.FAILED)
 
     companion object {
+        private const val TAG = "HostCall"
         private const val ACTION_OUTBOUND = "com.callagent.host.calls.OUTBOUND"
         private const val ACTION_LISTEN = "com.callagent.host.calls.LISTEN"
         private const val ACTION_ANSWER = "com.callagent.host.calls.ANSWER"
