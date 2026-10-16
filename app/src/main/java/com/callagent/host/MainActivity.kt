@@ -2232,7 +2232,7 @@ class MainActivity : AppCompatActivity() {
             value.all { it.isDigit() || it in "+*#()-. " }
 
     private fun localSipEngineAvailable(): Boolean = runCatching {
-        val factory = Class.forName("com.callagent.host.sip.SipEngineFactory")
+        val factory = Class.forName("com.callagent.host.calls.CallEngineFactory")
         val singleton = runCatching { factory.getField("INSTANCE").get(null) }.getOrNull()
         val method = if (singleton != null) singleton.javaClass.getMethod("isAvailable", Context::class.java)
         else factory.getMethod("isAvailable", Context::class.java)
