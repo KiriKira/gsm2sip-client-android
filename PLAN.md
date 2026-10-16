@@ -1,5 +1,9 @@
 # PLAN — gsm2sip-client-android 主机 App v1
 
+> 2026-10-16 后续路线：[三端 WebRTC 通话迁移计划](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/plan-webrtc.md)。
+> 本文保留 v1 原始任务与验收背景；通话迁移的实施次序和边界以新计划为准，不再先做自研 SIP。
+> UI、短信、配对、SIM、备份、多节点和后台行为必须保持；现行协议在新契约正式落地前仍有效。
+
 状态：Material 3 Expressive Views 与用户开启的 WSS/HTTPS 后台短信同步已落代码，FCM/锁屏来电仍待实现；M1/M2 主干实现进行中；HTTPS pairing、Keystore token、SQLite cache/outbox、双卡状态与短信 UI 已落代码；真实设备端到端仍待验收。SIP native SDK 不随 M1/M2 打包，M0/M3 probe 仍需按 [sdk-probe.md](docs/sdk-probe.md) 完成。
 日期：2026-10-03  
 目标仓库：`KiriKira/gsm2sip-client-android`
