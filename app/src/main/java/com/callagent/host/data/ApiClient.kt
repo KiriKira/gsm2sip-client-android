@@ -173,6 +173,13 @@ class ApiClient(
 
     fun getCall(callId: String): RemoteCall = parseCall(authenticatedRequest("GET", "/calls/${pathSegment(callId)}"))
 
+    internal fun rtcRequest(method: String, path: String, body: JSONObject?): JSONObject {
+        require(path.matches(Regex("/(rtc/legs/[a-zA-Z0-9_-]+|calls/[a-zA-Z0-9_-]+/media(/active)?)")))
+        return try { authenticatedRequest(method, path, body) }
+        catch (failure: ApiFailure) { throw com.callagent.rtcmedia.MediaApiException(failure.httpStatus, failure.code) }
+        catch (_: java.io.IOException) { throw com.callagent.rtcmedia.MediaApiException(503, "NETWORK_UNAVAILABLE") }
+    }
+
     /** [callId] is sent only for a mesh profile, whose servers all support the field. */
     fun createCallIntent(
         gatewayId: String, simId: String, mappingRevision: Long, destination: String,

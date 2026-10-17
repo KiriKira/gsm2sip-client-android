@@ -422,7 +422,8 @@ class HostCallService : android.app.Service() {
         try {
             requireCallEngine().dial(callId, uri)
         } catch (_: Exception) {
-            failCall(callId, "SIP could not place the authorized call")
+            pendingCallIntentId?.let { intentId -> runCatching { apiForCurrentSession().cancelCallIntent(intentId) } }
+            failCall(callId, "${CallRuntime.snapshot(callId)?.mediaTransport?.label ?: "语音"} 呼叫启动失败，请检查三端 GsmRtc 日志。未自动切换语音协议。")
         } finally {
             pendingSipUri = null
         }
@@ -599,7 +600,7 @@ class HostCallService : android.app.Service() {
                         failCall(serverCallId, "Android could not start microphone access for this call")
                         return
                     }
-                    CallRuntime.setStatus("通话中。", serverCallId)
+                    CallRuntime.setStatus("通话中 · 语音：${current.mediaTransport.label} · 控制：SIP。", serverCallId)
                 }
             }
             EngineCallState.DISCONNECTED -> finishFromSipTerminal(serverCallId)
@@ -650,7 +651,7 @@ class HostCallService : android.app.Service() {
                 return
             }
             val accepted = CallRuntime.coordinator.incomingInvite(
-                invite = IncomingInviteIdentity(snapshot.transportCallId ?: snapshot.callId, serverCallId),
+                invite = IncomingInviteIdentity(snapshot.transportCallId ?: snapshot.callId, serverCallId, snapshot.mediaTransport),
                 authority = CallAuthority(
                     callId = authority.callId,
                     direction = authority.direction,

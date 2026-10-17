@@ -49,6 +49,7 @@ import com.callagent.host.background.BackgroundStatus
 import com.callagent.host.calls.CallAudioEndpoint
 import com.callagent.host.calls.CallNotificationManager
 import com.callagent.host.calls.CallPhase
+import com.callagent.host.calls.CallPreferences
 import com.callagent.host.calls.CallRuntime
 import com.callagent.host.calls.CallActionActivity
 import com.callagent.host.calls.startCallUi
@@ -2056,9 +2057,27 @@ class MainActivity : AppCompatActivity() {
         val panel = callPanel ?: return
         panel.removeAllViews()
         val call = CallRuntime.currentSession
+        val mediaSession = SessionStore(this).read()
+        val mediaPreferences = CallPreferences(this)
+        val webRtcSwitch = MaterialSwitch(this).apply {
+            text = "WebRTC 语音（实验）"
+            contentDescription = "WebRTC 语音开关"
+            isChecked = mediaPreferences.webRtcFor(mediaSession)
+            isEnabled = mediaSession != null && (call == null || !isLiveCallPhase(call.phase))
+            setOnCheckedChangeListener { _, enabled ->
+                if (!mediaPreferences.setWebRtc(mediaSession, enabled)) {
+                    showToast("语音协议设置保存失败。")
+                } else {
+                    android.util.Log.i("GsmRtc", "event=preference_changed media=${if (enabled) "webrtc" else "sip"} scope=new_calls")
+                }
+                renderCallPanel()
+            }
+        }
+        panel.addView(webRtcSwitch)
+        panel.addView(body("新呼叫语音：${if (webRtcSwitch.isChecked) "WebRTC · Opus / DTLS-SRTP" else "SIP"}；呼叫控制：SIP。WebRTC 需要更新的网关和服务器，失败不会自动回退 SIP。通话期间不能切换。"))
         if (call != null && isLiveCallPhase(call.phase)) {
             panel.addView(messageCard(
-                "${call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程号码"} · ${call.simId}\n${callPhaseLabel(call.phase)}${CallRuntime.currentStatus.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()}"
+                "${call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程号码"} · ${call.simId}\n本次语音：${call.mediaTransport.label} · 控制：SIP\n${callPhaseLabel(call.phase)}${CallRuntime.currentStatus.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()}"
             ))
             when (call.phase) {
                 CallPhase.INCOMING_RINGING -> {

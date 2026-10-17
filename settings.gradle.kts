@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Gsm2SipHost"
 include(":app")
+
+include(":rtcmedia")

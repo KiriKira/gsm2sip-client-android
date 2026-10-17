@@ -6,6 +6,7 @@ enum class EngineConnectionState { STOPPED, CONNECTING, READY, FAILED }
 enum class EngineCallState { INCOMING, RINGING, EARLY, CONNECTED, DISCONNECTED, FAILED }
 enum class EngineCallDirection { INBOUND, OUTBOUND }
 enum class CallRejection { DECLINED, EXPIRED }
+enum class CallMediaTransport(val label: String) { SIP("SIP"), WEBRTC("WebRTC") }
 
 /**
  * [callId] is the engine's operation key. [serverCallId] is correlation supplied by the
@@ -19,7 +20,8 @@ data class EngineCallSnapshot(
     val serverCallId: String? = null,
     val transportCallId: String? = null,
     val terminalStatusCode: Int? = null,
-    val terminalReason: String? = null
+    val terminalReason: String? = null,
+    val mediaTransport: CallMediaTransport = CallMediaTransport.SIP
 )
 
 /**

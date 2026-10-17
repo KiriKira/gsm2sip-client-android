@@ -42,6 +42,11 @@ interface SipEngine : AutoCloseable {
 
     fun register()
 
+    /** Freeze a signaling-only leg before dial/answer. WebRTC owns its audio. */
+    fun setExternalMedia(callId: String, enabled: Boolean) {
+        check(!enabled) { "This SIP engine cannot relinquish audio to WebRTC" }
+    }
+
     /** `serverCallId` is also the operation key for an outgoing call. */
     fun makeCall(serverCallId: String, sipUri: String)
 

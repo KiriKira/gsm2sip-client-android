@@ -95,7 +95,8 @@ object CallRuntime {
     ): Boolean {
         if (context.isFinishing || context.isDestroyed) return false
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return false
-        if (!coordinator.beginOutbound(simId, destination)) return false
+        val mode = if (CallPreferences(context).webRtcFor(SessionStore(context).read())) CallMediaTransport.WEBRTC else CallMediaTransport.SIP
+        if (!coordinator.beginOutbound(simId, destination, mode)) return false
         statusText = "正在检查远程 SIM 和 SIP 服务…"
         notifyChanged("pending")
         val accepted = HostCallService.startOutbound(

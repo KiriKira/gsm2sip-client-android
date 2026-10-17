@@ -28,7 +28,8 @@ data class CallSession(
     val muted: Boolean = false,
     val speaker: Boolean = false,
     val failure: String? = null,
-    val endNotice: String? = null
+    val endNotice: String? = null,
+    val mediaTransport: CallMediaTransport = CallMediaTransport.SIP
 )
 
 /** Values copied from the authenticated server call snapshot. */
@@ -44,7 +45,8 @@ data class CallAuthority(
 /** Correlation extracted from an actual SIP INVITE, not from a push or an HTTP snapshot. */
 data class IncomingInviteIdentity(
     val sipCallId: String,
-    val serverCallIdHeader: String?
+    val serverCallIdHeader: String?,
+    val mediaTransport: CallMediaTransport = CallMediaTransport.SIP
 )
 
 /**
@@ -60,7 +62,7 @@ class CallSessionCoordinator {
         private set
 
     @Synchronized
-    fun beginOutbound(simId: String, remoteNumber: String): Boolean {
+    fun beginOutbound(simId: String, remoteNumber: String, mediaTransport: CallMediaTransport = CallMediaTransport.SIP): Boolean {
         if (current?.phase?.isLive() == true || current?.phase == CallPhase.AUTHORIZING_OUTBOUND) return false
         current = CallSession(
             callId = "pending",
@@ -68,7 +70,8 @@ class CallSessionCoordinator {
             simId = simId,
             remoteNumber = remoteNumber,
             phase = CallPhase.AUTHORIZING_OUTBOUND,
-            expiresAtEpochMillis = 0L
+            expiresAtEpochMillis = 0L,
+            mediaTransport = mediaTransport
         )
         return true
     }
@@ -107,7 +110,8 @@ class CallSessionCoordinator {
             simId = authority.simId,
             remoteNumber = authority.remoteNumber,
             phase = CallPhase.INCOMING_RINGING,
-            expiresAtEpochMillis = authority.expiresAtEpochMillis
+            expiresAtEpochMillis = authority.expiresAtEpochMillis,
+            mediaTransport = invite.mediaTransport
         )
         return true
     }
