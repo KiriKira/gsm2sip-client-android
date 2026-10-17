@@ -24,9 +24,24 @@ jobs:
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - name: Assemble and run unit tests
         run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --max-workers=2
+      - name: Record debug build identity
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          info = json.loads(Path('debug-batch.json').read_text())
+          info.update(source_commit=os.environ['GITHUB_SHA'], run_url=os.environ['GITHUB_SERVER_URL'] + '/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + os.environ['GITHUB_RUN_ID'])
+          info['sha256'] = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in Path('app/build/outputs/apk/debug').glob('*.apk')}
+          if Path('gateway-magisk.zip').exists():
+              info['sha256']['gateway-magisk.zip'] = hashlib.sha256(Path('gateway-magisk.zip').read_bytes()).hexdigest()
+          Path('BUILD-INFO.json').write_text(json.dumps(info, indent=2) + '\n')
+          PY
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: gsm2sip-host-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            BUILD-INFO.json
+            DEBUG-BATCH.md
           if-no-files-found: error
