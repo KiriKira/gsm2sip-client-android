@@ -33,7 +33,7 @@ class HostJointInstrumentation:Instrumentation(){
     }
     private fun showMain():MainActivity{
         onMain{targetContext.startActivity(Intent(targetContext,MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))}
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))}
         val deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(120)
         while(System.nanoTime()<deadline){
             latestHost?.takeIf{!it.isDestroyed && it.hasWindowFocus()}?.let{return it}
@@ -59,9 +59,14 @@ class HostJointInstrumentation:Instrumentation(){
             val config=JSONObject(targetContext.filesDir.resolve("joint-fixture.json").readText())
             onMain{targetContext.stopService(Intent(targetContext,HostCallService::class.java))}
             Thread.sleep(500)
-            HostNodes.forgetAll(targetContext);SessionStore(targetContext).clear()
             stage="pair"
-            val session=ApiClient(config.getString("api_url"),SessionStore(targetContext)).pair(config.getString("pairing_code"),"RTC joint emulator host")
+            val session=if(config.optBoolean("reuse_pairing")){
+                checkNotNull(SessionStore(targetContext).read()){"resume_host_pairing_missing"}
+            }else{
+                HostNodes.forgetAll(targetContext);SessionStore(targetContext).clear()
+                ApiClient(config.getString("api_url"),SessionStore(targetContext)).pair(config.getString("pairing_code"),"RTC joint emulator host")
+            }
+            check(com.callagent.host.data.normalizeApiBaseUrl(session.apiBaseUrl)==com.callagent.host.data.normalizeApiBaseUrl(config.getString("api_url"))){"resume_host_origin_changed"}
             val api=ApiClient(session.apiBaseUrl,SessionStore(targetContext))
             check(api.listGateways().single().gatewayId==config.getString("gateway_id")){"fixture_gateway_mismatch"}
             CallEngineFactory.pcmForInstrumentation={
@@ -69,13 +74,13 @@ class HostJointInstrumentation:Instrumentation(){
                 LabPcmTone(500.0,900.0).also{tone->activeTone=tone;tones.add(tone);tone.start()}.pcm
             }
             stage="real_activity"
-            activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
             val initialHost=checkNotNull(activity)
             val focusDeadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(30)
             while(!initialHost.hasWindowFocus()){check(System.nanoTime()<focusDeadline){"activity_focus_timeout"};Thread.sleep(100)}
             onMain{check(CallRuntime.enableForegroundListening(initialHost)){"visible_listening_start_refused"}}
             targetContext.filesDir.resolve("joint-ready.json").writeText(JSONObject().put("status","READY").toString())
-            var last="";val deadline=System.nanoTime()+TimeUnit.MINUTES.toNanos(60)
+            var last="";val deadline=System.nanoTime()+TimeUnit.HOURS.toNanos(6)
             stage="commands"
             while(System.nanoTime()<deadline){
                 Thread.sleep(200)
@@ -88,7 +93,7 @@ class HostJointInstrumentation:Instrumentation(){
                         else resumedActivity?:latestHost?:initialHost
                     when(command.getString("op")){
                         "rtc"->{
-                            onMain{host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_settings}
+                            onMain{if(host.findViewById<MaterialSwitch>(R.id.webrtc_audio_switch)==null)host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_settings}
                             onMain{
                                 val toggle=checkNotNull(host.findViewById<MaterialSwitch>(R.id.webrtc_audio_switch)){"actual_ui_switch_missing"}
                                 check(toggle.isEnabled){"actual_ui_switch_disabled"}
@@ -98,8 +103,8 @@ class HostJointInstrumentation:Instrumentation(){
                             check(CallPreferences(targetContext).webRtcFor(SessionStore(targetContext).read())==command.getBoolean("enabled")){"ui_preference_not_saved"}
                         }
                         "dial"->{
-                            onMain{host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_phone}
-                            onMain{check(host.findViewById<android.view.View>(R.id.dialer_open).performClick())}
+                            onMain{if(host.findViewById<android.view.View>(R.id.dialer_call_button)==null)host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_phone}
+                            onMain{if(host.findViewById<android.view.View>(R.id.dialer_call_button)==null)check(host.findViewById<android.view.View>(R.id.dialer_open).performClick())}
                             onMain{
                                 val selector=checkNotNull(host.findViewById<com.google.android.material.chip.ChipGroup>(R.id.dialer_sim_selector))
                                 check(selector.childCount==1){"expected_one_emulated_sim:"+selector.childCount}

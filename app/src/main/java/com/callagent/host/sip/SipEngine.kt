@@ -6,6 +6,11 @@ enum class SipRegistrationState { STOPPED, REGISTERING, REGISTERED, FAILED }
 
 enum class SipCallState { INCOMING, RINGING, EARLY, CONFIRMED, DISCONNECTED, FAILED }
 
+/** 487 is the normal final response to CANCEL, including a caller hanging up
+ * before an incoming call is answered. It is not an audio/engine failure. */
+internal fun terminalSipCallState(statusCode: Int): SipCallState =
+    if (statusCode >= 300 && statusCode != 487) SipCallState.FAILED else SipCallState.DISCONNECTED
+
 enum class SipCallDirection { INBOUND, OUTBOUND }
 
 enum class SipAudioRoute { DEFAULT, EARPIECE, SPEAKER, WIRED_HEADSET, BLUETOOTH }

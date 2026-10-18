@@ -528,7 +528,7 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
         pjsip_inv_state.PJSIP_INV_STATE_CONNECTING -> SipCallState.EARLY
         pjsip_inv_state.PJSIP_INV_STATE_CONFIRMED -> SipCallState.CONFIRMED
         pjsip_inv_state.PJSIP_INV_STATE_DISCONNECTED ->
-            if (info.lastStatusCode >= 300) SipCallState.FAILED else SipCallState.DISCONNECTED
+            terminalSipCallState(info.lastStatusCode)
         else -> SipCallState.EARLY
     }
 
