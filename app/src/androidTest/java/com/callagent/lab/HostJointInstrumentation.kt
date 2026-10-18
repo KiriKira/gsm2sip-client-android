@@ -79,6 +79,12 @@ class HostJointInstrumentation:Instrumentation(){
             val focusDeadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(30)
             while(!initialHost.hasWindowFocus()){check(System.nanoTime()<focusDeadline){"activity_focus_timeout"};Thread.sleep(100)}
             onMain{check(CallRuntime.enableForegroundListening(initialHost)){"visible_listening_start_refused"}}
+            stage="sip_registration"
+            val registrationDeadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(90)
+            while(!CallRuntime.currentStatus.startsWith("SIP 已注册")){
+                check(System.nanoTime()<registrationDeadline){"actual_sip_registration_timeout"}
+                Thread.sleep(200)
+            }
             targetContext.filesDir.resolve("joint-ready.json").writeText(JSONObject().put("status","READY").toString())
             var last="";val deadline=System.nanoTime()+TimeUnit.HOURS.toNanos(6)
             stage="commands"

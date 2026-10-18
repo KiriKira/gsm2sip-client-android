@@ -86,7 +86,9 @@ class HostCallService : android.app.Service() {
     override fun onCreate() {
         super.onCreate()
         CallRuntime.attach(this)
-        runCatching { CallTelecomController.ensurePhoneAccount(this) }
+        // Telecom registration crosses Binder and can stall. It must not hold
+        // onCreate ahead of the startForeground deadline for incoming listening.
+        executeOnIo { runCatching { CallTelecomController.ensurePhoneAccount(this) } }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

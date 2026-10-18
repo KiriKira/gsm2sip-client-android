@@ -26,6 +26,22 @@ object HostNotificationChannels {
 
     private val RETIRED = listOf("host-background-service", "call_signaling", "host-inbound-sms", "remote_calls")
 
+    /** The foreground-service deadline must not wait for unrelated SMS/call
+     * channel maintenance or the accompanying System UI work. */
+    fun ensureCallSignaling(context: Context) {
+        if (Build.VERSION.SDK_INT < 26) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (manager.getNotificationChannel(CALL_SIGNALING) == null) {
+            manager.createNotificationChannel(callSignalingChannel())
+        }
+    }
+
+    private fun callSignalingChannel() = NotificationChannel(CALL_SIGNALING, "来电接收待命", NotificationManager.IMPORTANCE_MIN).apply {
+        description = "保持远程 SIM 来电信令连接时的常驻通知。只出现在通知栏中，不在状态栏显示图标。"
+        lockscreenVisibility = Notification.VISIBILITY_SECRET
+        setShowBadge(false)
+    }
+
     fun ensure(context: Context) {
         if (Build.VERSION.SDK_INT < 26) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -36,11 +52,7 @@ object HostNotificationChannels {
                 lockscreenVisibility = Notification.VISIBILITY_SECRET
                 setShowBadge(false)
             },
-            NotificationChannel(CALL_SIGNALING, "来电接收待命", NotificationManager.IMPORTANCE_MIN).apply {
-                description = "保持远程 SIM 来电信令连接时的常驻通知。只出现在通知栏中，不在状态栏显示图标。"
-                lockscreenVisibility = Notification.VISIBILITY_SECRET
-                setShowBadge(false)
-            },
+            callSignalingChannel(),
             NotificationChannel(INBOUND_SMS, "短信", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "收到短信时弹出提醒并显示内容；验证码短信可直接复制。"
                 lockscreenVisibility = Notification.VISIBILITY_PRIVATE
