@@ -98,6 +98,18 @@ class HostJointInstrumentation:Instrumentation(){
                     val host=if(command.getString("op") in setOf("rtc","dial"))showMain()
                         else resumedActivity?:latestHost?:initialHost
                     when(command.getString("op")){
+                        "listen"->onMain{check(CallRuntime.enableForegroundListening(host)){"visible_listening_start_refused"}}
+                        "reconnect"->{
+                            check(CallRuntime.currentSession?.phase !in setOf(CallPhase.ACTIVE,CallPhase.DIALING,CallPhase.ANSWERING)){"active_call_reconnect_forbidden"}
+                            onMain{CallRuntime.disableForegroundListening(targetContext)}
+                            Thread.sleep(700)
+                            onMain{check(CallRuntime.enableForegroundListening(host)){"visible_listening_start_refused"}}
+                        }
+                        "mesh_add"->{
+                            val node=HostNodes.add(targetContext,command.getString("api_url"),command.getString("pairing_code"),"RTC joint host mesh")
+                            HostNodes.catchUpSilently(targetContext,node)
+                            reply.put("added_node",node.key)
+                        }
                         "rtc"->{
                             onMain{if(host.findViewById<MaterialSwitch>(R.id.webrtc_audio_switch)==null)host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_settings}
                             onMain{
@@ -137,6 +149,12 @@ class HostJointInstrumentation:Instrumentation(){
                     reply.put("status","OK").put("listening",CallRuntime.isForegroundListening).put("phase",call?.phase?.name)
                         .put("call_id",call?.callId).put("media",call?.mediaTransport?.label).put("call_failure",call?.failure)
                         .put("runtime_status",CallRuntime.currentStatus).put("pcm",JSONArray(tones.map{it.report()}))
+                        .put("active_node",HostNodes.activeNode(targetContext)?.apiBaseUrl)
+                        .put("node_health",JSONArray(HostNodes.nodes(targetContext).map{node->
+                            val health=HostNodes.health(targetContext)[node.key]
+                            JSONObject().put("key",node.key).put("api_url",node.apiBaseUrl).put("active",HostNodes.activeNode(targetContext)?.key==node.key)
+                                .put("health",health.toString())
+                        }))
                 }catch(failure:Throwable){reply.put("status","FAIL").put("error",failure.javaClass.simpleName+":"+failure.message)}
                 targetContext.filesDir.resolve("joint-result.json").writeText(reply.toString())
             }
