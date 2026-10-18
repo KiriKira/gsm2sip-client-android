@@ -95,6 +95,8 @@ gradle.taskGraph.whenReady {
 
 dependencies {
     implementation(project(":rtcmedia"))
+    implementation(files(rootProject.project(":rtcmedia").layout.buildDirectory.file("webrtc-sdk/external-playout.aar"))
+        .builtBy(":rtcmedia:prepareWebRtcSdk"))
     implementation(files(providers.gradleProperty("pjsua2Aar").orElse("libs/pjsua2-2.17-dev.aar").get()))
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.core:core-ktx:1.16.0")

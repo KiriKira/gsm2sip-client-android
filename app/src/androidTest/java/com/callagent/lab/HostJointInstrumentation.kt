@@ -43,6 +43,8 @@ class HostJointInstrumentation:Instrumentation(){
             stage="real_activity"
             activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             val host=checkNotNull(activity)
+            val focusDeadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(30)
+            while(!host.hasWindowFocus()){check(System.nanoTime()<focusDeadline){"activity_focus_timeout"};Thread.sleep(100)}
             runOnMainSync{check(CallRuntime.enableForegroundListening(host)){"visible_listening_start_refused"}}
             targetContext.filesDir.resolve("joint-ready.json").writeText(JSONObject().put("status","READY").toString())
             var last="";val deadline=System.nanoTime()+TimeUnit.MINUTES.toNanos(25)
@@ -65,9 +67,14 @@ class HostJointInstrumentation:Instrumentation(){
                             check(CallPreferences(targetContext).webRtcFor(SessionStore(targetContext).read())==command.getBoolean("enabled")){"ui_preference_not_saved"}
                         }
                         "dial"->{
-                            val gateway=config.getString("gateway_id");val pair=api.listSims(gateway)
-                            val sim=pair.second.first{it.state=="active" && it.identityVerified}
-                            runOnMainSync{check(CallRuntime.startOutbound(host,gateway,sim.simId,"Emulated SIM",sim.mappingRevision,"+15550100200")){"outbound_start_refused"}}
+                            runOnMainSync{host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_phone}
+                            runOnMainSync{check(host.findViewById<android.view.View>(R.id.dialer_open).performClick())}
+                            runOnMainSync{
+                                host.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.dialer_destination).setText("+15550100200")
+                                val button=checkNotNull(host.findViewById<android.view.View>(R.id.dialer_call_button)){"actual_dial_button_missing"}
+                                check(button.isEnabled){"dial_disabled:"+host.findViewById<android.widget.TextView>(R.id.dialer_readiness)?.text}
+                                check(button.performClick())
+                            }
                         }
                         "answer"->runOnMainSync{check(CallRuntime.answerFromVisibleUser(host,checkNotNull(CallRuntime.currentCallId))){"answer_refused"}}
                         "reject"->runOnMainSync{CallRuntime.rejectFromUi(host,checkNotNull(CallRuntime.currentCallId))}

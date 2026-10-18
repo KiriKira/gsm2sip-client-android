@@ -1,24 +1,13 @@
-# WebRTC 实施状态
+# WebRTC 语音适配器
 
-更新：2026-10-16，分支 `feat/webrtc-migration`。
+更新：2026-10-18，分支 `ci/webrtc-sip-debug-20261017`。
 
-现有 HostCallService 通过 CallEngine/SipCallEngine 继续使用 SIP；页面、通知、Telecom 和用户设置的运行路径不变。
-本仓库尚未加入 WebRTC SDK、WSS 客户端或 WebRTC 引擎，也未声明 WebRTC 已可用。
-三端总计划与实时进度分别见服务端 `docs/plan-webrtc.md`、`docs/webrtc-migration-status.md`。
+主机的拨号页与设置页提供 **WebRTC 语音（实验）** 开关，按配对 profile 保存。每通电话冻结其语音协议，通话期间不允许切换。`HostCallService`、Telecom、通知和用户接听/麦克风授权路径保留，实际 `SipCallEngine` 在开关开启时选择 native `RtcAudioSession`，并禁止 PJSUA2 打开 SIP 音频设备。
 
-本批新增 `com.callagent.rtc.RemoteIceBuffer`：绑定节点/业务 call/leg/attempt/generation，验证远端设备，
-在对应 native setRemoteDescription 成功前有界缓存 ICE，用实例/代次 token 隔离迟到回调。
-处理重复/冲突 sequence、过期、EOC、资源上限和关闭，不能由新 generation 重开已关闭缓冲。
-源码/测试暂与网关保持字节一致，由服务端 `scripts/check_rtc_contract.py` 做交叉校验。
+SIP/Asterisk 保留既有通话授权、注册、呼叫控制、占用和 winner；新语音使用 native ICE/DTLS-SRTP/Opus。SDP/ICE 通过已有身份会话的 HTTPS API 转发。主机只有在 SIP confirmed、原生连接成功和网关报告蜂窝 ACTIVE 后才报告连接完成。静音和 DTMF 路由到本次选择的媒体实现。RTC 失败明确结束本通电话，不静默回退 SIP、不再拨一次 GSM。
 
-组件没有服务/UI 调用点和 Android/native 依赖；它不是完整的信令客户端。
-未来适配器必须保持同一 PeerConnection 串行执行器、执行前代次检查、服务器到期时间/本地时钟转换、
-认证及授权续期、重连完整性检查、用户接听授权与音频焦点边界，不能由候选或 SDP 直接打开音频。
+`rtcmedia` 使用与隔离探针相同的哈希固定 SDK 和外部 PCM Java 补丁。生产主机使用麦克风/播放设备；网关使用真实蜂窝 PCM 适配器，合成硬件实现只在 `androidTest` 中。测试可用同一 PJSIP source pin 的 x86_64 库覆盖模拟器，普通构建保留原有 ARM64 PJSUA2 AAR；不能把模拟器的合成 PCM 当作真机 modem/HAL 音频通过。
 
-后续补充 `RtcCommandCodec` 与五项测试，使用从服务端复制的六种 canonical 命令 fixtures。
-严格校验重复/未知字段、null、宽松 JSON、错误数值类型、UTF-8 字节上限、Unicode 代理对和 kind/payload 对应关系；
-编码器也校验内部命令，不能输出带错误 SDP/ICE 的 close。当前没有网络调用点或服务端 snapshot/ACK 适配。
+主机、网关及服务端均记录同一 `call_id` 对应的真实媒体选择和生命周期；不输出 SDP、会话令牌或 DTMF 数字。详细 API、Docker 与端口见 [服务端说明](https://github.com/KiriKira/gsm2sip-server/blob/ci/webrtc-sip-debug-20261017/docs/webrtc-audio.md)。
 
-最新 `:app:assembleDebug :app:testDebugUnitTest` 通过：186 项测试，0 失败/错误/跳过，含 10 项缓冲竞态和 5 项严格 codec 测试。
-构建产物未包含 WebRTC native 库。未执行真机通话、native PCM、TURN、UI 截图或仪器验收。
-网关仓库的 `probes/webrtc/` 提供独立媒体探针；当前只完成构建和工具/JVM 测试，不代表蜂窝音频已验证。
+当前双模拟器联合验收仍在进行，尚未发布新的可安装 Release。旧 `RemoteIceBuffer` / `RtcCommandCodec` 测试和独立协议探针属于组件证据，不能代替 `HostCallService → API/Asterisk → GatewayService → Telecom` 的完整通话验收。

@@ -133,6 +133,36 @@ class SipCallEngineTest {
         assertSame(failure, listener.error)
     }
 
+    @Test
+    fun sipAudioRemainsFrozenAndRetainsMuteDtmfAndAudioGates() {
+        val sip = FakeSipEngine()
+        var preference = CallMediaTransport.SIP
+        val engine = SipCallEngine(sip, requestedMode = { preference })
+        val listener = RecordingListener()
+        engine.start(SipConfiguration(available = true), listener)
+        engine.dial("legacy-call", "sip:authorized@example.test")
+        preference = CallMediaTransport.WEBRTC
+        engine.enableAudio("legacy-call")
+        engine.setMute("legacy-call", true)
+        engine.sendDtmf("legacy-call", "5")
+        engine.suspendAudio("legacy-call")
+        sip.listener.onCallState(SipCallSnapshot("legacy-call", SipCallDirection.OUTBOUND,
+            SipCallState.CONFIRMED, "sip:remote"))
+        assertEquals(CallMediaTransport.SIP, listener.calls.single().mediaTransport)
+        assertEquals(listOf("dial:legacy-call:sip:authorized@example.test", "enable:legacy-call",
+            "mute:legacy-call:true", "dtmf:legacy-call:5", "suspend:legacy-call"), sip.operations)
+    }
+
+    @Test
+    fun unavailableSelectedRtcCannotDialTheSipControlLegOrFallBack() {
+        val sip = FakeSipEngine()
+        val engine = SipCallEngine(sip, requestedMode = { CallMediaTransport.WEBRTC })
+        assertThrows(IllegalStateException::class.java) {
+            engine.dial("rtc-call", "sip:authorized@example.test")
+        }
+        assertTrue(sip.operations.isEmpty())
+    }
+
     private class RecordingListener(private val onCall: (EngineCallSnapshot) -> Unit = {}) : CallEngine.Listener {
         val connections = mutableListOf<EngineConnectionState>()
         val calls = mutableListOf<EngineCallSnapshot>()

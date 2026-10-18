@@ -1,5 +1,7 @@
 # gsm2sip-client-android
 
+实验分支已接入可选 WebRTC 语音：主机在拨号页/设置里开启后，新通话使用 ICE/DTLS-SRTP/Opus，SIP 仍负责呼叫控制；失败不自动回退或重拨。需同时更新网关与服务端，并配置必要的 TURN 端口。[部署与端口说明](https://github.com/KiriKira/gsm2sip-server/blob/ci/webrtc-sip-debug-20261017/docs/webrtc-audio.md)。双模拟器联合验收正在进行；真实蜂窝音频还需真机验证。
+
 [自动构建与 Release、固定签名配置](docs/releases.md)：`main` 推送发布预览版，版本标签发布正式版；首次发布前运行签名 Secrets 配置脚本。
 
 Android host app for controlling calls and SMS through the two SIMs in a separate Android gateway phone (SMS-only operation needs no root). The Material 3 Expressive interface follows the Google Phone / Messages look (search pill, rounded list tiles, monogram avatars, pill dial pad, round in-call controls) and has three bottom destinations: **电话 / 短信 / 设置**. Phone history opens a dedicated dial pad; SMS conversations show their remote SIM and open a message editor. Server pairing, permissions, paired devices and backups live in Settings. See [the host UI design](docs/host-ui-redesign.md).
