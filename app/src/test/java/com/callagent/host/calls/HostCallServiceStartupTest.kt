@@ -20,6 +20,35 @@ import java.util.concurrent.ExecutorService
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], shadows = [StartupTelecomShadow::class])
 class HostCallServiceStartupTest {
+    @Test fun failedOutgoingPreflightKeepsExistingIncomingListener() {
+        StartupTelecomShadow.entered = CountDownLatch(1)
+        StartupTelecomShadow.release = CountDownLatch(0)
+        StartupTelecomShadow.returned = CountDownLatch(1)
+        val controller = Robolectric.buildService(HostCallService::class.java).create()
+        val service = controller.get()
+        try {
+            assertTrue(StartupTelecomShadow.returned.await(5, TimeUnit.SECONDS))
+            for ((name, value) in mapOf("foregroundListening" to true, "listeningRequested" to true,
+                "connectionState" to EngineConnectionState.READY)) {
+                HostCallService::class.java.getDeclaredField(name).apply { isAccessible = true }.set(service, value)
+            }
+            assertTrue(CallRuntime.coordinator.beginOutbound("sim", "15550100200", CallMediaTransport.WEBRTC))
+            service.onStartCommand(Intent(service, HostCallService::class.java)
+                .setAction("com.callagent.host.calls.OUTBOUND"), 0, 1)
+            val completed = CountDownLatch(1)
+            val field = HostCallService::class.java.getDeclaredField("io").apply { isAccessible = true }
+            (field.get(service) as ExecutorService).execute { completed.countDown() }
+            assertTrue(completed.await(5, TimeUnit.SECONDS))
+            assertEquals(CallPhase.FAILED, CallRuntime.currentSession?.phase)
+            assertTrue("Rejected outbound must retain incoming listening", service.isForegroundListening)
+            assertNotNull(shadowOf(service).lastForegroundNotification)
+            assertFalse("Existing listening service must remain alive", shadowOf(service).isStoppedBySelf)
+        } finally {
+            controller.destroy()
+            CallRuntime.clearTerminal("pending")
+        }
+    }
+
     @Test fun retiredNodeCleanupCannotStopNewListeningRequest() = checkRetiredNodeCleanup(false)
 
     @Test fun retiredNodeCleanupCannotFailNextNodesNewCall() = checkRetiredNodeCleanup(true)

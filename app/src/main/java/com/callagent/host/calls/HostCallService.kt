@@ -810,6 +810,18 @@ class HostCallService : android.app.Service() {
         pendingOutboundExpiry = 0L
         pendingGatewayId = null
         pendingSimId = null
+        // A rejected outgoing preflight does not invalidate an existing SIP
+        // registration or the user's incoming-call opt-in.
+        if (listeningRequested && foregroundListening && connectionState == EngineConnectionState.READY) {
+            if (startSignalingForeground()) {
+                mainHandler.removeCallbacks(pollPendingCalls)
+                mainHandler.post(pollPendingCalls)
+                return
+            }
+            foregroundListening = false
+            listeningRequested = false
+            CallRuntime.onListeningFailed(this, "Android 无法恢复来电信令服务。")
+        }
         closeEngine()
         stopSelf()
     }
