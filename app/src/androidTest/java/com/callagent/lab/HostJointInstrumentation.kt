@@ -129,7 +129,9 @@ class HostJointInstrumentation:Instrumentation(){
                                 check(selector.getChildAt(0).performClick())
                             }
                             onMain{
-                                host.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.dialer_destination).setText("+15550100200")
+                                val number=command.optString("number","+15550100200")
+                                check(number in setOf("+15550100200","15550100200")){"fixed_emulator_number_required"}
+                                host.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.dialer_destination).setText(number)
                                 val button=checkNotNull(host.findViewById<android.view.View>(R.id.dialer_call_button)){"actual_dial_button_missing"}
                                 check(button.isEnabled){"dial_disabled:"+host.findViewById<android.widget.TextView>(R.id.dialer_readiness)?.text}
                                 check(button.performClick())
