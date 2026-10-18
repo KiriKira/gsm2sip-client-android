@@ -37,7 +37,7 @@ android {
         versionCode = appVersionCode
         versionName = releaseVersionName
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        testInstrumentationRunner = providers.gradleProperty("rtcLabRunner").orElse("androidx.test.runner.AndroidJUnitRunner").get()
     }
 
     compileOptions {
@@ -95,7 +95,7 @@ gradle.taskGraph.whenReady {
 
 dependencies {
     implementation(project(":rtcmedia"))
-    implementation(files("libs/pjsua2-2.17-dev.aar"))
+    implementation(files(providers.gradleProperty("pjsua2Aar").orElse("libs/pjsua2-2.17-dev.aar").get()))
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.lifecycle:lifecycle-livedata-core:2.8.7") {

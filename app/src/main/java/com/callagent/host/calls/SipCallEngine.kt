@@ -17,6 +17,7 @@ internal class SipCallEngine(
     private val sip: SipEngine,
     private val context: Context? = null,
     private val mediaApi: MediaApi? = null,
+    private val pcmForCall: ((String) -> com.callagent.rtcmedia.PcmBridge?)? = null,
     private val requestedMode: (String?) -> CallMediaTransport = { CallMediaTransport.SIP }
 ) : CallEngine {
     @Volatile private var listener: CallEngine.Listener? = null
@@ -60,7 +61,7 @@ internal class SipCallEngine(
         val mapped=EngineCallSnapshot(snapshot.callId,
             if(snapshot.direction==SipCallDirection.INBOUND)EngineCallDirection.INBOUND else EngineCallDirection.OUTBOUND,
             state,snapshot.serverCallIdHeader,snapshot.dialogCallId,snapshot.terminalStatusCode,snapshot.terminalReason,mode)
-        Log.i("GsmRtc","media=${mode.label.lowercase()} call_control=sip call_id=${serverIds[snapshot.callId]?:snapshot.callId} event=control_${state.name.lowercase()}")
+        if(context!=null)Log.i("GsmRtc","media=${mode.label.lowercase()} call_control=sip call_id=${serverIds[snapshot.callId]?:snapshot.callId} event=control_${state.name.lowercase()}")
         if(state==EngineCallState.CONNECTED && mode==CallMediaTransport.WEBRTC){
             confirmed[snapshot.callId]=mapped;reportConnected(snapshot.callId);return
         }
@@ -85,7 +86,7 @@ internal class SipCallEngine(
         }
         sip.setExternalMedia(key,true)
         serverIds[key]=serverCallId
-        val media=RtcAudioSession(app,admission,api,false,onReady={reportConnected(key)},onFailure={reason->
+        val media=RtcAudioSession(app,admission,api,false,pcmForCall?.invoke(serverCallId),onReady={reportConnected(key)},onFailure={reason->
             Log.w("GsmRtc","media=webrtc call_control=sip call_id=$serverCallId event=failed reason=$reason")
             runCatching{sip.hangup(key)}
             listener?.onEngineError(IllegalStateException("WebRTC audio failed: $reason"))
@@ -97,7 +98,7 @@ internal class SipCallEngine(
     override fun connect()=sip.register()
     override fun dial(serverCallId:String,destination:String){
         val mode=requestedMode(serverCallId);modes[serverCallId]=mode;serverIds[serverCallId]=serverCallId
-        Log.i("GsmRtc","media=${mode.label.lowercase()} call_control=sip call_id=$serverCallId event=selected")
+        if(context!=null)Log.i("GsmRtc","media=${mode.label.lowercase()} call_control=sip call_id=$serverCallId event=selected")
         if(mode==CallMediaTransport.WEBRTC)startRtc(serverCallId,serverCallId)
         try{sip.makeCall(serverCallId,destination)}catch(failure:Throwable){rtc.remove(serverCallId)?.close();throw failure}
     }
@@ -115,6 +116,7 @@ internal class SipCallEngine(
     }
     override fun enableAudio(callId:String){
         audioAllowed.add(callId)
+        modes.putIfAbsent(callId,requestedMode(callId))
         if(modes[callId]==CallMediaTransport.WEBRTC)rtc[callId]?.enableAudio(true) else sip.enableAudio(callId)
     }
     override fun suspendAudio(callId:String){
@@ -127,13 +129,16 @@ internal class SipCallEngine(
 }
 
 object CallEngineFactory {
+    /** Only an instrumentation process can inject hardware in memory. Ordinary
+     * app builds have no synthetic PCM implementation or external control. */
+    internal var pcmForInstrumentation: ((String) -> com.callagent.rtcmedia.PcmBridge?)? = null
     fun isAvailable(context:Context):Boolean=SipEngineFactory.isAvailable(context)
     fun startSip(context:Context,config:SipConfiguration,listener:CallEngine.Listener):CallEngine {
         val app=context.applicationContext
         val store=SessionStore(app)
         val session=checkNotNull(store.read()){"Paired session missing"}
         val api=ApiClient(session.apiBaseUrl,store,5000,5000)
-        return SipCallEngine(SipEngineFactory.create(app),app,MediaApi{method,path,body->api.rtcRequest(method,path,body)}){id->
+        return SipCallEngine(SipEngineFactory.create(app),app,MediaApi{method,path,body->api.rtcRequest(method,path,body)},pcmForInstrumentation){id->
             val active=CallRuntime.currentSession?.takeIf{it.callId==id}
             active?.mediaTransport?:if(CallPreferences(app).webRtcFor(store.read()))CallMediaTransport.WEBRTC else CallMediaTransport.SIP
         }.also{it.start(config,listener)}
