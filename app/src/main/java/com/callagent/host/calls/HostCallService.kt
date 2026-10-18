@@ -604,7 +604,9 @@ class HostCallService : android.app.Service() {
                 }
             }
             EngineCallState.DISCONNECTED -> finishFromSipTerminal(serverCallId)
-            EngineCallState.FAILED -> failCall(serverCallId, "通话失败${snapshot.terminalStatusCode?.let { "（$it）" }.orEmpty()}。")
+            EngineCallState.FAILED -> failCall(serverCallId,
+                if (snapshot.mediaTransport == CallMediaTransport.WEBRTC) "WebRTC 通话连接失败，请查看通话日志。"
+                else "通话失败${snapshot.terminalStatusCode?.let { "（$it）" }.orEmpty()}。")
             EngineCallState.INCOMING -> Unit
         }
     }
@@ -1233,7 +1235,14 @@ class HostCallService : android.app.Service() {
             return
         }
         val current = CallRuntime.currentSessionForService()
-        if (current?.phase?.isInProgress() == true) failCall(current.callId, "加密 SIP 通话连接失败。")
+        if (current?.phase?.isInProgress() == true) {
+            val message = if (current.mediaTransport == CallMediaTransport.WEBRTC) {
+                "WebRTC 通话连接失败，请查看通话日志。"
+            } else {
+                "加密 SIP 通话连接失败。"
+            }
+            failCall(current.callId, message)
+        }
         else if (foregroundListening) {
             foregroundListening = false
             listeningRequested = false

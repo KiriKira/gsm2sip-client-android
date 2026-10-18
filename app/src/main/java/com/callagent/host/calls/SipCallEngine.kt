@@ -76,7 +76,7 @@ internal class SipCallEngine(
         val media=rtc[key]?:return
         if(media.isConnected && media.cellularActive && connectedDelivered.add(key))listener?.onCallState(snapshot)
     }
-    private fun startRtc(key:String,serverCallId:String){
+    private fun startRtc(key:String,serverCallId:String,direction:EngineCallDirection){
         val app=checkNotNull(context){"RTC context missing"}
         check(RtcAudioSession.isAvailable(app)){"WebRTC native engine unavailable on this device"}
         val api=checkNotNull(mediaApi)
@@ -88,8 +88,12 @@ internal class SipCallEngine(
         serverIds[key]=serverCallId
         val media=RtcAudioSession(app,admission,api,false,pcmForCall?.invoke(serverCallId),onReady={reportConnected(key)},onFailure={reason->
             Log.w("GsmRtc","media=webrtc call_control=sip call_id=$serverCallId event=failed reason=$reason")
+            // Media failure belongs to this call. Reporting a global SIP
+            // engine error after hangup would turn off incoming listening.
+            listener?.onCallState(EngineCallSnapshot(key,direction,EngineCallState.FAILED,
+                serverCallId=serverCallId,terminalReason="WebRTC audio failed: $reason",
+                mediaTransport=CallMediaTransport.WEBRTC))
             runCatching{sip.hangup(key)}
-            listener?.onEngineError(IllegalStateException("WebRTC audio failed: $reason"))
         })
         check(rtc.putIfAbsent(key,media)==null){"WebRTC media already exists"}
         media.enableAudio(key in audioAllowed)
@@ -99,11 +103,11 @@ internal class SipCallEngine(
     override fun dial(serverCallId:String,destination:String){
         val mode=requestedMode(serverCallId);modes[serverCallId]=mode;serverIds[serverCallId]=serverCallId
         if(context!=null)Log.i("GsmRtc","media=${mode.label.lowercase()} call_control=sip call_id=$serverCallId event=selected")
-        if(mode==CallMediaTransport.WEBRTC)startRtc(serverCallId,serverCallId)
+        if(mode==CallMediaTransport.WEBRTC)startRtc(serverCallId,serverCallId,EngineCallDirection.OUTBOUND)
         try{sip.makeCall(serverCallId,destination)}catch(failure:Throwable){rtc.remove(serverCallId)?.close();throw failure}
     }
     override fun answer(callId:String){
-        if(modes[callId]==CallMediaTransport.WEBRTC)startRtc(callId,checkNotNull(serverIds[callId]))
+        if(modes[callId]==CallMediaTransport.WEBRTC)startRtc(callId,checkNotNull(serverIds[callId]),EngineCallDirection.INBOUND)
         try{sip.answer(callId)}catch(failure:Throwable){rtc.remove(callId)?.close();throw failure}
     }
     override fun reject(callId:String,reason:CallRejection){rtc.remove(callId)?.close();sip.reject(callId,if(reason==CallRejection.DECLINED)603 else 408)}

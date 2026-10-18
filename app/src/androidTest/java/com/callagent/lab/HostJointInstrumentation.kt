@@ -20,6 +20,27 @@ import java.util.concurrent.TimeUnit
 /** Real host service/UI + native SIP control and RTC media; replaces only the
  * microphone/speaker hardware through the production engine's PCM dependency. */
 class HostJointInstrumentation:Instrumentation(){
+    @Volatile private var latestHost:MainActivity?=null
+    @Volatile private var resumedActivity:Activity?=null
+    override fun callActivityOnResume(activity:Activity){
+        super.callActivityOnResume(activity)
+        resumedActivity=activity
+        if(activity is MainActivity)latestHost=activity
+    }
+    override fun callActivityOnPause(activity:Activity){
+        if(resumedActivity===activity)resumedActivity=null
+        super.callActivityOnPause(activity)
+    }
+    private fun showMain():MainActivity{
+        onMain{targetContext.startActivity(Intent(targetContext,MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))}
+        val deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(120)
+        while(System.nanoTime()<deadline){
+            latestHost?.takeIf{!it.isDestroyed && it.hasWindowFocus()}?.let{return it}
+            Thread.sleep(100)
+        }
+        error("current_main_activity_focus_timeout")
+    }
     private var stage="fixture"
         set(value){field=value;runCatching{targetContext.filesDir.resolve("joint-stage.txt").writeText(value)}}
     private fun onMain(action:()->Unit){
@@ -49,12 +70,12 @@ class HostJointInstrumentation:Instrumentation(){
             }
             stage="real_activity"
             activity=startActivitySync(Intent(targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            val host=checkNotNull(activity)
+            val initialHost=checkNotNull(activity)
             val focusDeadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(30)
-            while(!host.hasWindowFocus()){check(System.nanoTime()<focusDeadline){"activity_focus_timeout"};Thread.sleep(100)}
-            onMain{check(CallRuntime.enableForegroundListening(host)){"visible_listening_start_refused"}}
+            while(!initialHost.hasWindowFocus()){check(System.nanoTime()<focusDeadline){"activity_focus_timeout"};Thread.sleep(100)}
+            onMain{check(CallRuntime.enableForegroundListening(initialHost)){"visible_listening_start_refused"}}
             targetContext.filesDir.resolve("joint-ready.json").writeText(JSONObject().put("status","READY").toString())
-            var last="";val deadline=System.nanoTime()+TimeUnit.MINUTES.toNanos(25)
+            var last="";val deadline=System.nanoTime()+TimeUnit.MINUTES.toNanos(60)
             stage="commands"
             while(System.nanoTime()<deadline){
                 Thread.sleep(200)
@@ -63,13 +84,16 @@ class HostJointInstrumentation:Instrumentation(){
                 val id=command.getString("id");if(id==last)continue;last=id
                 val reply=JSONObject().put("id",id)
                 try{
+                    val host=if(command.getString("op") in setOf("rtc","dial"))showMain()
+                        else resumedActivity?:latestHost?:initialHost
                     when(command.getString("op")){
                         "rtc"->{
                             onMain{host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_settings}
                             onMain{
                                 val toggle=checkNotNull(host.findViewById<MaterialSwitch>(R.id.webrtc_audio_switch)){"actual_ui_switch_missing"}
                                 check(toggle.isEnabled){"actual_ui_switch_disabled"}
-                                if(toggle.isChecked!=command.getBoolean("enabled"))check(toggle.performClick())
+                                if(toggle.isChecked!=command.getBoolean("enabled"))toggle.performClick()
+                                check(toggle.isChecked==command.getBoolean("enabled")){"actual_ui_switch_did_not_toggle"}
                             }
                             check(CallPreferences(targetContext).webRtcFor(SessionStore(targetContext).read())==command.getBoolean("enabled")){"ui_preference_not_saved"}
                         }
