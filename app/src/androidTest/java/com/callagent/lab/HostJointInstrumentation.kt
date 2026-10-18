@@ -21,6 +21,12 @@ import java.util.concurrent.TimeUnit
  * microphone/speaker hardware through the production engine's PCM dependency. */
 class HostJointInstrumentation:Instrumentation(){
     private var stage="fixture"
+        set(value){field=value;runCatching{targetContext.filesDir.resolve("joint-stage.txt").writeText(value)}}
+    private fun onMain(action:()->Unit){
+        var failure:Throwable?=null
+        runOnMainSync{try{action()}catch(error:Throwable){failure=error}}
+        failure?.let{throw it}
+    }
     override fun onCreate(arguments:Bundle?){super.onCreate(arguments);start()}
     override fun onStart(){
         val tones=CopyOnWriteArrayList<LabPcmTone>()
@@ -30,12 +36,13 @@ class HostJointInstrumentation:Instrumentation(){
         try{
             check(android.os.Build.SUPPORTED_ABIS.contains("x86_64")){"emulator_only"}
             val config=JSONObject(targetContext.filesDir.resolve("joint-fixture.json").readText())
-            runOnMainSync{targetContext.stopService(Intent(targetContext,HostCallService::class.java))}
+            onMain{targetContext.stopService(Intent(targetContext,HostCallService::class.java))}
             Thread.sleep(500)
             HostNodes.forgetAll(targetContext);SessionStore(targetContext).clear()
             stage="pair"
             val session=ApiClient(config.getString("api_url"),SessionStore(targetContext)).pair(config.getString("pairing_code"),"RTC joint emulator host")
             val api=ApiClient(session.apiBaseUrl,SessionStore(targetContext))
+            check(api.listGateways().single().gatewayId==config.getString("gateway_id")){"fixture_gateway_mismatch"}
             CallEngineFactory.pcmForInstrumentation={
                 activeTone?.close()
                 LabPcmTone(500.0,900.0).also{tone->activeTone=tone;tones.add(tone);tone.start()}.pcm
@@ -45,7 +52,7 @@ class HostJointInstrumentation:Instrumentation(){
             val host=checkNotNull(activity)
             val focusDeadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(30)
             while(!host.hasWindowFocus()){check(System.nanoTime()<focusDeadline){"activity_focus_timeout"};Thread.sleep(100)}
-            runOnMainSync{check(CallRuntime.enableForegroundListening(host)){"visible_listening_start_refused"}}
+            onMain{check(CallRuntime.enableForegroundListening(host)){"visible_listening_start_refused"}}
             targetContext.filesDir.resolve("joint-ready.json").writeText(JSONObject().put("status","READY").toString())
             var last="";val deadline=System.nanoTime()+TimeUnit.MINUTES.toNanos(25)
             stage="commands"
@@ -58,8 +65,8 @@ class HostJointInstrumentation:Instrumentation(){
                 try{
                     when(command.getString("op")){
                         "rtc"->{
-                            runOnMainSync{host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_settings}
-                            runOnMainSync{
+                            onMain{host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_settings}
+                            onMain{
                                 val toggle=checkNotNull(host.findViewById<MaterialSwitch>(R.id.webrtc_audio_switch)){"actual_ui_switch_missing"}
                                 check(toggle.isEnabled){"actual_ui_switch_disabled"}
                                 if(toggle.isChecked!=command.getBoolean("enabled"))check(toggle.performClick())
@@ -67,21 +74,26 @@ class HostJointInstrumentation:Instrumentation(){
                             check(CallPreferences(targetContext).webRtcFor(SessionStore(targetContext).read())==command.getBoolean("enabled")){"ui_preference_not_saved"}
                         }
                         "dial"->{
-                            runOnMainSync{host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_phone}
-                            runOnMainSync{check(host.findViewById<android.view.View>(R.id.dialer_open).performClick())}
-                            runOnMainSync{
+                            onMain{host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_phone}
+                            onMain{check(host.findViewById<android.view.View>(R.id.dialer_open).performClick())}
+                            onMain{
+                                val selector=checkNotNull(host.findViewById<com.google.android.material.chip.ChipGroup>(R.id.dialer_sim_selector))
+                                check(selector.childCount==1){"expected_one_emulated_sim:"+selector.childCount}
+                                check(selector.getChildAt(0).performClick())
+                            }
+                            onMain{
                                 host.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.dialer_destination).setText("+15550100200")
                                 val button=checkNotNull(host.findViewById<android.view.View>(R.id.dialer_call_button)){"actual_dial_button_missing"}
                                 check(button.isEnabled){"dial_disabled:"+host.findViewById<android.widget.TextView>(R.id.dialer_readiness)?.text}
                                 check(button.performClick())
                             }
                         }
-                        "answer"->runOnMainSync{check(CallRuntime.answerFromVisibleUser(host,checkNotNull(CallRuntime.currentCallId))){"answer_refused"}}
-                        "reject"->runOnMainSync{CallRuntime.rejectFromUi(host,checkNotNull(CallRuntime.currentCallId))}
-                        "hangup"->runOnMainSync{CallRuntime.hangupFromUi(host,checkNotNull(CallRuntime.currentCallId))}
-                        "mute"->runOnMainSync{CallRuntime.setMuted(host,checkNotNull(CallRuntime.currentCallId),command.getBoolean("enabled"))}
-                        "dtmf"->runOnMainSync{CallRuntime.sendDtmf(host,checkNotNull(CallRuntime.currentCallId),"5")}
-                        "clear"->runOnMainSync{CallRuntime.currentSession?.let{CallRuntime.clearTerminal(it.callId)}}
+                        "answer"->onMain{check(CallRuntime.answerFromVisibleUser(host,checkNotNull(CallRuntime.currentCallId))){"answer_refused"}}
+                        "reject"->onMain{CallRuntime.rejectFromUi(host,checkNotNull(CallRuntime.currentCallId))}
+                        "hangup"->onMain{CallRuntime.hangupFromUi(host,checkNotNull(CallRuntime.currentCallId))}
+                        "mute"->onMain{CallRuntime.setMuted(host,checkNotNull(CallRuntime.currentCallId),command.getBoolean("enabled"))}
+                        "dtmf"->onMain{CallRuntime.sendDtmf(host,checkNotNull(CallRuntime.currentCallId),"5")}
+                        "clear"->onMain{CallRuntime.currentSession?.let{CallRuntime.clearTerminal(it.callId)}}
                         "status"->Unit
                         "stop"->break
                         else->error("unknown_op")
@@ -97,7 +109,7 @@ class HostJointInstrumentation:Instrumentation(){
         }catch(failure:Throwable){result.put("status","FAIL").put("error",failure.javaClass.simpleName+":"+failure.message)}
         finally{
             CallEngineFactory.pcmForInstrumentation=null
-            runCatching{runOnMainSync{CallRuntime.disableForegroundListening(targetContext);activity?.finish()}}
+            runCatching{onMain{CallRuntime.disableForegroundListening(targetContext);activity?.finish()}}
             tones.forEach{it.close()};result.put("stage",stage)
             targetContext.filesDir.resolve("joint-finished.json").writeText(result.toString())
             finish(Activity.RESULT_OK,Bundle().apply{putString("joint_result",result.toString())})
