@@ -66,9 +66,20 @@ class HostJointInstrumentation:Instrumentation(){
                 HostNodes.forgetAll(targetContext);SessionStore(targetContext).clear()
                 ApiClient(config.getString("api_url"),SessionStore(targetContext)).pair(config.getString("pairing_code"),"RTC joint emulator host")
             }
-            check(com.callagent.host.data.normalizeApiBaseUrl(session.apiBaseUrl)==com.callagent.host.data.normalizeApiBaseUrl(config.getString("api_url"))){"resume_host_origin_changed"}
+            val originalOrigin=com.callagent.host.data.normalizeApiBaseUrl(session.apiBaseUrl)==
+                com.callagent.host.data.normalizeApiBaseUrl(config.getString("api_url"))
+            check(originalOrigin || HostNodes.nodes(targetContext).any{
+                it.sessionInstanceId==session.sessionInstanceId &&
+                    com.callagent.host.data.normalizeApiBaseUrl(it.apiBaseUrl)==com.callagent.host.data.normalizeApiBaseUrl(session.apiBaseUrl)
+            }){"resume_host_origin_not_enrolled"}
             val api=ApiClient(session.apiBaseUrl,SessionStore(targetContext))
-            check(api.listGateways().single().gatewayId==config.getString("gateway_id")){"fixture_gateway_mismatch"}
+            val gateway=api.listGateways().single()
+            if(originalOrigin){
+                check(gateway.gatewayId==config.getString("gateway_id")){"fixture_gateway_mismatch"}
+            }else{
+                val installId=checkNotNull(HostNodes.installId(targetContext)){"resume_mesh_install_missing"}
+                check(gateway.installId==installId){"resume_mesh_gateway_install_mismatch"}
+            }
             CallEngineFactory.pcmForInstrumentation={
                 activeTone?.close()
                 LabPcmTone(500.0,900.0).also{tone->activeTone=tone;tones.add(tone);tone.start()}.pcm

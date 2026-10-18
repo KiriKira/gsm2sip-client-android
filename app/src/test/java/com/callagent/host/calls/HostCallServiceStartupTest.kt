@@ -15,10 +15,51 @@ import org.robolectric.annotation.Implementation
 import org.robolectric.annotation.Implements
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ExecutorService
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], shadows = [StartupTelecomShadow::class])
 class HostCallServiceStartupTest {
+    @Test fun retiredNodeCleanupCannotStopNewListeningRequest() = checkRetiredNodeCleanup(false)
+
+    @Test fun retiredNodeCleanupCannotFailNextNodesNewCall() = checkRetiredNodeCleanup(true)
+
+    private fun checkRetiredNodeCleanup(newCall: Boolean) {
+        StartupTelecomShadow.entered = CountDownLatch(1)
+        StartupTelecomShadow.release = CountDownLatch(1)
+        StartupTelecomShadow.returned = CountDownLatch(1)
+        val controller = Robolectric.buildService(HostCallService::class.java).create()
+        val service = controller.get()
+        val reachedBarrier = CountDownLatch(1)
+        val releaseBarrier = CountDownLatch(1)
+        try {
+            assertTrue(StartupTelecomShadow.entered.await(5, TimeUnit.SECONDS))
+            service.onStartCommand(Intent(service, HostCallService::class.java).setAction("test.old.node"), 0, 1)
+            service.stopForSessionChange()
+            val field = HostCallService::class.java.getDeclaredField("io").apply { isAccessible = true }
+            (field.get(service) as ExecutorService).execute {
+                reachedBarrier.countDown()
+                releaseBarrier.await(10, TimeUnit.SECONDS)
+            }
+            if (newCall) assertTrue(CallRuntime.coordinator.beginOutbound("sim", "15550100200", CallMediaTransport.WEBRTC))
+            service.onStartCommand(Intent(service, HostCallService::class.java)
+                .setAction("com.callagent.host.calls.LISTEN"), 0, 2)
+            StartupTelecomShadow.release.countDown()
+            assertTrue(reachedBarrier.await(5, TimeUnit.SECONDS))
+            assertFalse("An old node must not stop the new node's service", shadowOf(service).isStoppedBySelf)
+            assertTrue("The newer LISTEN remains active", service.isForegroundListening)
+            if (newCall) assertEquals(CallPhase.AUTHORIZING_OUTBOUND, CallRuntime.currentSession?.phase)
+        } finally {
+            controller.destroy()
+            StartupTelecomShadow.release.countDown()
+            releaseBarrier.countDown()
+            if (newCall) {
+                CallRuntime.coordinator.failed("pending", "test cleanup")
+                CallRuntime.clearTerminal("pending")
+            }
+        }
+    }
+
     @Test fun slowTelecomRegistrationDoesNotBlockForegroundPromotion() {
         StartupTelecomShadow.entered = CountDownLatch(1)
         StartupTelecomShadow.release = CountDownLatch(1)

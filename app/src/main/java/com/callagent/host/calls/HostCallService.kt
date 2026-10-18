@@ -50,6 +50,7 @@ class HostCallService : android.app.Service() {
     private val networkEventGeneration = AtomicLong(0L)
     @Volatile private var engineGeneration = 0L
     @Volatile private var destroying = false
+    @Volatile private var latestStartId = 0
     @Volatile private var networkCallback: ConnectivityManager.NetworkCallback? = null
     @Volatile private var networkMonitorGeneration = 0L
     private var currentDefaultNetwork: Network? = null
@@ -92,6 +93,7 @@ class HostCallService : android.app.Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         if (intent == null) {
             val persisted = runCatching { CallPreferences(this).enabledFor(sessionStore.read()) }.getOrDefault(false)
             if (persisted) setForegroundListening(true) else stopSelf(startId)
@@ -227,13 +229,17 @@ class HostCallService : android.app.Service() {
     }
 
     internal fun stopForSessionChange() {
-        listeningGeneration.incrementAndGet()
+        val generation = listeningGeneration.incrementAndGet()
+        val retiredStartId = latestStartId
+        // Capture this account's call now. A newer node can start another
+        // call while its predecessor's serial teardown is still queued.
+        val retiredCall = CallRuntime.currentSessionForService()?.takeIf { it.phase.isInProgress() }
         listeningRequested = false
         foregroundListening = false
         mainHandler.removeCallbacks(pollPendingCalls)
         stopSignalingForeground()
         executeOnIo {
-            val call = CallRuntime.currentSessionForService()?.takeIf { it.phase.isInProgress() }
+            val call = retiredCall?.takeIf { CallRuntime.snapshot(it.callId)?.phase?.isInProgress() == true }
             if (call != null) {
                 val engineKey = inboundEngineIds[call.callId] ?: call.callId
                 if (call.direction == CallDirection.INCOMING && call.phase == CallPhase.INCOMING_RINGING) {
@@ -248,8 +254,14 @@ class HostCallService : android.app.Service() {
                     statusText = "配对账户已变化，通话已结束。"
                 )
             } else {
+                // A new LISTEN owns its engine setup and will close the old
+                // endpoint if needed. Never let an older node stop that work.
+                if (generation != listeningGeneration.get()) return@executeOnIo
                 closeEngine()
-                stopSelf()
+                if (generation == listeningGeneration.get() && !foregroundListening) {
+                    // Android also fences a start delivered during closeEngine.
+                    stopSelf(retiredStartId)
+                }
             }
         }
     }
