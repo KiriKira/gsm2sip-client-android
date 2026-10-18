@@ -1,6 +1,6 @@
 # WebRTC 语音适配器
 
-更新：2026-10-18，分支 `ci/webrtc-sip-debug-20261017`。
+更新：2026-10-19，分支 `ci/webrtc-sip-debug-20261017`。
 
 主机的拨号页与设置页提供 **WebRTC 语音（实验）** 开关，按配对 profile 保存。每通电话冻结其语音协议，通话期间不允许切换。`HostCallService`、Telecom、通知和用户接听/麦克风授权路径保留，实际 `SipCallEngine` 在开关开启时选择 native `RtcAudioSession`，并禁止 PJSUA2 打开 SIP 音频设备。
 
@@ -10,4 +10,4 @@ SIP/Asterisk 保留既有通话授权、注册、呼叫控制、占用和 winner
 
 主机、网关及服务端均记录同一 `call_id` 对应的真实媒体选择和生命周期；不输出 SDP、会话令牌或 DTMF 数字。详细 API、Docker 与端口见 [服务端说明](https://github.com/KiriKira/gsm2sip-server/blob/ci/webrtc-sip-debug-20261017/docs/webrtc-audio.md)。
 
-当前双模拟器联合验收仍在进行，尚未发布新的可安装 Release。旧 `RemoteIceBuffer` / `RtcCommandCodec` 测试和独立协议探针属于组件证据，不能代替 `HostCallService → API/Asterisk → GatewayService → Telecom` 的完整通话验收。
+本批双模拟器联合验收已通过，并发布沿用原签名的 Debug Release；[结果、范围与下载](webrtc-joint-validation-20261019.md)。包括呼入/呼出双向测试音频、控制事件、TURN UDP/TCP 和 A→B→C→A 备用切换；物理蜂窝音频仍待真机。旧 `RemoteIceBuffer` / `RtcCommandCodec` 测试和独立协议探针属于组件证据，不能代替 `HostCallService → API/Asterisk → GatewayService → Telecom` 的完整通话验收。
