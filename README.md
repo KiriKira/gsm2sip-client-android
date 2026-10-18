@@ -1,6 +1,6 @@
 # gsm2sip-client-android
 
-实验分支已接入可选 WebRTC 语音：主机在拨号页/设置里开启后，新通话使用 ICE/DTLS-SRTP/Opus，SIP 仍负责呼叫控制；失败不自动回退或重拨。需同时更新网关与服务端，并配置必要的 TURN 端口。[部署与端口说明](https://github.com/KiriKira/gsm2sip-server/blob/ci/webrtc-sip-debug-20261017/docs/webrtc-audio.md)。双模拟器联合验收正在进行；真实蜂窝音频还需真机验证。
+实验分支当前只接入 WebRTC 音频，呼叫控制仍依赖 SIP/Asterisk，**尚未完成替换 Asterisk 的迁移目标**。主机在设置页开启过渡音频选项；拨号页保留联系人建议区，通话界面显示实际媒体状态。[已验证的过渡范围](docs/webrtc-joint-validation-20261019.md)、[移除依赖的实施与验收条件](https://github.com/KiriKira/gsm2sip-server/blob/ci/webrtc-sip-debug-20261017/docs/webrtc-asterisk-removal.md)。
 
 [自动构建与 Release、固定签名配置](docs/releases.md)：`main` 推送发布预览版，版本标签发布正式版；首次发布前运行签名 Secrets 配置脚本。
 

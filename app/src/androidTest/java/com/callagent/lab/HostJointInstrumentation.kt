@@ -122,7 +122,12 @@ class HostJointInstrumentation:Instrumentation(){
                             reply.put("added_node",node.key)
                         }
                         "rtc"->{
-                            onMain{if(host.findViewById<MaterialSwitch>(R.id.webrtc_audio_switch)==null)host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_settings}
+                            onMain{
+                                if(host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation)==null){
+                                    checkNotNull(host.findViewById<android.view.View>(R.id.screen_back)){"actual_back_button_missing"}.performClick()
+                                }
+                            }
+                            onMain{checkNotNull(host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation)){"actual_tabs_missing"}.selectedItemId=R.id.tab_settings}
                             onMain{
                                 val toggle=checkNotNull(host.findViewById<MaterialSwitch>(R.id.webrtc_audio_switch)){"actual_ui_switch_missing"}
                                 check(toggle.isEnabled){"actual_ui_switch_disabled"}

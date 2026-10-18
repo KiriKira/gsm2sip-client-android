@@ -1402,7 +1402,6 @@ class MainActivity : AppCompatActivity() {
      */
     private fun renderDialer(content: LinearLayout): View {
         content.addView(topBar("拨号"))
-        addWebRtcAudioPreference(content)
 
         val contactHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         if (checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
@@ -2062,7 +2061,7 @@ class MainActivity : AppCompatActivity() {
         val mediaPreferences = CallPreferences(this)
         val webRtcSwitch = MaterialSwitch(this).apply {
             id = R.id.webrtc_audio_switch
-            text = "WebRTC 语音（实验）"
+            text = "WebRTC 音频（过渡）"
             contentDescription = "WebRTC 语音开关"
             isChecked = mediaPreferences.webRtcFor(mediaSession)
             isEnabled = mediaSession != null && (call == null || !isLiveCallPhase(call.phase))
@@ -2076,14 +2075,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         panel.addView(webRtcSwitch)
-        panel.addView(body("新呼叫语音：${if (webRtcSwitch.isChecked) "WebRTC · Opus / DTLS-SRTP" else "SIP"}；呼叫控制：SIP。WebRTC 需要更新的网关和服务器，失败不会自动回退 SIP。通话期间不能切换。"))
+        panel.addView(body("${if (webRtcSwitch.isChecked) "新通话使用 WebRTC 音频，呼叫控制仍依赖 SIP/Asterisk。" else "新通话使用原 SIP 音频。"} 此版本尚未移除 Asterisk 依赖，通话期间不能切换。"))
     }
 
     private fun renderCallPanel() {
         val panel = callPanel ?: return
         panel.removeAllViews()
         val call = CallRuntime.currentSession
-        addWebRtcAudioPreference(panel)
         if (call != null && isLiveCallPhase(call.phase)) {
             panel.addView(messageCard(
                 "${call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程号码"} · ${call.simId}\n本次语音：${call.mediaTransport.label} · 控制：SIP\n${callPhaseLabel(call.phase)}${CallRuntime.currentStatus.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()}"

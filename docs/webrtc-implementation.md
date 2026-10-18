@@ -1,8 +1,10 @@
 # WebRTC 语音适配器
 
+**迁移目标尚未完成。** 本批实现只替换音频，呼叫控制仍依赖 SIP/Asterisk；关闭 Asterisk 后不能完成通话。此前通过的联合验收仅证明这一过渡架构可用，不能作为“已替换 Asterisk”的证据。完整移除依赖的边界见[后续实施与验收条件](https://github.com/KiriKira/gsm2sip-server/blob/ci/webrtc-sip-debug-20261017/docs/webrtc-asterisk-removal.md)。
+
 更新：2026-10-19，分支 `ci/webrtc-sip-debug-20261017`。
 
-主机的拨号页与设置页提供 **WebRTC 语音（实验）** 开关，按配对 profile 保存。每通电话冻结其语音协议，通话期间不允许切换。`HostCallService`、Telecom、通知和用户接听/麦克风授权路径保留，实际 `SipCallEngine` 在开关开启时选择 native `RtcAudioSession`，并禁止 PJSUA2 打开 SIP 音频设备。
+主机仅在设置页提供 **WebRTC 音频（过渡）** 开关，按配对 profile 保存。每通电话冻结其语音协议，通话期间不允许切换。`HostCallService`、Telecom、通知和用户接听/麦克风授权路径保留，实际 `SipCallEngine` 在开关开启时选择 native `RtcAudioSession`，并禁止 PJSUA2 打开 SIP 音频设备。
 
 SIP/Asterisk 保留既有通话授权、注册、呼叫控制、占用和 winner；新语音使用 native ICE/DTLS-SRTP/Opus。SDP/ICE 通过已有身份会话的 HTTPS API 转发。主机只有在 SIP confirmed、原生连接成功和网关报告蜂窝 ACTIVE 后才报告连接完成。静音和 DTMF 路由到本次选择的媒体实现。RTC 失败明确结束本通电话，不静默回退 SIP、不再拨一次 GSM。
 
