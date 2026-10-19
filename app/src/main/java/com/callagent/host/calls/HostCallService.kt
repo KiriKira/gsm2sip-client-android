@@ -395,8 +395,7 @@ class HostCallService : android.app.Service() {
             }
             val expiresAt = parseEpochMillis(intent.expiresAt) ?: throw IllegalStateException("Call authorization had no valid expiry")
             if (!CallRuntime.coordinator.outboundAuthorized(intent.callId, expiresAt, System.currentTimeMillis(),
-                    if(config==null) CallControlTransport.RTC else CallControlTransport.SIP,
-                    if(config==null) CallMediaTransport.WEBRTC else CallMediaTransport.SIP)) {
+                    if(config==null) CallControlTransport.RTC else CallControlTransport.SIP)) {
                 runCatching { cancelAuthorization(api, intent.intentId) }
                 return
             }
@@ -914,9 +913,9 @@ class HostCallService : android.app.Service() {
                 val compatibility = compatibilitySipConfiguration
                 if(compatibility==null) rtcFactory(listenerFor(generation)) else
                     runCatching { CompatibilityCallEngine(listenerFor(generation),rtcFactory) { listener ->
-                        CallEngineFactory.startSip(this,compatibility,listener,sipMediaOnly=true)
+                        CallEngineFactory.startSip(this,compatibility,listener,legacyIncomingOnly=true)
                     } }.getOrElse { Log.w(TAG,"SIP compatibility engine unavailable; RTC remains enabled");rtcFactory(listenerFor(generation)) }
-            } else CallEngineFactory.startSip(this, config, listenerFor(generation), sipMediaOnly=true)
+            } else CallEngineFactory.startSip(this, config, listenerFor(generation))
             callEngine = candidate
             engineSession = targetSession
             sipConfiguration = config

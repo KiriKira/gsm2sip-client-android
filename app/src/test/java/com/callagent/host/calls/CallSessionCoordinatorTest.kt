@@ -7,20 +7,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CallSessionCoordinatorTest {
-    @Test fun oldSipOnlyBackupFreezesSipBeforeDispatchEvenWhenRtcWasPreferred() {
-        val coordinator = CallSessionCoordinator()
-        assertTrue(coordinator.beginOutbound("sim", "+15551234567", CallMediaTransport.WEBRTC))
-        assertTrue(coordinator.outboundAuthorized("old-node-call", 30_000, 0,
-            CallControlTransport.SIP, CallMediaTransport.SIP))
-        assertEquals(CallMediaTransport.SIP, coordinator.current?.mediaTransport)
-        assertEquals(CallControlTransport.SIP, coordinator.current?.controlTransport)
-        assertTrue(coordinator.registrationReady("old-node-call"))
-        assertFalse(coordinator.outboundAuthorized("different-node-call", 30_000, 0,
-            CallControlTransport.RTC, CallMediaTransport.WEBRTC))
-        assertEquals("old-node-call", coordinator.current?.callId)
-        assertEquals(CallMediaTransport.SIP, coordinator.current?.mediaTransport)
-    }
-
     @Test
     fun incomingInviteNeedsMatchingUnexpiredServerAuthority() {
         val coordinator = CallSessionCoordinator()

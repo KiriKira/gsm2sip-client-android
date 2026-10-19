@@ -99,8 +99,8 @@ public final class PairedUiFixtureInstrumentation extends Instrumentation {
                     .getMethod("beginOutbound", String.class, String.class, mediaType)
                     .invoke(coordinator, "synthetic-sim-a", "+15550102001", sipMedia);
             boolean authorized = began && (Boolean) coordinator.getClass()
-                    .getMethod("outboundAuthorized", String.class, long.class, long.class, controlType, mediaType)
-                    .invoke(coordinator, callId, now + 600000L, now, sipControl, sipMedia);
+                    .getMethod("outboundAuthorized", String.class, long.class, long.class, controlType)
+                    .invoke(coordinator, callId, now + 600000L, now, sipControl);
             boolean ready = authorized && (Boolean) coordinator.getClass()
                     .getMethod("registrationReady", String.class).invoke(coordinator, callId);
             if (!ready) throw new IllegalStateException("could not prepare synthetic outgoing call UI phase");
