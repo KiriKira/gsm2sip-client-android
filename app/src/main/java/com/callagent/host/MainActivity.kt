@@ -212,6 +212,7 @@ class MainActivity : AppCompatActivity() {
     private var callServerReason: String? = null
     private var callAvailabilityLoading = false
     private var callAvailabilityCheckedAt = 0L
+    private var callAvailabilityGeneration = 0L
     private var pendingDialAfterMicGrant: (() -> Unit)? = null
     private var selectedRestoreSimId: String? = null
     private var savedScrollY = 0
@@ -2012,10 +2013,20 @@ class MainActivity : AppCompatActivity() {
 
     private var independentCallControlAvailable = false
 
+    private fun resetCallAvailability() {
+        callAvailabilityGeneration += 1L
+        callAvailabilityLoading = false
+        callAvailabilityCheckedAt = 0L
+        callServerAvailable = null
+        callServerReason = null
+        independentCallControlAvailable = false
+    }
+
     private fun refreshCallAvailability(force: Boolean = false) {
         if (session == null || callAvailabilityLoading) return
         if (!force && System.currentTimeMillis() - callAvailabilityCheckedAt < 60_000L) return
         callAvailabilityLoading = true
+        val generation = callAvailabilityGeneration
         renderCurrentScreen()
         val expected = session ?: return
         val expectedDatabase = database
@@ -2027,12 +2038,14 @@ class MainActivity : AppCompatActivity() {
                 if (rtc) Triple(true, null, true) else expectedApi.getSipConfiguration().let { Triple(it.available, it.reason, false) }
             }
             mainHandler.post {
+                if (generation != callAvailabilityGeneration) return@post
                 callAvailabilityLoading = false
-                callAvailabilityCheckedAt = System.currentTimeMillis()
                 val latest = sessionStore.read()
-                val currentStillExpected = session?.sameSessionInstance(expected) == true && database === expectedDatabase
+                val currentStillExpected = session?.sameSessionInstance(expected) == true && database === expectedDatabase &&
+                    (latest == null || latest.sameSessionInstance(expected))
                 val revoked = result.exceptionOrNull() is SessionNeedsPairing && latest == null && currentStillExpected
                 if (!currentStillExpected && !revoked) return@post
+                callAvailabilityCheckedAt = System.currentTimeMillis()
                 result.onSuccess {
                     callServerAvailable = it.first
                     callServerReason = it.second
@@ -2043,7 +2056,7 @@ class MainActivity : AppCompatActivity() {
                         is SessionNeedsPairing -> "配对会话已失效，请重新配对。"
                         is SessionChanged -> "配对账户已变化，请刷新。"
                         is ApiFailure -> "服务器暂不可用（${failure.code}）。"
-                        else -> "无法读取服务器 SIP 可用状态。"
+                        else -> "无法读取服务器语音可用状态。"
                     }
                 }
                 if (revoked) {
@@ -2075,7 +2088,7 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     android.util.Log.i("GsmRtc", "event=preference_changed media=${if (enabled) "webrtc" else "sip"} scope=new_calls")
                     CallRuntime.onVoicePolicyChanged(this@MainActivity)
-                    callAvailabilityCheckedAt = 0L
+                    resetCallAvailability()
                     refreshCallAvailability(force = true)
                 }
                 renderCurrentScreen()
@@ -2160,7 +2173,7 @@ class MainActivity : AppCompatActivity() {
 
         val serverText = when {
             callAvailabilityLoading -> "正在检查服务器呼叫服务…"
-            callServerAvailable == true -> "服务器 SIP 配置可用。"
+            callServerAvailable == true -> if(independentCallControlAvailable) "服务器 Go/RTC 呼叫控制可用。" else "服务器 SIP 配置可用。"
             callServerAvailable == false -> callServerReason ?: "服务器呼叫服务不可用。"
             else -> "服务器呼叫状态尚未检查。"
         }
@@ -3043,6 +3056,7 @@ class MainActivity : AppCompatActivity() {
             statusMessage = "已切换到节点 ${HostNodes.hostLabel(latest.apiBaseUrl)}。"
             showDashboard()
             ensurePairedRuntimeStarted()
+            refreshCallAvailability(force = true)
             syncFromServer(showProgress = false)
             return
         }
@@ -3052,13 +3066,19 @@ class MainActivity : AppCompatActivity() {
         selectedSimId = null
         switchDatabase(session)
         statusMessage = message
-        if (session == null) showPairing(message) else showDashboard()
+        if (session == null) showPairing(message) else {
+            showDashboard()
+            refreshCallAvailability(force = true)
+        }
     }
 
     private fun switchDatabase(ownerSession: HostSession?) {
         val nextName = ownerSession?.databaseName() ?: "host-unpaired.db"
         val nextScope = ownerSession?.nodeScope.orEmpty()
         if (databaseName == nextName && databaseScope == nextScope && ::database.isInitialized) return
+        // Availability belongs to this node and account. A failed retired
+        // node's late response must not disable the healthy replacement.
+        resetCallAvailability()
         if (databaseName.isNotBlank() && databaseName != nextName) {
             CallRuntime.disableForegroundListening(this)
         }
