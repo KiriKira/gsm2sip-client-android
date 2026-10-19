@@ -80,11 +80,13 @@ class CallSessionCoordinator {
 
     @Synchronized
     fun outboundAuthorized(callId: String, expiresAtEpochMillis: Long, nowEpochMillis: Long,
-                           controlTransport: CallControlTransport = CallControlTransport.SIP): Boolean {
+                           controlTransport: CallControlTransport = CallControlTransport.SIP,
+                           mediaTransport: CallMediaTransport? = null): Boolean {
         val state = current ?: return false
         if (state.phase != CallPhase.AUTHORIZING_OUTBOUND || callId.isBlank() || expiresAtEpochMillis <= nowEpochMillis) return false
         current = state.copy(callId = callId, expiresAtEpochMillis = expiresAtEpochMillis,
-            phase = CallPhase.REGISTERING, controlTransport = controlTransport)
+            phase = CallPhase.REGISTERING, controlTransport = controlTransport,
+            mediaTransport = mediaTransport ?: state.mediaTransport)
         return true
     }
 

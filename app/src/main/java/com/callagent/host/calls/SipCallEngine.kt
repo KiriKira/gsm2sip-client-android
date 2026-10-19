@@ -138,14 +138,14 @@ object CallEngineFactory {
     internal var pcmForInstrumentation: ((String) -> com.callagent.rtcmedia.PcmBridge?)? = null
     fun isAvailable(context:Context):Boolean = if(CallPreferences(context).webRtcFor(SessionStore(context).read()))
         RtcAudioSession.isAvailable(context) else SipEngineFactory.isAvailable(context)
-    fun startSip(context:Context,config:SipConfiguration,listener:CallEngine.Listener, legacyIncomingOnly:Boolean=false):CallEngine {
+    fun startSip(context:Context,config:SipConfiguration,listener:CallEngine.Listener, sipMediaOnly:Boolean=false):CallEngine {
         val app=context.applicationContext
         val store=SessionStore(app)
         val session=checkNotNull(store.read()){"Paired session missing"}
         val api=ApiClient(session.apiBaseUrl,store,5000,5000)
         return SipCallEngine(SipEngineFactory.create(app),app,MediaApi{method,path,body->api.rtcRequest(method,path,body)},pcmForInstrumentation){id->
             val active=CallRuntime.currentSession?.takeIf{it.callId==id}
-            if(legacyIncomingOnly) CallMediaTransport.SIP else active?.mediaTransport?:if(CallPreferences(app).webRtcFor(store.read()))CallMediaTransport.WEBRTC else CallMediaTransport.SIP
+            if(sipMediaOnly) CallMediaTransport.SIP else active?.mediaTransport?:if(CallPreferences(app).webRtcFor(store.read()))CallMediaTransport.WEBRTC else CallMediaTransport.SIP
         }.also{it.start(config,listener)}
     }
 }
