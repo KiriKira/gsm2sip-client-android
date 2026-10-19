@@ -231,7 +231,7 @@ class CallActionActivity : AppCompatActivity() {
             setTextColor(color(androidx.appcompat.R.attr.colorPrimary))
             setPadding(0, dp(8), 0, dp(if (compact) 8 else 16))
         })
-        if (call != null) root.addView(label("语音：${call.mediaTransport.label} · 控制：SIP", 14f).apply {
+        if (call != null) root.addView(label("语音：${call.mediaTransport.label} · 控制：${CallRuntime.controlLabel}", 14f).apply {
             setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant))
         })
         call?.endNotice?.takeIf { it.isNotBlank() }?.let { root.addView(label(it, 15f)) }

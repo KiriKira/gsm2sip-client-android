@@ -29,7 +29,8 @@ data class CallSession(
     val speaker: Boolean = false,
     val failure: String? = null,
     val endNotice: String? = null,
-    val mediaTransport: CallMediaTransport = CallMediaTransport.SIP
+    val mediaTransport: CallMediaTransport = CallMediaTransport.SIP,
+    val controlTransport: CallControlTransport? = null
 )
 
 /** Values copied from the authenticated server call snapshot. */
@@ -42,11 +43,12 @@ data class CallAuthority(
     val expiresAtEpochMillis: Long
 )
 
-/** Correlation extracted from an actual SIP INVITE, not from a push or an HTTP snapshot. */
+/** Correlation from the authenticated control engine, checked against call authority. */
 data class IncomingInviteIdentity(
     val sipCallId: String,
     val serverCallIdHeader: String?,
-    val mediaTransport: CallMediaTransport = CallMediaTransport.SIP
+    val mediaTransport: CallMediaTransport = CallMediaTransport.SIP,
+    val controlTransport: CallControlTransport = CallControlTransport.SIP
 )
 
 /**
@@ -77,10 +79,12 @@ class CallSessionCoordinator {
     }
 
     @Synchronized
-    fun outboundAuthorized(callId: String, expiresAtEpochMillis: Long, nowEpochMillis: Long): Boolean {
+    fun outboundAuthorized(callId: String, expiresAtEpochMillis: Long, nowEpochMillis: Long,
+                           controlTransport: CallControlTransport = CallControlTransport.SIP): Boolean {
         val state = current ?: return false
         if (state.phase != CallPhase.AUTHORIZING_OUTBOUND || callId.isBlank() || expiresAtEpochMillis <= nowEpochMillis) return false
-        current = state.copy(callId = callId, expiresAtEpochMillis = expiresAtEpochMillis, phase = CallPhase.REGISTERING)
+        current = state.copy(callId = callId, expiresAtEpochMillis = expiresAtEpochMillis,
+            phase = CallPhase.REGISTERING, controlTransport = controlTransport)
         return true
     }
 
@@ -111,7 +115,8 @@ class CallSessionCoordinator {
             remoteNumber = authority.remoteNumber,
             phase = CallPhase.INCOMING_RINGING,
             expiresAtEpochMillis = authority.expiresAtEpochMillis,
-            mediaTransport = invite.mediaTransport
+            mediaTransport = invite.mediaTransport,
+            controlTransport = invite.controlTransport
         )
         return true
     }

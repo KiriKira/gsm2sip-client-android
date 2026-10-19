@@ -41,7 +41,9 @@ object CallRuntime {
     val currentCallId: String? get() = coordinator.current?.callId?.takeUnless { it == "pending" }
     val currentSession: CallSession? get() = coordinator.current
     val currentStatus: String get() = statusText
+    val controlLabel: String get() = currentSession?.controlTransport?.label ?: service?.controlLabel ?: "待确认"
     val isForegroundListening: Boolean get() = service?.isForegroundListening == true
+    val isSignalingReady: Boolean get() = service?.isSignalingReady == true
     val isListeningRequested: Boolean get() = wantsForegroundListening
 
     fun restoreForegroundPreference(context: Context, session: HostSession?) {
@@ -56,7 +58,7 @@ object CallRuntime {
             service?.stopForSessionChange()
         }
         SipCredentialStore(context).clearForDifferentSession(session)
-        wantsForegroundListening = CallPreferences(context).enabledFor(session) && session?.sipAvailable == true
+        wantsForegroundListening = CallPreferences(context).enabledFor(session) && (session?.sipAvailable == true || CallPreferences(context).webRtcFor(session))
         rememberedSessionInstance = nextSessionInstance
         rememberedProfileKey = session?.profileKey
     }
@@ -97,7 +99,7 @@ object CallRuntime {
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return false
         val mode = if (CallPreferences(context).webRtcFor(SessionStore(context).read())) CallMediaTransport.WEBRTC else CallMediaTransport.SIP
         if (!coordinator.beginOutbound(simId, destination, mode)) return false
-        statusText = "正在检查远程 SIM 和 SIP 服务…"
+        statusText = "正在检查远程 SIM 和语音服务…"
         notifyChanged("pending")
         val accepted = HostCallService.startOutbound(
             context.applicationContext,
@@ -115,6 +117,15 @@ object CallRuntime {
         return accepted
     }
 
+    fun onVoicePolicyChanged(context: Context) {
+        val session = SessionStore(context).read() ?: return
+        service?.stopForSessionChange()
+        if (CallPreferences(context).enabledFor(session)) {
+            wantsForegroundListening = true
+            HostCallService.setForegroundListening(context.applicationContext, true)
+        }
+    }
+
     fun enableForegroundListening(activity: Activity): Boolean {
         return ensureIncomingCallSignalingForPairedSession(activity)
     }
@@ -128,7 +139,7 @@ object CallRuntime {
         val context = activity.applicationContext
         val session = runCatching { SessionStore(context).read() }.getOrNull() ?: return false
         val preferences = CallPreferences(context)
-        if (!preferences.canAutoListenFor(session, availabilityOverride ?: session.sipAvailable)) return false
+        if (!preferences.canAutoListenFor(session, availabilityOverride ?: (session.sipAvailable || preferences.webRtcFor(session)))) return false
 
         synchronized(signalingStartLock) {
             if (!isVisibleAndFocused(activity)) return false
@@ -145,7 +156,7 @@ object CallRuntime {
             }
             if (signalingStartRequestedFor == session.sessionInstanceId) return true
 
-            statusText = "正在启动后台 SIP 来电接收…"
+            statusText = "正在启动后台来电接收…"
             notifyChanged(currentCallId)
             signalingStartRequestedFor = session.sessionInstanceId
             val started = if (service != null) {

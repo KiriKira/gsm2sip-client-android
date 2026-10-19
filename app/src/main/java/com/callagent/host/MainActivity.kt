@@ -1712,7 +1712,7 @@ class MainActivity : AppCompatActivity() {
             paired = session != null,
             gatewayOnline = current != null && GatewayStatusPresenter.isOnline(current,
                 current.lastSeenAt?.let { runCatching { Instant.parse(it) }.getOrNull() }, System.currentTimeMillis()),
-            gatewaySipRegistered = current?.sipRegistered,
+            gatewaySipRegistered = if(independentCallControlAvailable) null else current?.sipRegistered,
             gatewayRevision = current?.mappingRevision,
             line = line,
             callServerAvailable = callServerAvailable,
@@ -2010,6 +2010,8 @@ class MainActivity : AppCompatActivity() {
         smsThreadSendButton?.isEnabled = line?.canSend == true && gateway?.mappingRevision == line.mappingRevision
     }
 
+    private var independentCallControlAvailable = false
+
     private fun refreshCallAvailability(force: Boolean = false) {
         if (session == null || callAvailabilityLoading) return
         if (!force && System.currentTimeMillis() - callAvailabilityCheckedAt < 60_000L) return
@@ -2021,7 +2023,8 @@ class MainActivity : AppCompatActivity() {
         executor.execute {
             val result = runCatching {
                 if (sessionStore.read()?.sameSessionInstance(expected) != true || database !== expectedDatabase) throw SessionChanged()
-                expectedApi.getSipConfiguration()
+                val rtc = CallPreferences(this).webRtcFor(expected) && expectedApi.rtcControlAvailable()
+                if (rtc) Triple(true, null, true) else expectedApi.getSipConfiguration().let { Triple(it.available, it.reason, false) }
             }
             mainHandler.post {
                 callAvailabilityLoading = false
@@ -2031,8 +2034,9 @@ class MainActivity : AppCompatActivity() {
                 val revoked = result.exceptionOrNull() is SessionNeedsPairing && latest == null && currentStillExpected
                 if (!currentStillExpected && !revoked) return@post
                 result.onSuccess {
-                    callServerAvailable = it.available
-                    callServerReason = it.reason
+                    callServerAvailable = it.first
+                    callServerReason = it.second
+                    independentCallControlAvailable = it.third
                 }.onFailure { failure ->
                     callServerAvailable = false
                     callServerReason = when (failure) {
@@ -2061,7 +2065,7 @@ class MainActivity : AppCompatActivity() {
         val mediaPreferences = CallPreferences(this)
         val webRtcSwitch = MaterialSwitch(this).apply {
             id = R.id.webrtc_audio_switch
-            text = "WebRTC 音频（过渡）"
+            text = "WebRTC 语音"
             contentDescription = "WebRTC 语音开关"
             isChecked = mediaPreferences.webRtcFor(mediaSession)
             isEnabled = mediaSession != null && (call == null || !isLiveCallPhase(call.phase))
@@ -2070,12 +2074,15 @@ class MainActivity : AppCompatActivity() {
                     showToast("语音协议设置保存失败。")
                 } else {
                     android.util.Log.i("GsmRtc", "event=preference_changed media=${if (enabled) "webrtc" else "sip"} scope=new_calls")
+                    CallRuntime.onVoicePolicyChanged(this@MainActivity)
+                    callAvailabilityCheckedAt = 0L
+                    refreshCallAvailability(force = true)
                 }
                 renderCurrentScreen()
             }
         }
         panel.addView(webRtcSwitch)
-        panel.addView(body("${if (webRtcSwitch.isChecked) "新通话使用 WebRTC 音频，呼叫控制仍依赖 SIP/Asterisk。" else "新通话使用原 SIP 音频。"} 此版本尚未移除 Asterisk 依赖，通话期间不能切换。"))
+        panel.addView(body("${if (webRtcSwitch.isChecked) "新服务端使用 Go 呼叫控制与 WebRTC 音频；旧服务端保留兼容路径。" else "新通话使用原 SIP 音频。"} 通话期间不能切换，实际控制路径显示在通话页和日志中。"))
     }
 
     private fun renderCallPanel() {
@@ -2084,7 +2091,7 @@ class MainActivity : AppCompatActivity() {
         val call = CallRuntime.currentSession
         if (call != null && isLiveCallPhase(call.phase)) {
             panel.addView(messageCard(
-                "${call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程号码"} · ${call.simId}\n本次语音：${call.mediaTransport.label} · 控制：SIP\n${callPhaseLabel(call.phase)}${CallRuntime.currentStatus.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()}"
+                "${call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程号码"} · ${call.simId}\n本次语音：${call.mediaTransport.label} · 控制：${CallRuntime.controlLabel}\n${callPhaseLabel(call.phase)}${CallRuntime.currentStatus.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()}"
             ))
             when (call.phase) {
                 CallPhase.INCOMING_RINGING -> {

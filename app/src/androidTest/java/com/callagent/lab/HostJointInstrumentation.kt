@@ -90,10 +90,10 @@ class HostJointInstrumentation:Instrumentation(){
             val focusDeadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(30)
             while(!initialHost.hasWindowFocus()){check(System.nanoTime()<focusDeadline){"activity_focus_timeout"};Thread.sleep(100)}
             onMain{check(CallRuntime.enableForegroundListening(initialHost)){"visible_listening_start_refused"}}
-            stage="sip_registration"
+            stage="control_readiness"
             val registrationDeadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(90)
-            while(!CallRuntime.currentStatus.startsWith("SIP 已注册")){
-                check(System.nanoTime()<registrationDeadline){"actual_sip_registration_timeout"}
+            while(!CallRuntime.isSignalingReady){
+                check(System.nanoTime()<registrationDeadline){"actual_control_readiness_timeout"}
                 Thread.sleep(200)
             }
             targetContext.filesDir.resolve("joint-ready.json").writeText(JSONObject().put("status","READY").toString())
@@ -166,7 +166,7 @@ class HostJointInstrumentation:Instrumentation(){
                     val call=CallRuntime.currentSession
                     reply.put("status","OK").put("listening",CallRuntime.isForegroundListening).put("phase",call?.phase?.name)
                         .put("call_id",call?.callId).put("media",call?.mediaTransport?.label).put("call_failure",call?.failure)
-                        .put("runtime_status",CallRuntime.currentStatus).put("pcm",JSONArray(tones.map{it.report()}))
+                        .put("call_control",CallRuntime.controlLabel).put("runtime_status",CallRuntime.currentStatus).put("pcm",JSONArray(tones.map{it.report()}))
                         .put("active_node",HostNodes.activeNode(targetContext)?.apiBaseUrl)
                         .put("node_health",JSONArray(HostNodes.nodes(targetContext).map{node->
                             val health=HostNodes.health(targetContext)[node.key]

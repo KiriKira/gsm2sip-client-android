@@ -1,6 +1,6 @@
 # gsm2sip-client-android
 
-实验分支当前只接入 WebRTC 音频，呼叫控制仍依赖 SIP/Asterisk，**尚未完成替换 Asterisk 的迁移目标**。主机在设置页开启过渡音频选项；拨号页保留联系人建议区，通话界面显示实际媒体状态。[已验证的过渡范围](docs/webrtc-joint-validation-20261019.md)、[移除依赖的实施与验收条件](https://github.com/KiriKira/gsm2sip-server/blob/ci/webrtc-sip-debug-20261017/docs/webrtc-asterisk-removal.md)。
+本分支的设置页 **WebRTC 语音** 开关已接入独立 Go/HTTPS 呼叫控制和原生 WebRTC 音频；纯 RTC 节点不读取 SIP 凭据或初始化 PJSUA2。迁移阶段保留可选 SIP 兼容，拨号页继续显示联系人建议；每通电话显示并保留实际媒体/控制协议。[部署与控制协议](https://github.com/KiriKira/gsm2sip-server/blob/ci/webrtc-sip-debug-20261017/docs/rtc-call-control-v1.md)。独立控制的 KVM 联合验收正在进行，[旧过渡版本记录](docs/webrtc-joint-validation-20261019.md) 不能当作新路径已完成验收的证据；物理蜂窝音频最后由真机验证。
 
 [自动构建与 Release、固定签名配置](docs/releases.md)：`main` 推送发布预览版，版本标签发布正式版；首次发布前运行签名 Secrets 配置脚本。
 
