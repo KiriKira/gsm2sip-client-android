@@ -21,6 +21,7 @@ internal class RtcCallEngine(
     private val worker = Executors.newSingleThreadScheduledExecutor { Thread(it,"RTC-Call-Control") }
     private val closed = AtomicBoolean()
     private val started = AtomicBoolean()
+    private val wakeLease = RtcSignalingWakeLease(context)
     private val media = ConcurrentHashMap<String,RtcAudioSession>()
     private val snapshots = ConcurrentHashMap<String,JSONObject>()
     private val delivered = ConcurrentHashMap<String,EngineCallState>()
@@ -31,11 +32,13 @@ internal class RtcCallEngine(
 
     override fun connect() {
         if (!started.compareAndSet(false,true)) return
+        wakeLease.renew()
         worker.scheduleWithFixedDelay(::poll,0,750,TimeUnit.MILLISECONDS)
     }
     private fun poll() {
         if(closed.get())return
         try {
+            wakeLease.renew()
             val now=System.nanoTime()
             if(now-lastCapability>25_000_000_000L){control.capability(true);lastCapability=now}
             val all=control.calls();lastControl=System.nanoTime()
@@ -122,6 +125,7 @@ internal class RtcCallEngine(
     override fun refreshNetwork(){worker.execute(::poll)}
     override fun close(){
         if(!closed.compareAndSet(false,true))return
+        wakeLease.close()
         worker.shutdownNow();media.values.forEach{it.close()};media.clear()
     }
 }
