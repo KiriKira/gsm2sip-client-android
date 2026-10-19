@@ -16,10 +16,77 @@ import org.robolectric.annotation.Implements
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ExecutorService
+import com.callagent.host.data.HostSession
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], shadows = [StartupTelecomShadow::class])
 class HostCallServiceStartupTest {
+    @Test fun differentRtcNodeRetiresEngineEvenWithIdenticalNullSipConfiguration() {
+        StartupTelecomShadow.release = CountDownLatch(0)
+        StartupTelecomShadow.returned = CountDownLatch(1)
+        val controller = Robolectric.buildService(HostCallService::class.java).create()
+        val service = controller.get()
+        try {
+            assertTrue(StartupTelecomShadow.returned.await(5, TimeUnit.SECONDS))
+            val old = HostSession("node-a", "https://a.example.invalid/v1", "owner", "client-a", "client",
+                "access", "2099-01-01T00:00:00Z", "refresh", "2099-02-01T00:00:00Z", false, null)
+            for (next in listOf(old.copy(apiBaseUrl="https://b.example.invalid/v1"),
+                old.copy(sessionInstanceId="node-b", deviceId="client-b"))) {
+                val engine = CountingEngine()
+                field("callEngine").set(service,engine)
+                field("engineSession").set(service,old)
+                field("engineGeneration").set(service,7L)
+                field("connectionState").set(service,EngineConnectionState.READY)
+                val oldListener = HostCallService::class.java.getDeclaredMethod("listenerFor",Long::class.javaPrimitiveType)
+                    .apply{isAccessible=true}.invoke(service,7L) as CallEngine.Listener
+                service.retireMismatchedEngine(next,null)
+                assertEquals("old authenticated node must be closed",1,engine.closed)
+                assertNull(field("callEngine").get(service))
+                oldListener.onConnectionState(EngineConnectionState.READY)
+                val finished=CountDownLatch(1)
+                (field("io").get(service) as ExecutorService).execute{finished.countDown()}
+                assertTrue(finished.await(5,TimeUnit.SECONDS))
+                assertFalse("late old-node READY cannot authorize the next node",service.isSignalingReady)
+            }
+        } finally {controller.destroy()}
+    }
+
+    @Test fun refreshedTokenKeepsSameNodeRtcEngineAndIncomingListener() {
+        StartupTelecomShadow.release = CountDownLatch(0)
+        StartupTelecomShadow.returned = CountDownLatch(1)
+        val controller=Robolectric.buildService(HostCallService::class.java).create()
+        val service=controller.get()
+        try {
+            assertTrue(StartupTelecomShadow.returned.await(5,TimeUnit.SECONDS))
+            val session=HostSession("node-a","https://a.example.invalid/v1","owner","client-a","client",
+                "access","2099-01-01T00:00:00Z","refresh","2099-02-01T00:00:00Z",false,null)
+            val engine=CountingEngine()
+            field("callEngine").set(service,engine)
+            field("engineSession").set(service,session)
+            field("connectionState").set(service,EngineConnectionState.READY)
+            service.retireMismatchedEngine(session.copy(accessToken="renewed-access",refreshToken="renewed-refresh"),null)
+            assertEquals(0,engine.closed)
+            assertSame(engine,field("callEngine").get(service))
+            assertTrue(service.isSignalingReady)
+        } finally {controller.destroy()}
+    }
+
+    private fun field(name:String)=HostCallService::class.java.getDeclaredField(name).apply{isAccessible=true}
+    private class CountingEngine:CallEngine {
+        var closed=0
+        override fun connect()=Unit
+        override fun dial(serverCallId:String,destination:String)=Unit
+        override fun answer(callId:String)=Unit
+        override fun reject(callId:String,reason:CallRejection)=Unit
+        override fun hangup(callId:String)=Unit
+        override fun sendDtmf(callId:String,digits:String)=Unit
+        override fun setMute(callId:String,muted:Boolean)=Unit
+        override fun enableAudio(callId:String)=Unit
+        override fun suspendAudio(callId:String)=Unit
+        override fun refreshNetwork()=Unit
+        override fun close(){closed++}
+    }
+
     @Test fun failedOutgoingPreflightKeepsExistingIncomingListener() {
         StartupTelecomShadow.entered = CountDownLatch(1)
         StartupTelecomShadow.release = CountDownLatch(0)

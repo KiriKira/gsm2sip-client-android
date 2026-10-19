@@ -23,6 +23,7 @@ import com.callagent.host.data.SessionNeedsPairing
 import com.callagent.host.data.SessionStore
 import com.callagent.host.data.SimLine
 import com.callagent.host.data.SipConfiguration
+import com.callagent.host.data.sameSessionInstance
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -42,6 +43,7 @@ class HostCallService : android.app.Service() {
     private val credentialStore by lazy { SipCredentialStore(this) }
     private var callEngine: CallEngine? = null
     private var sipConfiguration: SipConfiguration? = null
+    private var engineSession: HostSession? = null
     private var compatibilitySipConfiguration: SipConfiguration? = null
     private var startedCompatibilityConfiguration: SipConfiguration? = null
     @Volatile private var connectionState = EngineConnectionState.STOPPED
@@ -542,9 +544,9 @@ class HostCallService : android.app.Service() {
                         activeCall?.let { ensureNetworkLossGrace(it.callId) }
                         val callId = activeCall?.callId
                         val message = if (networkUnavailable) {
-                            "网络连接中断，正在等待 SIP 自动重试…"
+                            "网络连接中断，正在等待 $controlLabel 自动重试…"
                         } else {
-                            "SIP 暂时不可达，正在自动重试…"
+                            "$controlLabel 暂时不可达，正在自动重试…"
                         }
                         CallRuntime.setStatus(message, callId)
                         if (signalingForeground) CallSignalingNotification.update(this, message)
@@ -563,7 +565,7 @@ class HostCallService : android.app.Service() {
                     }
                 }
             }
-            else -> if (foregroundListening) CallRuntime.setStatus("正在注册 SIP…")
+            else -> if (foregroundListening) CallRuntime.setStatus("正在连接 $controlLabel…")
         }
     }
 
@@ -897,14 +899,8 @@ class HostCallService : android.app.Service() {
 
     private fun startEngine(config: SipConfiguration?) {
         startNetworkMonitoring()
-        val existing = callEngine
-        if (existing != null && (sipConfiguration != config || startedCompatibilityConfiguration != compatibilitySipConfiguration)) {
-            engineGeneration += 1L // Ignore terminal callbacks queued by the previous native endpoint.
-            callEngine = null
-            sipConfiguration = null
-            runCatching { existing.close() }
-            connectionState = EngineConnectionState.STOPPED
-        }
+        val targetSession = requireClientSession()
+        retireMismatchedEngine(targetSession, config)
         if (callEngine == null) {
             val generation = engineGeneration + 1L
             engineGeneration = generation
@@ -921,12 +917,28 @@ class HostCallService : android.app.Service() {
                     } }.getOrElse { Log.w(TAG,"SIP compatibility engine unavailable; RTC remains enabled");rtcFactory(listenerFor(generation)) }
             } else CallEngineFactory.startSip(this, config, listenerFor(generation))
             callEngine = candidate
+            engineSession = targetSession
             sipConfiguration = config
             startedCompatibilityConfiguration = compatibilitySipConfiguration
         }
         if (connectionState !in setOf(EngineConnectionState.READY, EngineConnectionState.CONNECTING)) {
             connectionState = EngineConnectionState.CONNECTING
             requireCallEngine().connect()
+        }
+    }
+
+    /** The null SIP config is shared by every pure RTC node. It cannot be the
+     * identity of an authenticated engine or decide reuse across node sessions. */
+    internal fun retireMismatchedEngine(targetSession: HostSession, config: SipConfiguration?) {
+        val existing = callEngine
+        if (existing != null && (engineSession?.sameSessionInstance(targetSession) != true ||
+                sipConfiguration != config || startedCompatibilityConfiguration != compatibilitySipConfiguration)) {
+            engineGeneration += 1L // Ignore terminal callbacks queued by the previous native endpoint.
+            callEngine = null
+            engineSession = null
+            sipConfiguration = null
+            runCatching { existing.close() }
+            connectionState = EngineConnectionState.STOPPED
         }
     }
 
@@ -1090,7 +1102,7 @@ class HostCallService : android.app.Service() {
                 finishCall(
                     current.callId,
                     failed = true,
-                    failureReason = "SIP network was unavailable for more than 30 seconds",
+                    failureReason = "Voice control network was unavailable for more than 30 seconds",
                     statusText = "网络中断超过 30 秒，通话已结束。"
                 )
             }
@@ -1253,6 +1265,7 @@ class HostCallService : android.app.Service() {
         sipRetryPending = false
         val old = callEngine
         callEngine = null
+        engineSession = null
         sipConfiguration = null
         connectionState = EngineConnectionState.STOPPED
         runCatching { old?.close() }
