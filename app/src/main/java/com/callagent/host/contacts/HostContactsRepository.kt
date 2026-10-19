@@ -92,30 +92,32 @@ class HostContactsRepository private constructor(
                 ContactsContract.CommonDataKinds.Phone.NORMALIZED_NUMBER
             )
             val needle = query?.trim()?.takeIf { it.isNotEmpty() }
-            val selectionArgs = mutableListOf<String>()
-            val selection = needle?.let {
-                val clauses = mutableListOf(
-                    "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
-                    "${ContactsContract.CommonDataKinds.Phone.NUMBER} LIKE ?"
-                )
-                selectionArgs += "%$it%"
-                selectionArgs += "%$it%"
-                val digits = it.filter { char -> char.isDigit() || char == '+' }
-                if (digits.any { char -> char.isDigit() }) {
-                    clauses += "${ContactsContract.CommonDataKinds.Phone.NORMALIZED_NUMBER} LIKE ?"
-                    selectionArgs += "%$digits%"
-                }
-                clauses.joinToString(" OR ")
-            }
+            // A number query is matched here, not in SQL: contacts store the
+            // number as typed ("123 4567 8901"), and LIKE '%1234%' cannot see
+            // through the spaces, while NORMALIZED_NUMBER is often missing.
+            // Reading every phone row is cheap next to a dial keystroke.
+            val numberQuery = needle?.any(Char::isDigit) == true
+            val selection = needle?.takeUnless { numberQuery }
+                ?.let { "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?" }
 
-            return context.contentResolver.query(
+            val entries = context.contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                 columns,
                 selection,
-                selectionArgs.takeIf { needle != null }?.toTypedArray(),
+                selection?.let { arrayOf("%$needle%") },
                 "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} COLLATE LOCALIZED ASC, " +
                     "${ContactsContract.CommonDataKinds.Phone._ID} ASC"
             )?.use(::readEntries).orEmpty()
+            return if (numberQuery) entries.filter { matches(it, needle!!) } else entries
+        }
+
+        /** Name substring, or the query's digits anywhere in the number's digits. */
+        internal fun matches(entry: ContactEntry, query: String): Boolean {
+            if (entry.name.contains(query, ignoreCase = true)) return true
+            val digits = query.filter(Char::isDigit)
+            if (digits.isEmpty()) return false
+            return entry.number.filter(Char::isDigit).contains(digits) ||
+                entry.normalizedNumber?.filter(Char::isDigit)?.contains(digits) == true
         }
 
         private fun readEntries(cursor: Cursor): List<ContactEntry> {

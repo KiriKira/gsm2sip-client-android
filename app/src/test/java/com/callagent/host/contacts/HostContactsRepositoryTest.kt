@@ -112,4 +112,15 @@ class HostContactsRepositoryTest {
             worker.shutdownNow()
         }
     }
+
+    @Test
+    fun numberQueryMatchesDigitsAcrossTheContactsOwnFormatting() {
+        val entry = ContactEntry(1L, 1L, "Bob", "123 4567 8901", null)
+        for (query in listOf("123", "1234", "12345678901", "4567 89", "8901")) {
+            assertTrue(query, HostContactsRepository.matches(entry, query))
+        }
+        assertFalse(HostContactsRepository.matches(entry, "1235"))
+        assertTrue(HostContactsRepository.matches(entry, "bo"))
+        assertTrue(HostContactsRepository.matches(ContactEntry(2L, 2L, "Ann", "138-0013", "+8613800138000"), "13800138"))
+    }
 }

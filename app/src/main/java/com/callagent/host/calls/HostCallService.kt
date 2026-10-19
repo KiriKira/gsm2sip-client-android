@@ -621,7 +621,10 @@ class HostCallService : android.app.Service() {
         }
         when (snapshot.state) {
             EngineCallState.EARLY, EngineCallState.RINGING -> {
-                if (current.direction == CallDirection.OUTGOING) {
+                // A stale progress report can arrive after the call ended;
+                // restarting the ringback then left it playing forever.
+                if (current.direction == CallDirection.OUTGOING && current.phase.isInProgress() &&
+                    current.phase != CallPhase.DISCONNECTING) {
                     ringback.start(serverCallId)
                     CallRuntime.coordinator.outboundRinging(serverCallId)
                     CallRuntime.setStatus("等待远程 SIM 接听…", serverCallId)
@@ -652,6 +655,7 @@ class HostCallService : android.app.Service() {
     }
 
     private fun finishFromSipTerminal(callId: String) {
+        ringback.stop(callId)
         val before = CallRuntime.snapshot(callId) ?: return
         if (before.phase in setOf(CallPhase.ENDED, CallPhase.FAILED)) return
         finishCall(

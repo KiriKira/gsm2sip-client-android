@@ -49,7 +49,7 @@ internal class RtcCallEngine(
                 // an outgoing dial. Only a live incoming invitation is new.
                 if(!snapshots.containsKey(id) && snapshot.getString("state")!="ringing")return@forEach
                 if(snapshots[id]==null && snapshot.getString("direction")!="incoming")return@forEach
-                snapshots[id]=snapshot;report(id)
+                store(id,snapshot);report(id)
             }
         }catch(_:Throwable){
             if(System.nanoTime()-lastControl>15_000_000_000L){
@@ -59,6 +59,10 @@ internal class RtcCallEngine(
                 listener.onConnectionState(EngineConnectionState.FAILED,503,"RTC control unavailable")
             }
         }
+    }
+    /** Keeps the newest snapshot: the poll and an operation race on separate threads. */
+    private fun store(id:String,snapshot:JSONObject){
+        snapshots.merge(id,snapshot){old,new->if(new.optLong("state_revision",Long.MAX_VALUE)>=old.optLong("state_revision",0))new else old}
     }
     private fun direction(snapshot:JSONObject)=if(snapshot.getString("direction")=="incoming")EngineCallDirection.INBOUND else EngineCallDirection.OUTBOUND
     private fun report(id:String){
@@ -75,7 +79,13 @@ internal class RtcCallEngine(
             snapshot.getString("state")=="ringing" -> EngineCallState.RINGING
             else -> EngineCallState.EARLY
         }
-        if(delivered.put(id,state)==state)return
+        // Never step back from a terminal state: a poll that read the call
+        // before a hangup can report it after, and an "early" state then
+        // restarted the outgoing ringback on an ended call.
+        val previous=delivered[id]
+        if(previous==state)return
+        if(previous in TERMINAL && state !in TERMINAL)return
+        delivered[id]=state
         if(state==EngineCallState.DISCONNECTED || state==EngineCallState.FAILED){media.remove(id)?.close();audioAllowed.remove(id)}
         Log.i("GsmRtc","media=webrtc call_control=rtc call_id=$id event=control_${state.name.lowercase()}")
         listener.onCallState(EngineCallSnapshot(id,direction(snapshot),state,serverCallId=id,transportCallId=id,
@@ -102,27 +112,28 @@ internal class RtcCallEngine(
     }
     override fun dial(serverCallId:String,destination:String){
         check(!closed.get())
-        snapshots[serverCallId]=control.get(serverCallId)
+        store(serverCallId,control.get(serverCallId))
         startMedia(serverCallId)
-        snapshots[serverCallId]=control.operation(serverCallId,"start")
+        store(serverCallId,control.operation(serverCallId,"start"))
         report(serverCallId)
     }
     override fun answer(callId:String){
-        snapshots[callId]=control.operation(callId,"accept")
+        store(callId,control.operation(callId,"accept"))
         startMedia(callId)
     }
     override fun reject(callId:String,reason:CallRejection){
-        snapshots[callId]=control.operation(callId,"reject");report(callId)
+        store(callId,control.operation(callId,"reject"));report(callId)
     }
     override fun hangup(callId:String){
         media[callId]?.enableAudio(false)
-        snapshots[callId]=control.operation(callId,"hangup");report(callId)
+        store(callId,control.operation(callId,"hangup"));report(callId)
     }
     override fun sendDtmf(callId:String,digits:String)=checkNotNull(media[callId]).sendDtmf(digits)
     override fun setMute(callId:String,muted:Boolean)=checkNotNull(media[callId]).mute(muted)
     override fun enableAudio(callId:String){audioAllowed.add(callId);media[callId]?.enableAudio(true)}
     override fun suspendAudio(callId:String){audioAllowed.remove(callId);media[callId]?.enableAudio(false)}
     override fun refreshNetwork(){worker.execute(::poll)}
+    private companion object { val TERMINAL=setOf(EngineCallState.DISCONNECTED,EngineCallState.FAILED) }
     override fun close(){
         if(!closed.compareAndSet(false,true))return
         wakeLease.close()

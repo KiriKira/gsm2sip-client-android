@@ -1631,7 +1631,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val query = contactsQuery.trim()
-        val matching = dialerContacts.filter { query.isBlank() || it.name.contains(query, true) || it.number.contains(query, true) }.take(3)
+        val matching = dialerContacts.filter { query.isBlank() || HostContactsRepository.matches(it, query) }.take(3)
         if (matching.isEmpty()) {
             if (query.isNotBlank()) list.addView(body("没有匹配的联系人。", selectable = false).apply { gravity = Gravity.CENTER })
             return
