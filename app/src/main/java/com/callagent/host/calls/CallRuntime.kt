@@ -356,6 +356,9 @@ object CallRuntime {
     }
 
     /** Wake an already-owned call service without starting SIP or another foreground service. */
+    /** The background service's WebSocket to the active node is open, so wake hints arrive. */
+    @Volatile internal var wakeChannelLive = false
+
     internal fun requestCallSyncFromWakeHint() {
         service?.requestCallSyncFromWakeHint()
     }

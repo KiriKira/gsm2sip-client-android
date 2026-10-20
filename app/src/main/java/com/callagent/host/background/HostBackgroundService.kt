@@ -401,6 +401,7 @@ class HostBackgroundService : Service() {
                     return
                 }
                 reconnectAttempt.set(0)
+                CallRuntime.wakeChannelLive = true
                 setConnection("Live updates connected")
             }
 
@@ -463,6 +464,7 @@ class HostBackgroundService : Service() {
     private fun clearSocket(candidate: WebSocket) = synchronized(webSocketLock) {
         if (socket === candidate) {
             socket = null
+            CallRuntime.wakeChannelLive = false
         }
     }
 
@@ -471,6 +473,7 @@ class HostBackgroundService : Service() {
             socketGeneration.incrementAndGet()
             socket.also { socket = null }
         }
+        CallRuntime.wakeChannelLive = false
         old?.cancel()
     }
 

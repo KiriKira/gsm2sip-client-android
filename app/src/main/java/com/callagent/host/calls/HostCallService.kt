@@ -329,6 +329,7 @@ class HostCallService : android.app.Service() {
 
     /** A websocket is only a wake hint; poll over the existing SIP service's serial worker. */
     internal fun requestCallSyncFromWakeHint() {
+        (callEngine as? RtcCallEngine)?.wake()
         if (!callSyncWakeHintQueued.compareAndSet(false, true)) return
         mainHandler.post {
             callSyncWakeHintQueued.set(false)

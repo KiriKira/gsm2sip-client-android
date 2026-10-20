@@ -6,6 +6,7 @@ import com.callagent.rtcmedia.*
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -29,19 +30,45 @@ internal class RtcCallEngine(
     @Volatile private var lastControl = System.nanoTime()
     private var lastCapability = 0L
     @Volatile private var ready = false
+    private var nextPoll: ScheduledFuture<*>? = null
+    private var failedPolls=0
 
     override fun connect() {
         if (!started.compareAndSet(false,true)) return
         wakeLease.renew()
-        worker.scheduleWithFixedDelay(::poll,0,750,TimeUnit.MILLISECONDS)
+        schedulePoll(0)
+    }
+    @Volatile private var wakeRequested=false
+    /** Polls at once; the server's WebSocket wake hint for this device lands here. */
+    fun wake(){wakeRequested=true;schedulePoll(0)}
+    @Synchronized private fun schedulePoll(delayMs:Long){
+        if(closed.get())return
+        nextPoll?.cancel(false)
+        nextPoll=runCatching{worker.schedule({
+            wakeRequested=false
+            poll()
+            // A wake during this poll was cancelled by this reschedule: honour it.
+            schedulePoll(if(wakeRequested)0 else nextPollDelay())
+        },delayMs,TimeUnit.MILLISECONDS)}.getOrNull()
+    }
+    /**
+     * A live call keeps the fast cadence. Idle, a new invitation arrives as a
+     * WebSocket wake hint, so polling only refreshes the RTC capability (the
+     * server routes calls to it for 90 s) and backs up a lost hint; HTTPS every
+     * 750 ms kept the radio busy and the phone hot, worst on a weak signal.
+     */
+    private fun nextPollDelay():Long=when{
+        media.isNotEmpty() || delivered.values.any{it !in TERMINAL} -> LIVE_POLL_MS
+        CallRuntime.wakeChannelLive -> IDLE_POLL_MS
+        else -> IDLE_POLL_WITHOUT_WAKE_MS
     }
     private fun poll() {
         if(closed.get())return
         try {
             wakeLease.renew()
             val now=System.nanoTime()
-            if(now-lastCapability>25_000_000_000L){control.capability(true);lastCapability=now}
-            val all=control.calls();lastControl=System.nanoTime()
+            if(now-lastCapability>15_000_000_000L){control.capability(true);lastCapability=now}
+            val all=control.calls();lastControl=System.nanoTime();failedPolls=0
             if(!ready){ready=true;listener.onConnectionState(EngineConnectionState.READY)}
             all.forEach { snapshot ->
                 val id=snapshot.getString("call_id")
@@ -52,7 +79,8 @@ internal class RtcCallEngine(
                 store(id,snapshot);report(id)
             }
         }catch(_:Throwable){
-            if(System.nanoTime()-lastControl>15_000_000_000L){
+            // Idle polls are 20 s apart, so time alone would fail on one miss.
+            if(++failedPolls>=3 && System.nanoTime()-lastControl>15_000_000_000L){
                 media.values.forEach{it.enableAudio(false)}
                 snapshots.keys.forEach{fail(it,"control_authorization_unavailable")}
                 ready=false
@@ -116,10 +144,12 @@ internal class RtcCallEngine(
         startMedia(serverCallId)
         store(serverCallId,control.operation(serverCallId,"start"))
         report(serverCallId)
+        wake()
     }
     override fun answer(callId:String){
         store(callId,control.operation(callId,"accept"))
         startMedia(callId)
+        wake()
     }
     override fun reject(callId:String,reason:CallRejection){
         store(callId,control.operation(callId,"reject"));report(callId)
@@ -132,8 +162,13 @@ internal class RtcCallEngine(
     override fun setMute(callId:String,muted:Boolean)=checkNotNull(media[callId]).mute(muted)
     override fun enableAudio(callId:String){audioAllowed.add(callId);media[callId]?.enableAudio(true)}
     override fun suspendAudio(callId:String){audioAllowed.remove(callId);media[callId]?.enableAudio(false)}
-    override fun refreshNetwork(){worker.execute(::poll)}
-    private companion object { val TERMINAL=setOf(EngineCallState.DISCONNECTED,EngineCallState.FAILED) }
+    override fun refreshNetwork()=wake()
+    private companion object {
+        val TERMINAL=setOf(EngineCallState.DISCONNECTED,EngineCallState.FAILED)
+        const val LIVE_POLL_MS=750L
+        const val IDLE_POLL_MS=20_000L
+        const val IDLE_POLL_WITHOUT_WAKE_MS=3_000L
+    }
     override fun close(){
         if(!closed.compareAndSet(false,true))return
         wakeLease.close()
