@@ -120,7 +120,15 @@ class HostCallService : android.app.Service() {
                     executeOnIo { beginOutbound(gatewayId, simId, simLabel, revision, destination) }
                 }
             }
-            ACTION_LISTEN -> setForegroundListening(intent.getBooleanExtra(EXTRA_ENABLED, true))
+            ACTION_LISTEN -> {
+                val enabled = intent.getBooleanExtra(EXTRA_ENABLED, true)
+                // This start came through startForegroundService(), which Android
+                // must see answered with startForeground() or it kills the app.
+                // setForegroundListening() skips that while a call is in progress
+                // or the engine is already up, so answer it here first.
+                if (enabled && !signalingForeground) startSignalingForeground()
+                setForegroundListening(enabled)
+            }
             ACTION_ANSWER -> intent.getStringExtra(EXTRA_CALL_ID)?.let(::answerAfterForeground)
             ACTION_REJECT -> intent.getStringExtra(EXTRA_CALL_ID)?.let { rejectCall(it) }
             ACTION_HANGUP -> intent.getStringExtra(EXTRA_CALL_ID)?.let { hangupCall(it) }
