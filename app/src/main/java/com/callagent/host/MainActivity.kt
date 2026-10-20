@@ -685,16 +685,34 @@ class MainActivity : AppCompatActivity() {
         installContent(content, fixedBottomView = fixed)
     }
 
-    private fun homeNavigation(selected: HostTab): BottomNavigationView = BottomNavigationView(this).apply {
-        id = R.id.main_bottom_navigation
-        inflateMenu(R.menu.main_navigation)
-        labelVisibilityMode = BottomNavigationView.LABEL_VISIBILITY_LABELED
-        selectedItemId = when (selected) {
+    /**
+     * One bottom bar for the activity's lifetime. Every render rebuilds the
+     * page, and a freshly built bar draws its first frame without the
+     * selected tab's indicator and then animates it in: on launch (the first
+     * data refresh re-renders) and on every tab switch the bar visibly
+     * jumped. Reusing it keeps its drawn state; only the selection changes.
+     */
+    private var homeNavigationBar: BottomNavigationView? = null
+
+    private fun homeNavigation(selected: HostTab): BottomNavigationView {
+        val nav = homeNavigationBar ?: BottomNavigationView(this).apply {
+            id = R.id.main_bottom_navigation
+            inflateMenu(R.menu.main_navigation)
+            labelVisibilityMode = BottomNavigationView.LABEL_VISIBILITY_LABELED
+            // The content host already pads for system bars and the keyboard; Material would
+            // add the same bottom inset again and stretch the bar over the page while typing.
+            ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets -> insets }
+            setPadding(0, 0, 0, 0)
+        }.also { homeNavigationBar = it }
+        (nav.parent as? ViewGroup)?.removeView(nav)
+        val itemId = when (selected) {
             HostTab.PHONE -> R.id.tab_phone
             HostTab.MESSAGES -> R.id.tab_messages
             HostTab.SETTINGS -> R.id.tab_settings
         }
-        setOnItemSelectedListener { item ->
+        nav.setOnItemSelectedListener(null)
+        if (nav.selectedItemId != itemId) nav.selectedItemId = itemId
+        nav.setOnItemSelectedListener { item ->
             val tab = when (item.itemId) {
                 R.id.tab_phone -> HostTab.PHONE
                 R.id.tab_messages -> HostTab.MESSAGES
@@ -704,11 +722,8 @@ class MainActivity : AppCompatActivity() {
             navigate(navigation.selectTab(tab))
             true
         }
-        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(80), Gravity.BOTTOM)
-        // The content host already pads for system bars and the keyboard; Material would
-        // add the same bottom inset again and stretch the bar over the page while typing.
-        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets -> insets }
-        setPadding(0, 0, 0, 0)
+        nav.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(80), Gravity.BOTTOM)
+        return nav
     }
 
     private fun homeChrome(tab: HostTab): View {
