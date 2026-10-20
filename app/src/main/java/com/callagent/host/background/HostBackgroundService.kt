@@ -439,6 +439,8 @@ class HostBackgroundService : Service() {
                 if (!isSocketCurrent(session, expectedGeneration, localSocketGeneration)) return
                 // A 401/1008 close is repaired by HTTPS token refresh in the next sync before reconnect.
                 setConnection("Periodic HTTPS sync")
+                // The active node may be gone (a VPN dropped): check now, not on the next timer.
+                forceNodeProbe.set(true)
                 if (response?.code == 401) {
                     authReconnectPending.set(true)
                     enqueueSync()

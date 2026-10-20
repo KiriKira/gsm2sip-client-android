@@ -114,14 +114,18 @@ internal object CallTelecomController {
     internal fun currentAudioEndpoint(callId: String): CallAudioEndpoint? =
         audioStateByCall[callId]?.route?.toEndpoint()
 
-    internal fun selectAudioEndpoint(callId: String, endpoint: CallAudioEndpoint) {
+    /** Returns false when no live Telecom connection can take the route. */
+    internal fun selectAudioEndpoint(callId: String, endpoint: CallAudioEndpoint): Boolean {
         val route = when (endpoint) {
-            CallAudioEndpoint.EARPIECE -> CallAudioState.ROUTE_EARPIECE
+            // Leaving the speaker returns to a plugged-in headset when there is one.
+            CallAudioEndpoint.EARPIECE -> CallAudioState.ROUTE_WIRED_OR_EARPIECE
             CallAudioEndpoint.SPEAKER -> CallAudioState.ROUTE_SPEAKER
             CallAudioEndpoint.WIRED_HEADSET -> CallAudioState.ROUTE_WIRED_HEADSET
             CallAudioEndpoint.BLUETOOTH -> CallAudioState.ROUTE_BLUETOOTH
         }
-        liveConnections[callId]?.setAudioRoute(route)
+        val connection = liveConnections[callId] ?: return false
+        connection.setAudioRoute(route)
+        return true
     }
 
     internal fun onAudioState(callId: String, state: CallAudioState) {

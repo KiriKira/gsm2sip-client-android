@@ -18,7 +18,9 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 object NodeMonitor {
     const val ACTION_NODE_CHANGED = "com.callagent.host.mesh.NODE_CHANGED"
-    private const val PROBE_INTERVAL_MS = 25_000L
+    private const val PROBE_INTERVAL_MS = 15_000L
+    /** Pause before re-probing a failed active node, so one dropped request is not an outage. */
+    private const val CONFIRM_DELAY_MS = 1_000L
     private const val CONNECT_TIMEOUT_MS = 4_000
     private const val READ_TIMEOUT_MS = 6_000
 
@@ -57,7 +59,11 @@ object NodeMonitor {
                     NodeObservation(reachable = false, gatewayOnline = false, rttMillis = null, issue = "需要重新配对")
                 } else {
                     usable += node.key
-                    probe(app, node, installId)
+                    val first = probe(app, node, installId)
+                    if (node.key == HostNodes.activeNode(app)?.key && !NodeSelectionPolicy.healthy(first)) {
+                        SystemClock.sleep(CONFIRM_DELAY_MS)
+                        probe(app, node, installId)
+                    } else first
                 }
                 node.key to NodeSelectionPolicy.record(previous[node.key], observation, System.currentTimeMillis())
             }
@@ -67,9 +73,10 @@ object NodeMonitor {
             if (refreshed > 0) {
                 app.sendBroadcast(Intent(HostBackgroundRuntime.BACKGROUND_SYNCED).setPackage(app.packageName))
             }
-            val busy = callInProgress() || inFlightSubmissions.get() > 0
+            val calling = callInProgress()
+            val busy = calling || inFlightSubmissions.get() > 0
             val active = HostNodes.activeNode(app)?.key
-            val target = NodeSelectionPolicy.choose(nodes.map { it.key }.filter { it in usable }, active, updates, busy)
+            val target = NodeSelectionPolicy.choose(nodes.map { it.key }.filter { it in usable }, active, updates, busy, calling)
                 ?: return null
             val switched = HostNodes.activate(app, target) ?: return null
             announce(app, switched)

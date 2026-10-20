@@ -2126,13 +2126,13 @@ class MainActivity : AppCompatActivity() {
                     val mute = smallButton(if (call.muted) "取消静音" else "静音")
                     mute.setOnClickListener { CallRuntime.setMuted(this, call.callId, !call.muted) }
                     panel.addView(mute)
-                    val endpoints = CallRuntime.audioEndpoints(call.callId)
-                    if (endpoints.isNotEmpty()) {
-                        val selected = CallRuntime.selectedAudioEndpoint(call.callId)
-                        val route = smallButton("音频：${selected?.displayName() ?: "自动"}")
-                        route.setOnClickListener { chooseAudioEndpoint(call.callId, endpoints) }
-                        panel.addView(route)
+                    val speakerOn = CallRuntime.selectedAudioEndpoint(call.callId)?.let { it == CallAudioEndpoint.SPEAKER } ?: call.speaker
+                    val route = smallButton(if (speakerOn) "切换到听筒" else "切换到扬声器")
+                    route.setOnClickListener {
+                        CallRuntime.toggleSpeaker(this, call.callId, !speakerOn)
+                        renderCallPanel()
                     }
+                    panel.addView(route)
                     val controls = smallButton("打开通话界面 / DTMF")
                     controls.setOnClickListener { startCallUi(call.callId) }
                     panel.addView(controls)
@@ -2259,18 +2259,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun confirmRemoteDial(line: SimLine, currentGateway: GatewaySnapshot, recipient: String) {
         beginDial(line, recipient)
-    }
-
-    private fun chooseAudioEndpoint(callId: String, endpoints: List<CallAudioEndpoint>) {
-        val labels = endpoints.map { it.displayName() }.toTypedArray()
-        MaterialAlertDialogBuilder(this)
-            .setTitle("通话音频设备")
-            .setItems(labels) { _, which ->
-                endpoints.getOrNull(which)?.let { CallRuntime.selectAudioEndpoint(this, callId, it) }
-                renderCallPanel()
-            }
-            .setNegativeButton("取消", null)
-            .show()
     }
 
     private fun validDialAddress(value: String): Boolean =

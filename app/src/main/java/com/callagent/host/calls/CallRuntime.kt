@@ -274,7 +274,24 @@ object CallRuntime {
     fun selectedAudioEndpoint(callId: String): CallAudioEndpoint? = CallTelecomController.currentAudioEndpoint(callId)
 
     fun selectAudioEndpoint(context: Context, callId: String, endpoint: CallAudioEndpoint) {
-        CallTelecomController.selectAudioEndpoint(callId, endpoint)
+        if (CallTelecomController.selectAudioEndpoint(callId, endpoint)) return
+        // No Telecom connection to route through: switch the speaker directly,
+        // so the button never silently does nothing.
+        if (endpoint != CallAudioEndpoint.SPEAKER && endpoint != CallAudioEndpoint.EARPIECE) return
+        val audio = context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val speaker = endpoint == CallAudioEndpoint.SPEAKER
+        runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                if (speaker) audio.availableCommunicationDevices
+                    .firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                    ?.let(audio::setCommunicationDevice)
+                else audio.clearCommunicationDevice()
+            } else {
+                @Suppress("DEPRECATION")
+                audio.isSpeakerphoneOn = speaker
+            }
+        }
+        onTelecomAudioRoute(callId, endpoint)
     }
 
     fun sendDtmf(context: Context, callId: String, digits: String) {
