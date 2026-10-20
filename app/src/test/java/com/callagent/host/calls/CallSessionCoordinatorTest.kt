@@ -105,8 +105,8 @@ class CallSessionCoordinatorTest {
     )
 
     private fun invite(header: String? = "call-1") = IncomingInviteIdentity(
-        sipCallId = "sip-dialog-abc",
-        serverCallIdHeader = header
+        engineCallId = "engine-call-abc",
+        serverCallId = header
     )
 
     private companion object {

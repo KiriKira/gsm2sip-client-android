@@ -359,7 +359,7 @@ class MainActivitySmsSubmissionTest {
                 lastSeenAt = "2026-10-05T10:00:00Z",
                 mappingRevision = 42,
                 root = false,
-                sipRegistered = false,
+                voiceReady = false,
                 batteryPercent = 80,
                 charging = false,
             ))
@@ -388,8 +388,6 @@ class MainActivitySmsSubmissionTest {
         accessExpiresAt = "2099-01-01T00:00:00Z",
         refreshToken = "refresh-$id",
         refreshExpiresAt = "2099-01-02T00:00:00Z",
-        sipAvailable = false,
-        sipReason = "SMS submission test",
     )
 
     private fun <T> readDatabase(app: android.app.Application, name: String, block: (ClientDatabase) -> T): T {

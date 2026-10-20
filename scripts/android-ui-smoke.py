@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Portable ADB-only UI smoke for the GSM2SIP Android apps.
+"""Portable ADB-only UI smoke for the Madoka and Homura Android apps.
 
 Uses Python's standard library and adb. It deliberately never accepts runtime
 permissions, chooses a default phone app, pairs an account, or starts SIP/SMS/calls.
@@ -180,7 +180,7 @@ class Smoke:
         title = " ".join(node.attrib.get("text", "") for node in self.nodes(root)
                          if node.attrib.get("resource-id", "") in ("android:id/alertTitle", "android:id/message"))
         dismissed = getattr(self, "foreign_anr_dismissals", 0)
-        if "gsm2sip" in title.lower() or dismissed >= 6:
+        if any(app in title.lower() for app in ("gsm2sip", "madoka", "homura")) or dismissed >= 6:
             return False
         self.foreign_anr_dismissals = dismissed + 1
         with (self.artifacts / "foreign_anr_dismissals.txt").open("a", encoding="utf-8") as log:

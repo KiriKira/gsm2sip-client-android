@@ -35,15 +35,14 @@ After pairing, background SMS synchronization starts automatically; there is no 
 
 The `Android KVM UI smoke` workflow builds the debug APK and runs the host smoke on an API 35, 7.6-inch foldable emulator. Pushes that touch the app, fixture, smoke scripts, or workflow start the workflow; `workflow_dispatch` can run it on demand. The fastest supported screenshot route is to push the finished branch, wait for the workflow, and inspect the `gsm2sip-host-android-ui-smoke` artifact.
 
-The workflow attempts all three stages and fails if any stage fails. Evidence upload runs even on failure. The stages are:
+The workflow attempts both stages and fails if any stage fails. Evidence upload runs even on failure. The stages are:
 
 1. `scripts/android-ui-smoke.py --scenario host` for first-run prompts, the three tabs, phone/dial-pad navigation, Settings, synthetic pairing form entry, rotation, fold/unfold, cutout, and the shared SMS backup/archive UI.
-2. `scripts/run-native-smoke.sh` for the native engine checks.
-3. `scripts/run-paired-ui-fixture.sh` for offline paired-state screenshots using local synthetic session, device, call-history, SIM, and SMS cache records.
+2. `scripts/run-paired-ui-fixture.sh` for offline paired-state screenshots using local synthetic session, device, call-history, SIM, and SMS cache records.
 
 The runners emit `summary.md`, JSON manifests, and original PNG/XML captures. The Markdown summaries embed the main screen images; the full artifacts retain all generated screenshots and diagnostics. No PDF is generated. The screenshot report should be updated from a completed run of this workflow; screenshots from the older dashboard UI are not evidence of the three-tab layout.
 
-The paired fixture enables airplane mode and disables Wi-Fi and mobile data before seeding its synthetic paired session. The app may start its automatic remote-messaging foreground service while paired, but it has no working network and the session points only at `ui-smoke.invalid`; cleanup stops app services, removes the synthetic session and database, restores radio settings, and uninstalls the fixture APK. `sipAvailable` is false. The fixture seeds three local SMS threads across SIM 1 and SIM 2. Call-screen captures seed only an in-process `CallSessionCoordinator` render state for outgoing setup, active controls, keypad, and incoming ringing. All four call-screen captures and their expected UI labels are required for the fixture to pass; a missing state or PNG fails the check. The keypad screenshot only opens the on-screen keypad; no DTMF is entered. These captures do not start SIP, Telecom, audio, or carrier calling. No SMS is sent or received, and the incoming UI is not answered.
+The paired fixture enables airplane mode and disables Wi-Fi and mobile data before seeding its synthetic paired session. The app may start its automatic remote-messaging foreground service while paired, but it has no working network and the session points only at `ui-smoke.invalid`; cleanup stops app services, removes the synthetic session and database, restores radio settings, and uninstalls the fixture APK. The fixture seeds three local SMS threads across SIM 1 and SIM 2. Call-screen captures seed only an in-process `CallSessionCoordinator` render state for outgoing setup, active controls, keypad, and incoming ringing. All four call-screen captures and their expected UI labels are required for the fixture to pass; a missing state or PNG fails the check. The keypad screenshot only opens the on-screen keypad; no DTMF is entered. These captures do not start call control, Telecom, audio, or carrier calling. No SMS is sent or received, and the incoming UI is not answered.
 
 ## Screenshot stages to review
 

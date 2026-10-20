@@ -1,28 +1,14 @@
-import java.util.zip.ZipFile
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
-
-val pjsua2AarFile = file(providers.gradleProperty("pjsua2Aar")
-    .orElse("libs/pjsua2-2.17-dev.aar").get())
-// Android chooses a single ABI for the entire process. Packaging WebRTC's
-// x86 library without a matching PJSUA2 library would break SIP control there.
-val callAbis = ZipFile(pjsua2AarFile).use { archive ->
-    archive.entries().asSequence().map { it.name }
-        .filter { it.startsWith("jni/") && it.endsWith("/libpjsua2.so") }
-        .map { it.split('/')[1] }
-        .filter { it in setOf("arm64-v8a", "x86_64") }.toSet()
-}
-if (callAbis.isEmpty()) throw GradleException("PJSUA2 AAR has no ABI supported by the WebRTC SDK.")
 
 val releaseStoreFile = System.getenv("GSM_RELEASE_STORE_FILE")?.takeIf { it.isNotBlank() }
 val releaseStorePassword = System.getenv("GSM_RELEASE_STORE_PASSWORD")?.takeIf { it.isNotEmpty() }
 val releaseKeyAlias = System.getenv("GSM_RELEASE_KEY_ALIAS")?.takeIf { it.isNotEmpty() }
 val releaseKeyPassword = System.getenv("GSM_RELEASE_KEY_PASSWORD")?.takeIf { it.isNotEmpty() }
 val releaseVersionCodeText = System.getenv("GSM_RELEASE_VERSION_CODE")?.takeIf { it.isNotBlank() }
-val releaseVersionName = System.getenv("GSM_RELEASE_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.3.0"
+val releaseVersionName = System.getenv("GSM_RELEASE_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.4.0"
 val appVersionCode = releaseVersionCodeText?.toIntOrNull()?.also {
     if (it !in 1..2_100_000_000) {
         throw GradleException("GSM_RELEASE_VERSION_CODE must be between 1 and 2100000000.")
@@ -50,7 +36,9 @@ android {
         targetSdk = 34
         versionCode = appVersionCode
         versionName = releaseVersionName
-        ndk { abiFilters.addAll(callAbis) }
+        // The phones this app targets are arm64. The pinned WebRTC SDK also ships
+        // x86_64, which only emulators use.
+        ndk { abiFilters += "arm64-v8a" }
 
         testInstrumentationRunner = providers.gradleProperty("rtcLabRunner").orElse("androidx.test.runner.AndroidJUnitRunner").get()
     }
@@ -112,7 +100,6 @@ dependencies {
     implementation(project(":rtcmedia"))
     implementation(files(rootProject.project(":rtcmedia").layout.buildDirectory.file("webrtc-sdk/external-playout.aar"))
         .builtBy(":rtcmedia:prepareWebRtcSdk"))
-    implementation(files(pjsua2AarFile))
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.lifecycle:lifecycle-livedata-core:2.8.7") {

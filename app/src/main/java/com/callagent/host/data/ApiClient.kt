@@ -73,11 +73,10 @@ class ApiClient(
                 lastSeenAt = item.optNullableString("last_seen_at"),
                 mappingRevision = item.optLong("mapping_revision", 0L),
                 root = item.optNullableBoolean("root"),
-                sipRegistered = item.optNullableBoolean("sip_registered"),
+                voiceReady = item.optBoolean("rtc_call_control_ready", false),
                 batteryPercent = item.optNullableInt("battery_percent"),
                 charging = item.optNullableBoolean("charging"),
-                installId = item.optNullableString("install_id")?.lowercase(),
-                rtcCallControlReady = item.optBoolean("rtc_call_control_ready", false)
+                installId = item.optNullableString("install_id")?.lowercase()
             )
         }
     }
@@ -150,14 +149,6 @@ class ApiClient(
         authenticatedRequest("POST", "/events/ack", JSONObject().put("durable_cursor", durableCursor))
     }
 
-    fun getSipConfiguration(): SipConfiguration = parseSipConfiguration(
-        authenticatedRequest("GET", "/devices/self/sip-config")
-    )
-
-    fun rotateSipCredentials(idempotencyKey: String): SipConfiguration = parseSipConfiguration(
-        authenticatedRequest("POST", "/devices/self/sip-credentials/rotate", JSONObject(), idempotencyKey)
-    )
-
     fun listCalls(): List<RemoteCall> {
         val items = authenticatedRequest("GET", "/calls").optJSONArray("items") ?: JSONArray()
         return (0 until items.length()).map { parseCall(items.getJSONObject(it)) }
@@ -182,30 +173,7 @@ class ApiClient(
     }
 
     fun rtcControlAvailable(): Boolean = request("GET", "/capabilities", body = null, token = null, idempotencyKey = null).optBoolean("rtc_call_control", false)
-    fun sipControlAvailable(): Boolean = request("GET", "/capabilities", body = null, token = null, idempotencyKey = null).optBoolean("sip_call_control", false)
     fun rtcCall(callId: String): RemoteCall = parseCall(rtcRequest("GET", "/rtc/control/calls/${pathSegment(callId)}", null))
-
-    /** [callId] is sent only for a mesh profile, whose servers all support the field. */
-    fun createCallIntent(
-        gatewayId: String, simId: String, mappingRevision: Long, destination: String,
-        idempotencyKey: String, callId: String? = null
-    ): CallIntent {
-        val body = JSONObject()
-            .put("gateway_id", gatewayId).put("sim_id", simId)
-            .put("mapping_revision", mappingRevision).put("to", destination)
-        callId?.let { body.put("call_id", it) }
-        val json = authenticatedRequest("POST", "/call-intents", body, idempotencyKey)
-        return CallIntent(json.getString("intent_id"), json.getString("call_id"), json.getString("sip_uri"), json.getString("expires_at"))
-    }
-
-    fun cancelCallIntent(intentId: String) {
-        authenticatedRequest("DELETE", "/call-intents/${pathSegment(intentId)}")
-    }
-
-    fun ready(callId: String, wakeNonce: String): RemoteCall = parseCall(authenticatedRequest(
-        "POST", "/clients/${pathSegment(currentBoundSession().deviceId)}/ready",
-        JSONObject().put("call_id", callId).put("wake_nonce", wakeNonce)
-    ))
 
     private fun parseCall(json: JSONObject) = RemoteCall(
         callId = json.getString("call_id"), gatewayId = json.getString("gateway_id"),
@@ -214,7 +182,7 @@ class ApiClient(
         state = json.getString("state"), stateRevision = json.getLong("state_revision"),
         from = json.optNullableString("from"), to = json.optNullableString("to"),
         createdAt = json.getString("created_at"), expiresAt = json.optNullableString("expires_at"),
-        wakeNonce = json.optNullableString("wake_nonce"), answeredAt = json.optNullableString("answered_at"),
+        answeredAt = json.optNullableString("answered_at"),
         endedAt = json.optNullableString("ended_at"), reason = json.optNullableString("reason")
     )
 
@@ -374,7 +342,6 @@ class ApiClient(
     }
 
     private fun sessionFromPairing(json: JSONObject): HostSession {
-        val sip = json.optJSONObject("sip") ?: JSONObject()
         return HostSession(
             sessionInstanceId = UUID.randomUUID().toString(),
             apiBaseUrl = apiRoot,
@@ -384,9 +351,7 @@ class ApiClient(
             accessToken = json.getString("access_token"),
             accessExpiresAt = json.getString("access_expires_at"),
             refreshToken = json.getString("refresh_token"),
-            refreshExpiresAt = json.getString("refresh_expires_at"),
-            sipAvailable = sip.optBoolean("available", false),
-            sipReason = sip.optNullableString("reason")
+            refreshExpiresAt = json.getString("refresh_expires_at")
         )
     }
 
@@ -450,18 +415,6 @@ internal fun normalizeApiBaseUrl(value: String): String {
     val originAndPath = "$scheme://${uri.rawAuthority}$path"
     return if (path.endsWith("/v1")) originAndPath else "$originAndPath/v1"
 }
-
-/** Absent `transport`/`media_encryption` (older servers) mean TLS signalling with SDES-SRTP. */
-internal fun parseSipConfiguration(json: JSONObject) = SipConfiguration(
-    available = json.optBoolean("available", false), reason = json.optNullableString("reason"),
-    endpointId = json.optNullableString("endpoint_id"), username = json.optNullableString("auth_username"),
-    realm = json.optNullableString("auth_realm"), aor = json.optNullableString("aor"),
-    registrarUri = json.optNullableString("registrar_uri"), outboundProxyUri = json.optNullableString("outbound_proxy_uri"),
-    serverName = json.optNullableString("server_name"), caPem = json.optNullableString("ca_pem"),
-    password = json.optNullableString("password"),
-    transport = json.optNullableString("transport")?.lowercase() ?: SipConfiguration.TRANSPORT_TLS,
-    mediaEncryption = json.optNullableString("media_encryption")?.lowercase() ?: SipConfiguration.MEDIA_ENCRYPTION_SDES
-)
 
 internal fun parsePairedHosts(json: JSONObject): List<PairedHost> {
     val items = json.optJSONArray("items") ?: JSONArray()

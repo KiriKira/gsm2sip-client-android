@@ -10,8 +10,7 @@ import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-/** Own call control and native media. This class never creates a SIP engine,
- * registers an endpoint, reads SIP credentials or dials a SIP URI. */
+/** Server call control and native WebRTC media. */
 internal class RtcCallEngine(
     private val context: Context,
     private val api: MediaApi,
@@ -116,13 +115,12 @@ internal class RtcCallEngine(
         delivered[id]=state
         if(state==EngineCallState.DISCONNECTED || state==EngineCallState.FAILED){media.remove(id)?.close();audioAllowed.remove(id)}
         Log.i("GsmRtc","media=webrtc call_control=rtc call_id=$id event=control_${state.name.lowercase()}")
-        listener.onCallState(EngineCallSnapshot(id,direction(snapshot),state,serverCallId=id,transportCallId=id,
-            terminalReason=snapshot.optString("reason").takeIf{it.isNotBlank()},mediaTransport=CallMediaTransport.WEBRTC,
-            controlTransport=CallControlTransport.RTC))
+        listener.onCallState(EngineCallSnapshot(id,direction(snapshot),state,serverCallId=id,
+            terminalReason=snapshot.optString("reason").takeIf{it.isNotBlank()}))
     }
     private fun startMedia(id:String){
         val admission=RtcAudioSession.select(api,id)
-        check(admission.getString("call_control")=="rtc"){"Independent RTC control required"}
+        check(admission.getString("call_control")=="rtc"){"Server call control required"}
         val rtc=RtcAudioSession(context,admission,api,false,pcmForCall?.invoke(id),onReady={report(id)},onFailure={reason->
             fail(id,reason)
             runCatching{worker.execute{runCatching{control.operation(id,"hangup")}}}
@@ -136,7 +134,7 @@ internal class RtcCallEngine(
         media.remove(id)?.close();audioAllowed.remove(id)
         Log.w("GsmRtc","media=webrtc call_control=rtc call_id=$id event=failed reason=$reason")
         listener.onCallState(EngineCallSnapshot(id,direction(snapshot),EngineCallState.FAILED,serverCallId=id,
-            terminalReason=reason,mediaTransport=CallMediaTransport.WEBRTC,controlTransport=CallControlTransport.RTC))
+            terminalReason=reason))
     }
     override fun dial(serverCallId:String,destination:String){
         check(!closed.get())

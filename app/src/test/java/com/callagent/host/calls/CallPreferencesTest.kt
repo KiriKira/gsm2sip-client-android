@@ -60,7 +60,5 @@ class CallPreferencesTest {
         accessExpiresAt = "2026-10-03T10:10:00Z",
         refreshToken = "refresh",
         refreshExpiresAt = "2026-11-03T10:00:00Z",
-        sipAvailable = true,
-        sipReason = null
     )
 }

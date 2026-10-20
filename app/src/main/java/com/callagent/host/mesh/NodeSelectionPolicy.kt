@@ -9,7 +9,7 @@ data class NodeObservation(
     val issue: String? = null,
     /** This account's gateway on that node (the IDs differ per node). */
     val gatewayId: String? = null,
-    /** The old phone is SIP-registered on that node, so calls work through it. */
+    /** The old phone advertises call control on that node, so calls work through it. */
     val callReady: Boolean = false
 )
 

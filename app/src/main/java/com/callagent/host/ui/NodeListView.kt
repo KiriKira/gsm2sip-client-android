@@ -67,7 +67,7 @@ object NodeRowPresenter {
         }
         add("状态" to if (state.healthy) "正常" else (state.issue ?: "不可用"))
         add("旧手机" to if (state.gatewayOnline) "在线" else "不在线")
-        add("通话" to if (state.callReady) "可通话（旧手机已在该节点注册 SIP）" else "仅短信（旧手机未在该节点注册 SIP）")
+        add("通话" to if (state.callReady) "可通话（旧手机已在该节点就绪）" else "仅短信（旧手机未在该节点就绪）")
         state.rttMillis?.let { add("延迟" to "$it ms") }
         add("检测时间" to "${((now - state.checkedAt) / 1000).coerceAtLeast(0)} 秒前")
     }

@@ -63,7 +63,6 @@ object CallHistoryCache {
         to = cachedString("to"),
         createdAt = optString("created_at"),
         expiresAt = cachedString("expires_at"),
-        wakeNonce = null,
         answeredAt = cachedString("answered_at"),
         endedAt = cachedString("ended_at"),
         reason = cachedString("reason"),

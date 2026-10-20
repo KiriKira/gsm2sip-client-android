@@ -40,18 +40,8 @@ internal class CallPreferences(context: Context) {
 
     fun clear() = preferences.edit().clear().commit()
 
-    fun webRtcFor(session: HostSession?): Boolean = session != null &&
-        preferences.getString("webrtc_audio_profile", null) == session.profileKey
-
-    fun setWebRtc(session: HostSession?, enabled: Boolean): Boolean {
-        if (session == null) return false
-        return preferences.edit().apply {
-            if (enabled) putString("webrtc_audio_profile", session.profileKey)
-            else remove("webrtc_audio_profile")
-        }.commit()
-    }
-
     private companion object {
+        // Stored name kept from the SIP releases so the setting survives updates and rollbacks.
         const val KEY_ENABLED = "foreground_sip_opt_in"
         const val KEY_SESSION = "session_instance"
     }

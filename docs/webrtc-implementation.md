@@ -1,5 +1,7 @@
 # WebRTC 语音与独立呼叫控制
 
+> **0.4.0（Madoka）**：SIP/PJSUA2 已移除，通话只走服务端呼叫控制与 WebRTC，“WebRTC 语音”开关也已去掉。下文关于开关、SIP 兼容和迁移期的描述是历史记录。
+
 2026-10-19：独立 Go/HTTPS 呼叫控制与原生 WebRTC 已完成两台持续运行的 KVM 模拟器、三个真实 Docker 节点联合验收，并发布沿用原签名的 Debug Release。纯模式三节点不运行 Asterisk，SIP/ARI 抓包为 0；呼入/呼出双向测试 PCM、呼叫事件、TURN UDP/TCP、控制/媒体故障与 A→B→C→A 切换通过。WebRTC 开关关闭时的 SIP 来电、开启时的混合来电事件另行通过。物理蜂窝 HAL 和真实手机音频仍待真机验收。 [完整报告与下载](webrtc-independent-validation-20261019.md)。
 
 设置页的 **WebRTC 语音** 开关按配对 profile 保存；拨号页保留联系人建议。

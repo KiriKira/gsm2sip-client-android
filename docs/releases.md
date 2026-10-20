@@ -9,11 +9,11 @@ generate or substitute a development key during a build.
 
 | Trigger | Android version name | GitHub release |
 |---|---|---|
-| Push to `main` | `0.3.0-build-${run_number}-${sha7}` | Prerelease tagged `build-${run_number}-${sha7}` |
+| Push to `main` | `0.4.0-build-${run_number}-${sha7}` | Prerelease tagged `build-${run_number}-${sha7}` |
 | Push of a `v*` tag | The exact tag, such as `v0.4.0` | Stable release under that tag |
-| Manual run on `main`, `publish=true` | `0.3.0-build-${run_number}-${sha7}` | Prerelease |
-| Manual run on `main`, `publish=false` | `0.3.0-build-${run_number}-${sha7}` | Signed build and validation only |
-| Manual run on another branch or any tag | `0.3.0-build-${run_number}-${sha7}` | Build and validation only; publication is disabled |
+| Manual run on `main`, `publish=true` | `0.4.0-build-${run_number}-${sha7}` | Prerelease |
+| Manual run on `main`, `publish=false` | `0.4.0-build-${run_number}-${sha7}` | Signed build and validation only |
+| Manual run on another branch or any tag | `0.4.0-build-${run_number}-${sha7}` | Build and validation only; publication is disabled |
 
 Manual runs default `publish` to true. The publisher job also checks the event
 and ref independently: manual publication is permitted only from `main`, and
@@ -106,10 +106,10 @@ sha256sum -c SHA256SUMS.txt
 The builder also runs `apksigner verify`, compares the APK certificate to
 `GSM_RELEASE_CERT_SHA256`, confirms package `com.callagent.host` and matching
 version metadata, checks that the APK is non-debuggable, and runs
-`zipalign -c -P 16 4`. The pinned PJSUA2 AAR currently supplies only
-`arm64-v8a`; the release verifier requires that ABI and `libpjsua2.so` in the
-APK. If the AAR's native ABI set changes, update the release verifier and this
-documentation to match the newly inspected artifact.
+`zipalign -c -P 16 4`. The app packages only `arm64-v8a`; the release
+verifier requires that ABI and the pinned WebRTC SDK's
+`libjingle_peerconnection_so.so` in the APK. If the ABI set changes, update the
+release verifier and this documentation together.
 
 The publisher has `contents: write` permission and downloads the verified
 bundle without checking out source. Its helper checks the tag, source commit,

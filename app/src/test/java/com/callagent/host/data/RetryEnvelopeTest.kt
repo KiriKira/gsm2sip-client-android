@@ -134,8 +134,6 @@ class RetryEnvelopeTest {
             accessExpiresAt = "2026-10-03T10:15:00Z",
             refreshToken = "refresh-1",
             refreshExpiresAt = "2026-11-02T10:00:00Z",
-            sipAvailable = false,
-            sipReason = "sip_not_configured"
         )
         val refreshed = session.copy(accessToken = "access-2", refreshToken = "refresh-2")
         val rePaired = refreshed.copy(sessionInstanceId = "family-b")

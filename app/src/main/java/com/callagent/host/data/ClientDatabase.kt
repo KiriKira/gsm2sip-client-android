@@ -111,7 +111,8 @@ class ClientDatabase @JvmOverloads constructor(
             put("last_seen_at", gateway.lastSeenAt)
             put("mapping_revision", gateway.mappingRevision)
             putNullable("root", gateway.root)
-            putNullable("sip_registered", gateway.sipRegistered)
+            // The column keeps its name from the SIP releases; it holds voice readiness.
+            putNullable("sip_registered", gateway.voiceReady)
             putNullable("battery_percent", gateway.batteryPercent)
             putNullable("charging", gateway.charging)
         }, SQLiteDatabase.CONFLICT_REPLACE)
@@ -663,7 +664,7 @@ class ClientDatabase @JvmOverloads constructor(
         lastSeenAt = getNullableString("last_seen_at"),
         mappingRevision = getLong(getColumnIndexOrThrow("mapping_revision")),
         root = getNullableInt("root")?.let { it != 0 },
-        sipRegistered = getNullableInt("sip_registered")?.let { it != 0 },
+        voiceReady = getNullableInt("sip_registered")?.let { it != 0 },
         batteryPercent = getNullableInt("battery_percent"),
         charging = getNullableInt("charging")?.let { it != 0 }
     )

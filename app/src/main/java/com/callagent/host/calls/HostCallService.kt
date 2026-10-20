@@ -22,7 +22,6 @@ import com.callagent.host.data.SessionChanged
 import com.callagent.host.data.SessionNeedsPairing
 import com.callagent.host.data.SessionStore
 import com.callagent.host.data.SimLine
-import com.callagent.host.data.SipConfiguration
 import com.callagent.host.data.sameSessionInstance
 import java.time.Instant
 import java.util.UUID
@@ -31,21 +30,16 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
-/** Short-lived service owner for SIP signaling and call control. Idle SIP is never promoted to FGS. */
+/** Short-lived service owner for call control. Idle call control is promoted to FGS only while listening. */
 class HostCallService : android.app.Service() {
     private val io: ExecutorService = Executors.newSingleThreadExecutor()
     private val ringback = OutboundRingback()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val sessionStore by lazy { SessionStore(this) }
-    private val credentialStore by lazy { SipCredentialStore(this) }
     private var callEngine: CallEngine? = null
-    private var sipConfiguration: SipConfiguration? = null
     private var engineSession: HostSession? = null
-    private var compatibilitySipConfiguration: SipConfiguration? = null
-    private var startedCompatibilityConfiguration: SipConfiguration? = null
     @Volatile private var connectionState = EngineConnectionState.STOPPED
     @Volatile private var listeningRequested = false
     @Volatile private var foregroundListening = false
@@ -60,34 +54,20 @@ class HostCallService : android.app.Service() {
     private var currentDefaultNetwork: Network? = null
     private val callbackDefaultNetwork = AtomicReference<Network?>(null)
     private var networkUnavailable = false
-    private var sipRetryPending = false
-    private val networkRecoveryPolicy = SipNetworkRecoveryPolicy()
-    private var networkLossWindow: SipNetworkRecoveryPolicy.LossWindow? = null
+    private var controlRetryPending = false
+    private val networkRecoveryPolicy = NetworkRecoveryPolicy()
+    private var networkLossWindow: NetworkRecoveryPolicy.LossWindow? = null
     private var networkLossTimeout: Runnable? = null
     private var pendingCallIntentId: String? = null
-    private val rtcAuthorizationIds = ConcurrentHashMap.newKeySet<String>()
-    internal val controlLabel: String get() = CallRuntime.currentSession?.controlTransport?.label
-        ?: if (callEngine is RtcCallEngine || callEngine is CompatibilityCallEngine) "Go/RTC" else "SIP"
     private var pendingDestination: String? = null
     private var pendingOutboundCallId: String? = null
     private var pendingOutboundExpiry = 0L
     private var pendingGatewayId: String? = null
     private var pendingSimId: String? = null
     private val dialStartedForCall = mutableSetOf<String>()
-    private val readyWakeIds = mutableSetOf<String>()
-    private val callSyncInFlight = AtomicBoolean(false)
-    private val callSyncWakeHintQueued = AtomicBoolean(false)
     private val inboundEngineIds = mutableMapOf<String, String>()
     private val inboundExpiryCallbacks = ConcurrentHashMap<String, Runnable>()
     private var pendingAnswerCallId: String? = null
-
-    private val pollPendingCalls = object : Runnable {
-        override fun run() {
-            if (!foregroundListening || connectionState != EngineConnectionState.READY) return
-            enqueueCallStateSync()
-            mainHandler.postDelayed(this, INBOUND_POLL_MILLIS)
-        }
-    }
 
     val isForegroundListening: Boolean get() = foregroundListening
     val isSignalingReady: Boolean get() = connectionState == EngineConnectionState.READY
@@ -143,13 +123,12 @@ class HostCallService : android.app.Service() {
         destroying = true
         ringback.stop()
         unregisterNetworkCallbackForDestroy()
-        mainHandler.removeCallbacks(pollPendingCalls)
         inboundExpiryCallbacks.values.forEach(mainHandler::removeCallbacks)
         inboundExpiryCallbacks.clear()
         stopSignalingForeground()
         CallSignalingNotification.cancel(this)
         CallRuntime.detach(this)
-        // Keep PJSUA2 teardown ordered after any call operation already on the serial worker.
+        // Keep engine teardown ordered after any call operation already on the serial worker.
         runCatching { io.execute { closeEngine() } }
         io.shutdown()
         super.onDestroy()
@@ -162,7 +141,7 @@ class HostCallService : android.app.Service() {
                 if (!destroying) block()
             }
         } catch (_: RejectedExecutionException) {
-            // Service teardown won the race with a late Android/SIP callback.
+            // Service teardown won the race with a late Android/engine callback.
         }
     }
 
@@ -191,7 +170,6 @@ class HostCallService : android.app.Service() {
         listeningRequested = enabled
         if (!enabled) {
             foregroundListening = false
-            mainHandler.removeCallbacks(pollPendingCalls)
             stopSignalingForeground()
             if (CallRuntime.currentSessionForService()?.phase?.isInProgress() != true) {
                 executeOnIo {
@@ -223,14 +201,10 @@ class HostCallService : android.app.Service() {
             try {
                 val api = apiForCurrentSession()
                 val session = requireClientSession()
-                val config = loadCallConfiguration(api, session)
+                prepareCallControl(api)
                 if (generation != listeningGeneration.get() || !foregroundListening) return@executeOnIo
                 if (sessionStore.read()?.sessionInstanceId != session.sessionInstanceId) throw SessionChanged()
-                startEngine(config)
-                if (generation == listeningGeneration.get() && connectionState == EngineConnectionState.READY) {
-                    mainHandler.removeCallbacks(pollPendingCalls)
-                    mainHandler.post(pollPendingCalls)
-                }
+                startEngine()
             } catch (failure: Exception) {
                 if (generation != listeningGeneration.get()) return@executeOnIo
                 foregroundListening = false
@@ -252,7 +226,6 @@ class HostCallService : android.app.Service() {
         val retiredCall = CallRuntime.currentSessionForService()?.takeIf { it.phase.isInProgress() }
         listeningRequested = false
         foregroundListening = false
-        mainHandler.removeCallbacks(pollPendingCalls)
         stopSignalingForeground()
         executeOnIo {
             val call = retiredCall?.takeIf { CallRuntime.snapshot(it.callId)?.phase?.isInProgress() == true }
@@ -327,15 +300,9 @@ class HostCallService : android.app.Service() {
         }
     }
 
-    /** A websocket is only a wake hint; poll over the existing SIP service's serial worker. */
+    /** A websocket is only a wake hint: the engine polls call control at once. */
     internal fun requestCallSyncFromWakeHint() {
         (callEngine as? RtcCallEngine)?.wake()
-        if (!callSyncWakeHintQueued.compareAndSet(false, true)) return
-        mainHandler.post {
-            callSyncWakeHintQueued.set(false)
-            if (!foregroundListening || connectionState != EngineConnectionState.READY) return@post
-            enqueueCallStateSync()
-        }
     }
 
     internal fun hangupCall(callId: String) {
@@ -385,26 +352,20 @@ class HostCallService : android.app.Service() {
         try {
             val session = requireClientSession()
             val api = apiForCurrentSession()
-            val config = loadCallConfiguration(api, session)
+            prepareCallControl(api)
             verifyOutboundLine(api, gatewayId, simId, revision)
-            // In a mesh profile this phone mints the call_id, so the old
-            // phone's call ledger can refuse a second dial of the same call
-            // that reached it through another server node.
-            val meshCallId = if (session.profileId != null) UUID.randomUUID().toString() else null
-            val intent = if (config == null) {
-                val id = meshCallId ?: UUID.randomUUID().toString()
-                val granted = rtcControl(api).create(id, gatewayId, simId, revision, destination)
-                rtcAuthorizationIds.add(id)
-                OutboundAuthorization(id, id, "", granted.getString("expires_at"))
-            } else api.createCallIntent(gatewayId, simId, revision, destination, UUID.randomUUID().toString(), meshCallId)
-                .let { OutboundAuthorization(it.intentId, it.callId, it.sipUri, it.expiresAt) }
+            // This phone mints the call_id, so in a mesh profile the old phone's
+            // call ledger can refuse a second dial of the same call that reached
+            // it through another server node.
+            val id = UUID.randomUUID().toString()
+            val granted = rtcControl(api).create(id, gatewayId, simId, revision, destination)
+            val intent = OutboundAuthorization(id, id, destination, granted.getString("expires_at"))
             if (sessionStore.read()?.sessionInstanceId != session.sessionInstanceId) {
                 runCatching { cancelAuthorization(api, intent.intentId) }
                 throw SessionChanged()
             }
             val expiresAt = parseEpochMillis(intent.expiresAt) ?: throw IllegalStateException("Call authorization had no valid expiry")
-            if (!CallRuntime.coordinator.outboundAuthorized(intent.callId, expiresAt, System.currentTimeMillis(),
-                    if(config==null) CallControlTransport.RTC else CallControlTransport.SIP)) {
+            if (!CallRuntime.coordinator.outboundAuthorized(intent.callId, expiresAt, System.currentTimeMillis())) {
                 runCatching { cancelAuthorization(api, intent.intentId) }
                 return
             }
@@ -425,7 +386,7 @@ class HostCallService : android.app.Service() {
                 runCatching { cancelAuthorization(api, intent.intentId) }
                 throw SessionChanged()
             }
-            startEngine(config)
+            startEngine()
             if (connectionState == EngineConnectionState.READY) startAuthorizedOutbound()
         } catch (failure: Exception) {
             failPendingOutbound(readinessFailure(failure))
@@ -435,10 +396,8 @@ class HostCallService : android.app.Service() {
     private data class OutboundAuthorization(val intentId: String, val callId: String, val destination: String, val expiresAt: String)
     private fun rtcControl(api: ApiClient) = com.callagent.rtcmedia.RtcCallControl(com.callagent.rtcmedia.MediaApi { method, path, body -> api.rtcRequest(method, path, body) })
     private fun cancelAuthorization(api: ApiClient, id: String) {
-        if (id in rtcAuthorizationIds) rtcControl(api).operation(id, "cancel") else api.cancelCallIntent(id)
+        rtcControl(api).operation(id, "cancel")
     }
-    private fun callAuthority(api: ApiClient, id: String, transport: CallControlTransport) =
-        if (transport == CallControlTransport.RTC) api.rtcCall(id) else api.getCall(id)
 
     private fun verifyOutboundLine(api: ApiClient, gatewayId: String, simId: String, revision: Long) {
         val gateway = api.listGateways().firstOrNull { it.gatewayId == gatewayId }
@@ -469,48 +428,18 @@ class HostCallService : android.app.Service() {
             requireCallEngine().dial(callId, uri)
         } catch (_: Exception) {
             pendingCallIntentId?.let { intentId -> runCatching { cancelAuthorization(apiForCurrentSession(), intentId) } }
-            failCall(callId, "${CallRuntime.snapshot(callId)?.mediaTransport?.label ?: "语音"} 呼叫启动失败，请检查三端 GsmRtc 日志。未自动切换语音协议。")
+            failCall(callId, "呼叫启动失败，请检查三端 GsmRtc 日志。")
         } finally {
             pendingDestination = null
         }
-    }
-
-    private fun preparePendingInboundCalls() {
-        if (callEngine is RtcCallEngine) return // Dedicated RTC control snapshot loop owns invitations.
-        if (!foregroundListening || connectionState != EngineConnectionState.READY) return
-        val session = runCatching { requireClientSession() }.getOrNull() ?: return
-        val api = runCatching { apiForCurrentSession() }.getOrNull() ?: return
-        val calls = runCatching { api.listCalls() }.getOrElse { return }
-        reconcileCurrentCall(session, calls)
-        val now = System.currentTimeMillis()
-        calls.asSequence()
-            .filter { it.direction in INCOMING_DIRECTIONS && it.state == "pending_wakeup" && !it.wakeNonce.isNullOrBlank() }
-            .filter { parseEpochMillis(it.expiresAt)?.let { expiry -> expiry > now } == true }
-            .filter { it.callId !in readyWakeIds }
-            .forEach { call ->
-                try {
-                    val current = api.getCall(call.callId)
-                    val nonce = current.wakeNonce?.takeIf { it.isNotBlank() } ?: return@forEach
-                    val expiry = parseEpochMillis(current.expiresAt) ?: return@forEach
-                    if (current.callId != call.callId || current.clientId != session.deviceId ||
-                        current.direction !in INCOMING_DIRECTIONS || current.state != "pending_wakeup" ||
-                        expiry <= System.currentTimeMillis()
-                    ) return@forEach
-                    api.ready(current.callId, nonce)
-                    readyWakeIds += current.callId
-                    CallRuntime.setStatus("服务器正在准备远程来电…", current.callId)
-                } catch (_: Exception) {
-                    // Expired, canceled or already consumed wakeups are resolved by the next snapshot.
-                }
-            }
     }
 
     private fun onConnectionStateChanged(state: EngineConnectionState, statusCode: Int?) {
         connectionState = state
         when (state) {
             EngineConnectionState.READY -> {
-                if (sipRetryPending) {
-                    sipRetryPending = false
+                if (controlRetryPending) {
+                    controlRetryPending = false
                     if (!networkUnavailable) {
                         networkRecoveryPolicy.networkRestored()
                         networkLossWindow = null
@@ -538,82 +467,26 @@ class HostCallService : android.app.Service() {
                     startAuthorizedOutbound()
                 }
                 if (foregroundListening) {
-                    if (signalingForeground) CallSignalingNotification.update(this, "$controlLabel 已就绪，等待远程 SIM 来电")
-                    mainHandler.removeCallbacks(pollPendingCalls)
-                    mainHandler.post(pollPendingCalls)
-                    CallRuntime.setStatus("$controlLabel 已就绪；后台来电接收已启用。")
+                    if (signalingForeground) CallSignalingNotification.update(this, "呼叫控制已就绪，等待远程 SIM 来电")
+                    CallRuntime.setStatus("呼叫控制已就绪；后台来电接收已启用。")
                 }
             }
             EngineConnectionState.FAILED -> {
-                val current = CallRuntime.currentSessionForService()
-                when (SipRegistrationFailurePolicy.classify(statusCode)) {
-                    SipRegistrationFailureKind.RETRYABLE -> {
-                        sipRetryPending = true
-                        val activeCall = current?.takeIf { it.phase.isInProgress() }
-                        activeCall?.let { ensureNetworkLossGrace(it.callId) }
-                        val callId = activeCall?.callId
-                        val message = if (networkUnavailable) {
-                            "网络连接中断，正在等待 $controlLabel 自动重试…"
-                        } else {
-                            "$controlLabel 暂时不可达，正在自动重试…"
-                        }
-                        CallRuntime.setStatus(message, callId)
-                        if (signalingForeground) CallSignalingNotification.update(this, message)
-                    }
-                    SipRegistrationFailureKind.AUTHENTICATION_REJECTED,
-                    SipRegistrationFailureKind.TERMINAL -> {
-                        sipRetryPending = false
-                        val reason = if (SipRegistrationFailurePolicy.classify(statusCode) ==
-                            SipRegistrationFailureKind.AUTHENTICATION_REJECTED
-                        ) {
-                            "SIP credentials were rejected (401/403). Check the account configuration."
-                        } else {
-                            "SIP registration failed${statusCode?.let { " ($it)" }.orEmpty()}. Check the account configuration."
-                        }
-                        stopAfterTerminalRegistrationFailure(current?.takeIf { it.phase.isInProgress() }, reason)
-                    }
+                // The engine keeps polling: control returns on its own once the
+                // server is reachable again.
+                controlRetryPending = true
+                val activeCall = CallRuntime.currentSessionForService()?.takeIf { it.phase.isInProgress() }
+                activeCall?.let { ensureNetworkLossGrace(it.callId) }
+                val message = if (networkUnavailable) {
+                    "网络连接中断，正在等待呼叫控制自动重试…"
+                } else {
+                    "呼叫控制暂时不可达，正在自动重试…"
                 }
+                CallRuntime.setStatus(message, activeCall?.callId)
+                if (signalingForeground) CallSignalingNotification.update(this, message)
             }
-            else -> if (foregroundListening) CallRuntime.setStatus("正在连接 $controlLabel…")
+            else -> if (foregroundListening) CallRuntime.setStatus("正在连接呼叫控制…")
         }
-    }
-
-    private fun enqueueCallStateSync() {
-        if (!callSyncInFlight.compareAndSet(false, true)) return
-        executeOnIo {
-            try {
-                preparePendingInboundCalls()
-            } finally {
-                callSyncInFlight.set(false)
-            }
-        }
-    }
-
-    private fun reconcileCurrentCall(session: HostSession, listedCalls: List<RemoteCall>) {
-        val current = CallRuntime.currentSessionForService()?.takeIf {
-            it.phase.isInProgress() && it.phase != CallPhase.DISCONNECTING
-        } ?: return
-        val listed = listedCalls.firstOrNull { it.callId == current.callId } ?: return
-        if (listed.clientId != session.deviceId || listed.state != "ended") return
-        endCallFromServer(listed)
-    }
-
-    private fun endCallFromServer(remote: RemoteCall) {
-        val current = CallRuntime.snapshot(remote.callId) ?: return
-        if (!current.phase.isInProgress() || current.phase == CallPhase.DISCONNECTING) return
-        val engineCallId = inboundEngineIds[remote.callId] ?: remote.callId
-        if (current.direction == CallDirection.INCOMING && current.phase == CallPhase.INCOMING_RINGING) {
-            runCatching { callEngine?.reject(engineCallId, CallRejection.DECLINED) }
-        } else {
-            runCatching { callEngine?.hangup(engineCallId) }
-        }
-        val notice = remote.localTerminalNotice()
-        finishCall(
-            remote.callId,
-            failed = false,
-            endNotice = notice,
-            statusText = notice ?: "通话已结束。"
-        )
     }
 
     private fun handleEngineCallState(snapshot: EngineCallSnapshot) {
@@ -650,20 +523,18 @@ class HostCallService : android.app.Service() {
                         failCall(serverCallId, "Android could not start microphone access for this call")
                         return
                     }
-                    CallRuntime.setStatus("通话中 · 语音：${current.mediaTransport.label} · 控制：$controlLabel。", serverCallId)
+                    CallRuntime.setStatus("通话中。", serverCallId)
                 }
             }
             EngineCallState.DISCONNECTED -> if(snapshot.terminalReason=="answered_elsewhere")
                 finishCall(serverCallId,failed=false,endNotice="已在其他主机接听",statusText="已在其他主机接听。")
-                else finishFromSipTerminal(serverCallId)
-            EngineCallState.FAILED -> failCall(serverCallId,
-                if (snapshot.mediaTransport == CallMediaTransport.WEBRTC && snapshot.terminalStatusCode == null) "WebRTC 通话连接失败，请查看通话日志。"
-                else "通话失败${snapshot.terminalStatusCode?.let { "（$it）" }.orEmpty()}。")
+                else finishFromEngineTerminal(serverCallId)
+            EngineCallState.FAILED -> failCall(serverCallId, "通话连接失败，请查看通话日志。")
             EngineCallState.INCOMING -> Unit
         }
     }
 
-    private fun finishFromSipTerminal(callId: String) {
+    private fun finishFromEngineTerminal(callId: String) {
         ringback.stop(callId)
         val before = CallRuntime.snapshot(callId) ?: return
         if (before.phase in setOf(CallPhase.ENDED, CallPhase.FAILED)) return
@@ -672,7 +543,7 @@ class HostCallService : android.app.Service() {
             failed = false,
             statusText = "通话已结束。"
         )
-        // SIP is already terminal: release Telecom, audio and the call foreground service first.
+        // The engine is already terminal: release Telecom, audio and the call foreground service first.
         // The optional server reason can arrive afterward and is fenced to this ended call ID.
         val session = runCatching { requireClientSession() }.getOrNull() ?: return
         val notice = runCatching { apiForCurrentSession().getCall(callId) }.getOrNull()
@@ -685,7 +556,7 @@ class HostCallService : android.app.Service() {
     private fun matchIncomingInvite(snapshot: EngineCallSnapshot) {
         val serverCallId = snapshot.serverCallId?.trim()?.takeIf { it.isNotBlank() }
         if (serverCallId == null) {
-            Log.w(TAG, "Declined an INVITE without the server call header")
+            Log.w(TAG, "Declined an invitation without a server call id")
             runCatching { callEngine?.reject(snapshot.callId, CallRejection.DECLINED) }
             return
         }
@@ -694,19 +565,19 @@ class HostCallService : android.app.Service() {
         try {
             val session = requireClientSession()
             val api = apiForCurrentSession()
-            val authority = callAuthority(api, serverCallId, snapshot.controlTransport)
+            val authority = api.rtcCall(serverCallId)
             if (authority.callId != serverCallId || authority.clientId != session.deviceId) {
-                Log.w(TAG, "Declined an INVITE the server did not address to this device")
+                Log.w(TAG, "Declined an invitation the server did not address to this device")
                 runCatching { callEngine?.reject(snapshot.callId, CallRejection.DECLINED) }
                 return
             }
             if (!authorityStillRinging(api, authority)) {
-                Log.w(TAG, "Declined an INVITE for a call the server no longer rings (state ${authority.state})")
+                Log.w(TAG, "Declined an invitation for a call the server no longer rings (state ${authority.state})")
                 runCatching { callEngine?.reject(snapshot.callId, CallRejection.DECLINED) }
                 return
             }
             val accepted = CallRuntime.coordinator.incomingInvite(
-                invite = IncomingInviteIdentity(snapshot.transportCallId ?: snapshot.callId, serverCallId, snapshot.mediaTransport, snapshot.controlTransport),
+                invite = IncomingInviteIdentity(snapshot.callId, serverCallId),
                 authority = CallAuthority(
                     callId = authority.callId,
                     direction = authority.direction,
@@ -718,7 +589,7 @@ class HostCallService : android.app.Service() {
                 nowEpochMillis = System.currentTimeMillis()
             )
             if (!accepted) {
-                Log.w(TAG, "Declined an INVITE while another call is in progress")
+                Log.w(TAG, "Declined an invitation while another call is in progress")
                 runCatching { callEngine?.reject(snapshot.callId, CallRejection.DECLINED) }
                 return
             }
@@ -801,7 +672,6 @@ class HostCallService : android.app.Service() {
         CallForegroundService.stop(this)
         inboundExpiryCallbacks.remove(callId)?.let(mainHandler::removeCallbacks)
         inboundEngineIds.remove(callId)
-        readyWakeIds.remove(callId)
         if (pendingOutboundCallId == callId) {
             pendingOutboundCallId = null
             pendingCallIntentId = null
@@ -814,10 +684,7 @@ class HostCallService : android.app.Service() {
         if (pendingAnswerCallId == callId) pendingAnswerCallId = null
         CallRuntime.setStatus(statusText ?: if (failed) "通话失败。" else "通话已结束。", callId)
         if (listeningRequested && foregroundListening) {
-            if (startSignalingForeground()) {
-                mainHandler.removeCallbacks(pollPendingCalls)
-                mainHandler.post(pollPendingCalls)
-            } else {
+            if (!startSignalingForeground()) {
                 foregroundListening = false
                 listeningRequested = false
                 CallRuntime.onListeningFailed(this, "Android 无法恢复来电信令服务。")
@@ -849,14 +716,10 @@ class HostCallService : android.app.Service() {
         pendingOutboundExpiry = 0L
         pendingGatewayId = null
         pendingSimId = null
-        // A rejected outgoing preflight does not invalidate an existing SIP
-        // registration or the user's incoming-call opt-in.
+        // A rejected outgoing preflight does not invalidate the running call
+        // control or the user's incoming-call opt-in.
         if (listeningRequested && foregroundListening && connectionState == EngineConnectionState.READY) {
-            if (startSignalingForeground()) {
-                mainHandler.removeCallbacks(pollPendingCalls)
-                mainHandler.post(pollPendingCalls)
-                return
-            }
+            if (startSignalingForeground()) return
             foregroundListening = false
             listeningRequested = false
             CallRuntime.onListeningFailed(this, "Android 无法恢复来电信令服务。")
@@ -865,74 +728,24 @@ class HostCallService : android.app.Service() {
         stopSelf()
     }
 
-    private fun loadCallConfiguration(api: ApiClient, session: HostSession): SipConfiguration? {
-        compatibilitySipConfiguration = null
-        if (CallPreferences(this).webRtcFor(session) && api.rtcControlAvailable()) {
-            check(com.callagent.rtcmedia.RtcAudioSession.isAvailable(this)) { "WebRTC native engine unavailable" }
-            rtcControl(api).capability(true)
-            // Pure RTC nodes never read SIP configuration or initialize PJSUA2.
-            // During migration the optional listener receives whole SIP forks
-            // selected because another enrolled client is old or has RTC off.
-            if(api.sipControlAvailable()) compatibilitySipConfiguration = runCatching {
-                loadUsableSipConfiguration(api, session)
-            }.onFailure { Log.w(TAG,"Optional SIP incoming compatibility unavailable") }.getOrNull()
-            return null
-        }
-        if (api.rtcControlAvailable()) rtcControl(api).capability(false)
-        return loadUsableSipConfiguration(api, session)
+    /** The server must offer call control; this phone then advertises it. */
+    private fun prepareCallControl(api: ApiClient) {
+        if (!api.rtcControlAvailable()) throw IllegalStateException(SERVER_WITHOUT_RTC)
+        check(com.callagent.rtcmedia.RtcAudioSession.isAvailable(this)) { NATIVE_ENGINE_UNAVAILABLE }
+        rtcControl(api).capability(true)
     }
 
-    private fun loadUsableSipConfiguration(api: ApiClient, session: HostSession): SipConfiguration {
-        val publicConfig = api.getSipConfiguration()
-        if (!publicConfig.available) throw IllegalStateException(publicConfig.reason ?: "SIP calling is not available for this account.")
-        val endpoint = publicConfig.endpointId?.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("SIP endpoint is unavailable.")
-        val username = publicConfig.username?.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("SIP account is unavailable.")
-        val password = credentialStore.readPassword(session, endpoint, username)
-            ?: run {
-                val idempotencyKey = credentialStore.readPendingBootstrapKey(session)
-                    ?: UUID.randomUUID().toString().also { credentialStore.writePendingBootstrapKey(session, it) }
-                val rotated = try {
-                    api.rotateSipCredentials(idempotencyKey)
-                } catch (failure: ApiFailure) {
-                    if (failure.code in TERMINAL_BOOTSTRAP_ERRORS) credentialStore.clearPendingBootstrapKey()
-                    throw failure
-                }
-                if (!rotated.available || rotated.endpointId != endpoint || rotated.username != username || rotated.password.isNullOrBlank()) {
-                    throw IllegalStateException(rotated.reason ?: "Could not issue protected SIP credentials.")
-                }
-                credentialStore.write(session, endpoint, username, rotated.password)
-                rotated.password
-            }
-            ?: throw IllegalStateException("Could not issue protected SIP credentials.")
-        if (password.isBlank()) throw IllegalStateException("Could not issue protected SIP credentials.")
-        return publicConfig.copy(password = password)
-    }
-
-    private fun startEngine(config: SipConfiguration?) {
+    private fun startEngine() {
         startNetworkMonitoring()
         val targetSession = requireClientSession()
-        retireMismatchedEngine(targetSession, config)
+        retireMismatchedEngine(targetSession)
         if (callEngine == null) {
             val generation = engineGeneration + 1L
             engineGeneration = generation
-            val candidate = if (config == null) {
-                val api = apiForCurrentSession()
-                val rtcFactory: (CallEngine.Listener)->CallEngine = { listener ->
-                    RtcCallEngine(this, com.callagent.rtcmedia.MediaApi { method, path, body -> api.rtcRequest(method, path, body) },
-                        listener, CallEngineFactory.pcmForInstrumentation)
-                }
-                val compatibility = compatibilitySipConfiguration
-                if(compatibility==null) rtcFactory(listenerFor(generation)) else
-                    runCatching { CompatibilityCallEngine(listenerFor(generation),rtcFactory) { listener ->
-                        CallEngineFactory.startSip(this,compatibility,listener,legacyIncomingOnly=true)
-                    } }.getOrElse { Log.w(TAG,"SIP compatibility engine unavailable; RTC remains enabled");rtcFactory(listenerFor(generation)) }
-            } else CallEngineFactory.startSip(this, config, listenerFor(generation))
-            callEngine = candidate
+            val api = apiForCurrentSession()
+            callEngine = RtcCallEngine(this, com.callagent.rtcmedia.MediaApi { method, path, body -> api.rtcRequest(method, path, body) },
+                listenerFor(generation), CallEngineFactory.pcmForInstrumentation)
             engineSession = targetSession
-            sipConfiguration = config
-            startedCompatibilityConfiguration = compatibilitySipConfiguration
         }
         if (connectionState !in setOf(EngineConnectionState.READY, EngineConnectionState.CONNECTING)) {
             connectionState = EngineConnectionState.CONNECTING
@@ -940,16 +753,13 @@ class HostCallService : android.app.Service() {
         }
     }
 
-    /** The null SIP config is shared by every pure RTC node. It cannot be the
-     * identity of an authenticated engine or decide reuse across node sessions. */
-    internal fun retireMismatchedEngine(targetSession: HostSession, config: SipConfiguration?) {
+    /** An engine is bound to the authenticated node session that started it. */
+    internal fun retireMismatchedEngine(targetSession: HostSession) {
         val existing = callEngine
-        if (existing != null && (engineSession?.sameSessionInstance(targetSession) != true ||
-                sipConfiguration != config || startedCompatibilityConfiguration != compatibilitySipConfiguration)) {
-            engineGeneration += 1L // Ignore terminal callbacks queued by the previous native endpoint.
+        if (existing != null && engineSession?.sameSessionInstance(targetSession) != true) {
+            engineGeneration += 1L // Ignore terminal callbacks queued by the previous engine.
             callEngine = null
             engineSession = null
-            sipConfiguration = null
             runCatching { existing.close() }
             connectionState = EngineConnectionState.STOPPED
         }
@@ -1041,7 +851,7 @@ class HostCallService : android.app.Service() {
         }
 
         networkUnavailable = false
-        if (!sipRetryPending) {
+        if (!controlRetryPending) {
             networkRecoveryPolicy.networkRestored()
             cancelNetworkLossTimeout()
             networkLossWindow = null
@@ -1059,7 +869,7 @@ class HostCallService : android.app.Service() {
             callEngine?.refreshNetwork()
         } catch (_: Exception) {
             if (call != null) {
-                failCall(call.callId, "Could not refresh the SIP connection after network recovery")
+                failCall(call.callId, "Could not refresh call control after network recovery")
                 return
             }
         }
@@ -1082,12 +892,12 @@ class HostCallService : android.app.Service() {
         cancelNetworkLossTimeout()
         if (window != null) scheduleNetworkLossTimeout(window)
         if (foregroundListening) {
-            CallRuntime.setStatus("网络连接中断，正在等待 SIP 恢复…", call?.callId)
+            CallRuntime.setStatus("网络连接中断，正在等待呼叫控制恢复…", call?.callId)
             if (signalingForeground) CallSignalingNotification.update(this, "网络连接中断，正在尝试恢复")
         }
     }
 
-    private fun scheduleNetworkLossTimeout(window: SipNetworkRecoveryPolicy.LossWindow) {
+    private fun scheduleNetworkLossTimeout(window: NetworkRecoveryPolicy.LossWindow) {
         val timeout = Runnable {
             executeOnIo {
                 if (networkLossWindow != window) return@executeOnIo
@@ -1103,7 +913,7 @@ class HostCallService : android.app.Service() {
                 val active = manager.activeNetwork
                 if (active != null && isValidatedNetwork(manager, active) && networkUnavailable) {
                     handleDefaultNetworkAvailable(active, networkMonitorGeneration, networkEventGeneration.get())
-                    if (!networkUnavailable && !sipRetryPending) return@executeOnIo
+                    if (!networkUnavailable && !controlRetryPending) return@executeOnIo
                 }
 
                 val engineCallId = inboundEngineIds[current.callId] ?: current.callId
@@ -1135,33 +945,6 @@ class HostCallService : android.app.Service() {
         networkLossWindow = window
         cancelNetworkLossTimeout()
         scheduleNetworkLossTimeout(window)
-    }
-
-    private fun stopAfterTerminalRegistrationFailure(call: CallSession?, message: String) {
-        foregroundListening = false
-        listeningRequested = false
-        mainHandler.removeCallbacks(pollPendingCalls)
-        CallRuntime.onListeningFailed(this, message)
-        stopSignalingForeground()
-        if (call != null) {
-            val engineCallId = inboundEngineIds[call.callId] ?: call.callId
-            if (call.direction == CallDirection.OUTGOING && pendingOutboundCallId == call.callId &&
-                call.callId !in dialStartedForCall
-            ) {
-                pendingCallIntentId?.let { intentId ->
-                    runCatching { cancelAuthorization(apiForCurrentSession(), intentId) }
-                }
-            }
-            if (call.direction == CallDirection.INCOMING && call.phase == CallPhase.INCOMING_RINGING) {
-                runCatching { callEngine?.reject(engineCallId, CallRejection.DECLINED) }
-            } else {
-                runCatching { callEngine?.hangup(engineCallId) }
-            }
-            finishCall(call.callId, failed = true, failureReason = message, statusText = message)
-        } else {
-            closeEngine()
-            stopSelf()
-        }
     }
 
     private fun stopNetworkMonitoring() {
@@ -1227,8 +1010,8 @@ class HostCallService : android.app.Service() {
                 statusText = "服务器已结束或取消通话。"
             )
         } else if (current.phase == CallPhase.ACTIVE && remote.state == "active") {
-            if (sipRetryPending) {
-                CallRuntime.setStatus("服务器仍保持通话，正在等待 SIP 注册恢复…", current.callId)
+            if (controlRetryPending) {
+                CallRuntime.setStatus("服务器仍保持通话，正在等待呼叫控制恢复…", current.callId)
                 return
             }
             if (!CallForegroundService.start(this, current.callId, microphone = true)) {
@@ -1272,21 +1055,19 @@ class HostCallService : android.app.Service() {
     }
 
     private fun closeEngine() {
-        mainHandler.removeCallbacks(pollPendingCalls)
         stopNetworkMonitoring()
         engineGeneration += 1L
-        sipRetryPending = false
+        controlRetryPending = false
         val old = callEngine
         callEngine = null
         engineSession = null
-        sipConfiguration = null
         connectionState = EngineConnectionState.STOPPED
         runCatching { old?.close() }
     }
 
-    private fun requireCallEngine(): CallEngine = callEngine ?: error("SIP engine unavailable")
+    private fun requireCallEngine(): CallEngine = callEngine ?: error("Call engine unavailable")
 
-    private fun startSignalingForeground(message: String = "正在连接 SIP…"): Boolean = try {
+    private fun startSignalingForeground(message: String = "正在连接呼叫控制…"): Boolean = try {
         val notification = CallSignalingNotification.build(this, message)
         if (Build.VERSION.SDK_INT >= 34) {
             startForeground(
@@ -1325,33 +1106,28 @@ class HostCallService : android.app.Service() {
     }
 
     private fun onCallEngineError() {
-        if (networkUnavailable || sipRetryPending || connectionState == EngineConnectionState.FAILED) {
+        if (networkUnavailable || controlRetryPending || connectionState == EngineConnectionState.FAILED) {
             if (connectionState == EngineConnectionState.FAILED) {
-                sipRetryPending = true
+                controlRetryPending = true
                 CallRuntime.currentSessionForService()?.takeIf { it.phase.isInProgress() }
                     ?.let { ensureNetworkLossGrace(it.callId) }
             }
             val message = if (networkUnavailable) {
-                "网络连接中断，正在等待 SIP 恢复…"
+                "网络连接中断，正在等待呼叫控制恢复…"
             } else {
-                "SIP 暂时不可达，正在自动重试…"
+                "呼叫控制暂时不可达，正在自动重试…"
             }
             CallRuntime.setStatus(message)
             return
         }
         val current = CallRuntime.currentSessionForService()
         if (current?.phase?.isInProgress() == true) {
-            val message = if (current.mediaTransport == CallMediaTransport.WEBRTC) {
-                "SIP 呼叫控制连接失败，WebRTC 通话已结束。"
-            } else {
-                "加密 SIP 通话连接失败。"
-            }
-            failCall(current.callId, message)
+            failCall(current.callId, "呼叫控制连接失败，通话已结束。")
         }
         else if (foregroundListening) {
             foregroundListening = false
             listeningRequested = false
-            CallRuntime.onListeningFailed(this, "SIP 引擎不可用，来电接收已关闭。")
+            CallRuntime.onListeningFailed(this, "通话引擎不可用，来电接收已关闭。")
             stopSignalingForeground()
             closeEngine()
             stopSelf()
@@ -1365,7 +1141,8 @@ class HostCallService : android.app.Service() {
             "gateway_offline" -> "远程网关当前离线。"
             "sim_mapping_changed", "stale_mapping_revision" -> "SIM 映射已变化，请刷新并重新选择。"
             "gateway_busy", "call_busy" -> "网关正在通话。请稍后重试。"
-            "calling_not_ready", "sip_unavailable" -> "服务器通话服务尚不可用。"
+            "calling_not_ready", "rtc_control_disabled" -> "服务器通话服务尚不可用。"
+            "gateway_unavailable", "rtc_gateway_unavailable" -> "远程网关当前无法通话。"
             else -> "服务器拒绝此次呼叫（${failure.code}）。"
         }
         else -> failure.message?.takeIf { it in SAFE_READINESS_MESSAGES } ?: "通话服务暂不可用，请刷新服务器状态后重试。"
@@ -1402,15 +1179,15 @@ class HostCallService : android.app.Service() {
         private const val EXTRA_DESTINATION = "com.callagent.host.calls.DESTINATION"
         private const val EXTRA_CALL_ID = CallActionActivity.EXTRA_CALL_ID
         private const val EXTRA_ENABLED = "com.callagent.host.calls.ENABLED"
-        private const val INBOUND_POLL_MILLIS = 3_000L
+        private const val SERVER_WITHOUT_RTC = "服务器版本过旧，不支持 WebRTC 通话。请升级服务端。"
+        private const val NATIVE_ENGINE_UNAVAILABLE = "此安装中没有可用的 WebRTC 原生引擎。"
         private val INCOMING_DIRECTIONS = setOf("incoming", "inbound")
         private val OUTGOING_DIRECTIONS = setOf("outgoing", "outbound")
         private val SAFE_READINESS_MESSAGES = setOf(
             "远程网关不可用。", "远程网关当前离线。", "所选远程 SIM 已不存在，请刷新并重新选择。",
-            "远程 SIM 映射已变化或未确认，请刷新并重新选择。", "SIP endpoint is unavailable.",
-            "SIP account is unavailable.", "Call authorization had no valid expiry", "Android blocked the call foreground service"
+            "远程 SIM 映射已变化或未确认，请刷新并重新选择。", SERVER_WITHOUT_RTC, NATIVE_ENGINE_UNAVAILABLE,
+            "Call authorization had no valid expiry", "Android blocked the call foreground service"
         )
-        private val TERMINAL_BOOTSTRAP_ERRORS = setOf("SIP_BOOTSTRAP_EXPIRED", "IDEMPOTENCY_KEY_REUSED")
 
         fun startOutbound(
             context: Context,

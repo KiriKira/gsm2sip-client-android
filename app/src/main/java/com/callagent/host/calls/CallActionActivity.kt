@@ -230,9 +230,6 @@ class CallActionActivity : AppCompatActivity() {
             setTextColor(color(androidx.appcompat.R.attr.colorPrimary))
             setPadding(0, dp(8), 0, dp(if (compact) 8 else 16))
         })
-        if (call != null) root.addView(label("语音：${call.mediaTransport.label} · 控制：${CallRuntime.controlLabel}", 14f).apply {
-            setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant))
-        })
         call?.endNotice?.takeIf { it.isNotBlank() }?.let { root.addView(label(it, 15f)) }
         if (call?.phase == CallPhase.FAILED) root.addView(label("连接失败，请检查网络后重试", 15f))
         if (call?.phase == CallPhase.ACTIVE && CallRuntime.currentStatus.let { it.contains("网络") || it.contains("恢复") }) {

@@ -89,12 +89,10 @@ object NodeMonitor {
         return try {
             val started = SystemClock.elapsedRealtime()
             val api = ApiClient(node.apiBaseUrl, store, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
-            val preferred = com.callagent.host.calls.CallPreferences(context).webRtcFor(store.read())
+            // Every enrolled node learns that this phone takes calls, even while
+            // another node owns its active foreground call engine.
             val supportsControl = api.rtcControlAvailable()
-            val independent = preferred && supportsControl
-            // Every enrolled node learns this installation's protocol choice,
-            // even while another node owns its active foreground call engine.
-            if(supportsControl) com.callagent.rtcmedia.RtcCallControl(com.callagent.rtcmedia.MediaApi { method,path,body -> api.rtcRequest(method,path,body) }).capability(preferred)
+            if (supportsControl) com.callagent.rtcmedia.RtcCallControl(com.callagent.rtcmedia.MediaApi { method, path, body -> api.rtcRequest(method, path, body) }).capability(true)
             api.capabilities()
             val rtt = SystemClock.elapsedRealtime() - started
             val gateway = api.listGateways().firstOrNull { installId != null && it.installId == installId }
@@ -103,7 +101,7 @@ object NodeMonitor {
                 gatewayOnline = gateway?.online == true,
                 rttMillis = rtt,
                 gatewayId = gateway?.gatewayId,
-                callReady = gateway?.online == true && (if(independent) gateway.rtcCallControlReady else gateway.sipRegistered == true)
+                callReady = supportsControl && gateway?.online == true && gateway.voiceReady == true
             )
         } catch (_: Exception) {
             NodeObservation(reachable = false, gatewayOnline = false, rttMillis = null)

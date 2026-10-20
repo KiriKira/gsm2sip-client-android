@@ -1,7 +1,7 @@
 package com.callagent.host.calls
 
 /** Fences delayed network-loss work so a restored network or replacement call wins. */
-internal class SipNetworkRecoveryPolicy(private val graceMillis: Long = DEFAULT_GRACE_MILLIS) {
+internal class NetworkRecoveryPolicy(private val graceMillis: Long = DEFAULT_GRACE_MILLIS) {
     class LossWindow internal constructor(
         val generation: Long,
         val callId: String,
@@ -47,20 +47,5 @@ internal class SipNetworkRecoveryPolicy(private val graceMillis: Long = DEFAULT_
 
     private companion object {
         const val DEFAULT_GRACE_MILLIS = 30_000L
-    }
-}
-
-internal enum class SipRegistrationFailureKind {
-    RETRYABLE,
-    AUTHENTICATION_REJECTED,
-    TERMINAL
-}
-
-internal object SipRegistrationFailurePolicy {
-    fun classify(statusCode: Int?): SipRegistrationFailureKind = when {
-        statusCode == null || statusCode == 408 || statusCode == 480 || statusCode in 500..599 ->
-            SipRegistrationFailureKind.RETRYABLE
-        statusCode == 401 || statusCode == 403 -> SipRegistrationFailureKind.AUTHENTICATION_REJECTED
-        else -> SipRegistrationFailureKind.TERMINAL
     }
 }

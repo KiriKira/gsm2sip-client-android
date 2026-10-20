@@ -142,8 +142,6 @@ class MainActivityThemeTest {
                     accessExpiresAt = "2099-01-01T00:00:00Z",
                     refreshToken = "test-refresh",
                     refreshExpiresAt = "2099-01-02T00:00:00Z",
-                    sipAvailable = false,
-                    sipReason = "test",
                 )
             }
             oldActivity.findViewById<TextInputEditText>(R.id.pairing_server).setText("https://pairing.example.test")
@@ -199,8 +197,6 @@ class MainActivityThemeTest {
             accessExpiresAt = "2099-01-01T00:00:00Z",
             refreshToken = "test-only-refresh-token",
             refreshExpiresAt = "2099-01-01T00:00:00Z",
-            sipAvailable = false,
-            sipReason = "test-only fixture",
         )
         val databaseName = clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
         application.deleteDatabase(databaseName)
@@ -215,7 +211,7 @@ class MainActivityThemeTest {
                     lastSeenAt = "2026-10-04T09:30:00Z",
                     mappingRevision = 42,
                     root = false,
-                    sipRegistered = false,
+                    voiceReady = false,
                     batteryPercent = 84,
                     charging = false,
                 ))

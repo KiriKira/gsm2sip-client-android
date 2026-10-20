@@ -1,15 +1,14 @@
 package com.callagent.host.calls
 
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class SipNetworkRecoveryPolicyTest {
+class NetworkRecoveryPolicyTest {
     @Test
     fun activeCallGetsThirtySecondNetworkLossGrace() {
-        val policy = SipNetworkRecoveryPolicy()
+        val policy = NetworkRecoveryPolicy()
         val loss = policy.networkLost("call-1", now)!!
 
         assertFalse(policy.shouldEndCall(loss, "call-1", now + 29_999L))
@@ -18,7 +17,7 @@ class SipNetworkRecoveryPolicyTest {
 
     @Test
     fun restoredNetworkInvalidatesThePendingLossTimeout() {
-        val policy = SipNetworkRecoveryPolicy()
+        val policy = NetworkRecoveryPolicy()
         val loss = policy.networkLost("call-1", now)!!
 
         policy.networkRestored()
@@ -28,7 +27,7 @@ class SipNetworkRecoveryPolicyTest {
 
     @Test
     fun staleTimeoutCannotEndAReplacementCallOrANewerLossWindow() {
-        val policy = SipNetworkRecoveryPolicy()
+        val policy = NetworkRecoveryPolicy()
         val oldLoss = policy.networkLost("call-1", now)!!
         assertFalse(policy.shouldEndCall(oldLoss, "call-2", now + 30_000L))
 
@@ -39,38 +38,12 @@ class SipNetworkRecoveryPolicyTest {
 
     @Test
     fun anIdleNetworkLossDoesNotScheduleCallTermination() {
-        val policy = SipNetworkRecoveryPolicy()
+        val policy = NetworkRecoveryPolicy()
 
         assertTrue(policy.networkLost(null, now) == null)
         val laterLoss = policy.networkLost("call-1", now + 60_000L)
 
         assertNotNull(laterLoss)
-    }
-
-    @Test
-    fun registrationTransportAndTemporaryServerErrorsRemainRetryable() {
-        listOf(null, 408, 480, 500, 503, 599).forEach { statusCode ->
-            assertEquals(
-                SipRegistrationFailureKind.RETRYABLE,
-                SipRegistrationFailurePolicy.classify(statusCode)
-            )
-        }
-    }
-
-    @Test
-    fun credentialRejectionIsTerminalAndOtherClientErrorsDoNotRetryForever() {
-        assertEquals(
-            SipRegistrationFailureKind.AUTHENTICATION_REJECTED,
-            SipRegistrationFailurePolicy.classify(401)
-        )
-        assertEquals(
-            SipRegistrationFailureKind.AUTHENTICATION_REJECTED,
-            SipRegistrationFailurePolicy.classify(403)
-        )
-        assertEquals(
-            SipRegistrationFailureKind.TERMINAL,
-            SipRegistrationFailurePolicy.classify(404)
-        )
     }
 
     private companion object {

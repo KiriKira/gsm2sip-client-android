@@ -9,7 +9,7 @@ import com.callagent.host.data.HostSession
 import com.callagent.host.data.profileKey
 import com.callagent.host.data.SessionStore
 
-/** Process-wide call owner. Activities render its snapshots; no Activity owns a SIP dialog. */
+/** Process-wide call owner. Activities render its snapshots; no Activity owns a call. */
 object CallRuntime {
     const val ACTION_STATE_CHANGED = "com.callagent.host.calls.STATE_CHANGED"
     internal const val EXTRA_CHANGED_CALL_ID = "com.callagent.host.calls.CHANGED_CALL_ID"
@@ -41,7 +41,6 @@ object CallRuntime {
     val currentCallId: String? get() = coordinator.current?.callId?.takeUnless { it == "pending" }
     val currentSession: CallSession? get() = coordinator.current
     val currentStatus: String get() = statusText
-    val controlLabel: String get() = currentSession?.controlTransport?.label ?: service?.controlLabel ?: "待确认"
     val isForegroundListening: Boolean get() = service?.isForegroundListening == true
     val isSignalingReady: Boolean get() = service?.isSignalingReady == true
     val isListeningRequested: Boolean get() = wantsForegroundListening
@@ -53,12 +52,11 @@ object CallRuntime {
             wantsForegroundListening = false
             signalingStartRequestedFor = null
             // Another node of the same profile keeps the user's opt-in; only
-            // its SIP registration (per server) is restarted.
+            // its call control (per server) is restarted.
             if (rememberedProfileKey != session?.profileKey) CallPreferences(context).clear()
             service?.stopForSessionChange()
         }
-        SipCredentialStore(context).clearForDifferentSession(session)
-        wantsForegroundListening = CallPreferences(context).enabledFor(session) && (session?.sipAvailable == true || CallPreferences(context).webRtcFor(session))
+        wantsForegroundListening = CallPreferences(context).enabledFor(session)
         rememberedSessionInstance = nextSessionInstance
         rememberedProfileKey = session?.profileKey
     }
@@ -67,7 +65,7 @@ object CallRuntime {
     fun onActiveNodeChanged(context: Context, session: HostSession) {
         val app = context.applicationContext
         restoreForegroundPreference(app, session)
-        // Re-register with the new node's SIP server right away. In the
+        // Start call control on the new node right away. In the
         // background Android may refuse the service start; the next app
         // open then restarts signaling as usual.
         if (wantsForegroundListening) runCatching { startSignalingIfNeeded(app, session) }
@@ -97,8 +95,7 @@ object CallRuntime {
     ): Boolean {
         if (context.isFinishing || context.isDestroyed) return false
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return false
-        val mode = if (CallPreferences(context).webRtcFor(SessionStore(context).read())) CallMediaTransport.WEBRTC else CallMediaTransport.SIP
-        if (!coordinator.beginOutbound(simId, destination, mode)) return false
+        if (!coordinator.beginOutbound(simId, destination)) return false
         statusText = "正在检查远程 SIM 和语音服务…"
         notifyChanged("pending")
         val accepted = HostCallService.startOutbound(
@@ -117,20 +114,11 @@ object CallRuntime {
         return accepted
     }
 
-    fun onVoicePolicyChanged(context: Context) {
-        val session = SessionStore(context).read() ?: return
-        service?.stopForSessionChange()
-        if (CallPreferences(context).enabledFor(session)) {
-            wantsForegroundListening = true
-            HostCallService.setForegroundListening(context.applicationContext, true)
-        }
-    }
-
     fun enableForegroundListening(activity: Activity): Boolean {
         return ensureIncomingCallSignalingForPairedSession(activity)
     }
 
-    /** Starts only SIP signaling from a visible pairing screen; audio permissions remain call-scoped. */
+    /** Starts only call signaling from a visible pairing screen; audio permissions remain call-scoped. */
     fun ensureIncomingCallSignalingForPairedSession(
         activity: Activity,
         availabilityOverride: Boolean? = null
@@ -139,7 +127,7 @@ object CallRuntime {
         val context = activity.applicationContext
         val session = runCatching { SessionStore(context).read() }.getOrNull() ?: return false
         val preferences = CallPreferences(context)
-        if (!preferences.canAutoListenFor(session, availabilityOverride ?: (session.sipAvailable || preferences.webRtcFor(session)))) return false
+        if (!preferences.canAutoListenFor(session, availabilityOverride ?: true)) return false
 
         synchronized(signalingStartLock) {
             if (!isVisibleAndFocused(activity)) return false
@@ -355,7 +343,7 @@ object CallRuntime {
         service = hostCallService
     }
 
-    /** Wake an already-owned call service without starting SIP or another foreground service. */
+    /** Wake an already-owned call service without starting signaling or another foreground service. */
     /** The background service's WebSocket to the active node is open, so wake hints arrive. */
     @Volatile internal var wakeChannelLive = false
 

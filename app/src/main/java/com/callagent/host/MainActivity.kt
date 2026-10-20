@@ -49,7 +49,7 @@ import com.callagent.host.background.BackgroundStatus
 import com.callagent.host.calls.CallAudioEndpoint
 import com.callagent.host.calls.CallNotificationManager
 import com.callagent.host.calls.CallPhase
-import com.callagent.host.calls.CallPreferences
+import com.callagent.host.calls.CallEngineFactory
 import com.callagent.host.calls.CallRuntime
 import com.callagent.host.calls.CallActionActivity
 import com.callagent.host.calls.startCallUi
@@ -1112,8 +1112,6 @@ class MainActivity : AppCompatActivity() {
             addPairingForm(form)
             content.addView(form)
         } else {
-            content.addView(HostUi.groupHeader(this, "通话语音"))
-            addWebRtcAudioPreference(content)
             content.addView(HostUi.groupHeader(this, "服务器与设备"))
             content.addView(HostUi.tile(this, HostUi.Position.SINGLE,
                 title = session?.apiBaseUrl.orEmpty(),
@@ -1736,12 +1734,12 @@ class MainActivity : AppCompatActivity() {
             paired = session != null,
             gatewayOnline = current != null && GatewayStatusPresenter.isOnline(current,
                 current.lastSeenAt?.let { runCatching { Instant.parse(it) }.getOrNull() }, System.currentTimeMillis()),
-            gatewaySipRegistered = if(independentCallControlAvailable) null else current?.sipRegistered,
+            gatewayVoiceReady = current?.voiceReady,
             gatewayRevision = current?.mappingRevision,
             line = line,
             callServerAvailable = callServerAvailable,
             callServerReason = callServerReason,
-            localEngineAvailable = localSipEngineAvailable(),
+            localEngineAvailable = localCallEngineAvailable(),
             server = serverLink
         )
     }
@@ -2034,15 +2032,12 @@ class MainActivity : AppCompatActivity() {
         smsThreadSendButton?.isEnabled = line?.canSend == true && gateway?.mappingRevision == line.mappingRevision
     }
 
-    private var independentCallControlAvailable = false
-
     private fun resetCallAvailability() {
         callAvailabilityGeneration += 1L
         callAvailabilityLoading = false
         callAvailabilityCheckedAt = 0L
         callServerAvailable = null
         callServerReason = null
-        independentCallControlAvailable = false
     }
 
     private fun refreshCallAvailability(force: Boolean = false) {
@@ -2057,8 +2052,8 @@ class MainActivity : AppCompatActivity() {
         executor.execute {
             val result = runCatching {
                 if (sessionStore.read()?.sameSessionInstance(expected) != true || database !== expectedDatabase) throw SessionChanged()
-                val rtc = CallPreferences(this).webRtcFor(expected) && expectedApi.rtcControlAvailable()
-                if (rtc) Triple(true, null, true) else expectedApi.getSipConfiguration().let { Triple(it.available, it.reason, false) }
+                if (expectedApi.rtcControlAvailable()) true to null
+                else false to "服务器版本过旧，不支持 WebRTC 通话。请升级服务端。"
             }
             mainHandler.post {
                 if (generation != callAvailabilityGeneration) return@post
@@ -2072,7 +2067,6 @@ class MainActivity : AppCompatActivity() {
                 result.onSuccess {
                     callServerAvailable = it.first
                     callServerReason = it.second
-                    independentCallControlAvailable = it.third
                 }.onFailure { failure ->
                     callServerAvailable = false
                     callServerReason = when (failure) {
@@ -2095,39 +2089,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun addWebRtcAudioPreference(panel: LinearLayout) {
-        val call = CallRuntime.currentSession
-        val mediaSession = SessionStore(this).read()
-        val mediaPreferences = CallPreferences(this)
-        val webRtcSwitch = MaterialSwitch(this).apply {
-            id = R.id.webrtc_audio_switch
-            text = "WebRTC 语音"
-            contentDescription = "WebRTC 语音开关"
-            isChecked = mediaPreferences.webRtcFor(mediaSession)
-            isEnabled = mediaSession != null && (call == null || !isLiveCallPhase(call.phase))
-            setOnCheckedChangeListener { _, enabled ->
-                if (!mediaPreferences.setWebRtc(mediaSession, enabled)) {
-                    showToast("语音协议设置保存失败。")
-                } else {
-                    android.util.Log.i("GsmRtc", "event=preference_changed media=${if (enabled) "webrtc" else "sip"} scope=new_calls")
-                    CallRuntime.onVoicePolicyChanged(this@MainActivity)
-                    resetCallAvailability()
-                    refreshCallAvailability(force = true)
-                }
-                renderCurrentScreen()
-            }
-        }
-        panel.addView(webRtcSwitch)
-        panel.addView(body("${if (webRtcSwitch.isChecked) "新服务端使用 Go 呼叫控制与 WebRTC 音频；旧服务端保留兼容路径。" else "新通话使用原 SIP 音频。"} 通话期间不能切换，实际控制路径显示在通话页和日志中。"))
-    }
-
     private fun renderCallPanel() {
         val panel = callPanel ?: return
         panel.removeAllViews()
         val call = CallRuntime.currentSession
         if (call != null && isLiveCallPhase(call.phase)) {
             panel.addView(messageCard(
-                "${call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程号码"} · ${call.simId}\n本次语音：${call.mediaTransport.label} · 控制：${CallRuntime.controlLabel}\n${callPhaseLabel(call.phase)}${CallRuntime.currentStatus.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()}"
+                "${call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程号码"} · ${call.simId}\n${callPhaseLabel(call.phase)}${CallRuntime.currentStatus.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()}"
             ))
             when (call.phase) {
                 CallPhase.INCOMING_RINGING -> {
@@ -2188,7 +2156,7 @@ class MainActivity : AppCompatActivity() {
         val currentGateway = gateway
         val gatewayReady = currentGateway?.online == true
         val lineReady = line != null && line.canSend && currentGateway != null && line.mappingRevision == currentGateway.mappingRevision
-        val nativeReady = localSipEngineAvailable()
+        val nativeReady = localCallEngineAvailable()
         val microphoneReady = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         val notificationReady = CallNotificationManager.notificationsEnabled(this)
         val serverReady = callServerAvailable == true
@@ -2196,13 +2164,13 @@ class MainActivity : AppCompatActivity() {
 
         val serverText = when {
             callAvailabilityLoading -> "正在检查服务器呼叫服务…"
-            callServerAvailable == true -> if(independentCallControlAvailable) "服务器 Go/RTC 呼叫控制可用。" else "服务器 SIP 配置可用。"
+            callServerAvailable == true -> "服务器呼叫控制可用。"
             callServerAvailable == false -> callServerReason ?: "服务器呼叫服务不可用。"
             else -> "服务器呼叫状态尚未检查。"
         }
         panel.addView(body(serverText))
         panel.addView(body(when {
-            !nativeReady -> "此安装中没有可用的 SIP 原生引擎。"
+            !nativeReady -> "此安装中没有可用的 WebRTC 原生引擎。"
             !gatewayReady -> "远程网关未在线。"
             line == null -> "请选择上方一张远程 SIM 卡。"
             !lineReady -> "所选 SIM 映射未确认或已变化，请刷新并重选。"
@@ -2268,11 +2236,11 @@ class MainActivity : AppCompatActivity() {
                 CallRuntime.disableForegroundListening(this)
                 renderCallPanel()
             } else if (!CallRuntime.enableForegroundListening(this)) {
-                showToast("无法启动 SIP 前台来电接收。")
+                showToast("无法启动前台来电接收。")
             }
         }
         panel.addView(listen)
-        panel.addView(body("开启后使用系统可见的专用信令前台服务维持 SIP 注册和 HTTPS 来电检查；不启用麦克风。实际 SIP 来电匹配服务器状态后才交给 Telecom，用户接听后才请求麦克风和通话前台服务。网络中断、强行停止或系统资源限制仍可能延迟来电。"))
+        panel.addView(body("开启后使用系统可见的专用信令前台服务保持呼叫控制和 HTTPS 来电检查；不启用麦克风。来电匹配服务器状态后才交给 Telecom，用户接听后才请求麦克风和通话前台服务。网络中断、强行停止或系统资源限制仍可能延迟来电。"))
 
         val refresh = smallButton(if (callAvailabilityLoading) "正在检查…" else "刷新通话可用状态")
         refresh.isEnabled = !callAvailabilityLoading
@@ -2288,17 +2256,11 @@ class MainActivity : AppCompatActivity() {
         value.length in 2..40 && value.firstOrNull()?.let { it.isDigit() || it == '+' || it == '*' || it == '#' } == true &&
             value.all { it.isDigit() || it in "+*#()-. " }
 
-    private fun localSipEngineAvailable(): Boolean = runCatching {
-        val factory = Class.forName("com.callagent.host.calls.CallEngineFactory")
-        val singleton = runCatching { factory.getField("INSTANCE").get(null) }.getOrNull()
-        val method = if (singleton != null) singleton.javaClass.getMethod("isAvailable", Context::class.java)
-        else factory.getMethod("isAvailable", Context::class.java)
-        method.invoke(singleton, this) as? Boolean ?: false
-    }.getOrDefault(false)
+    private fun localCallEngineAvailable(): Boolean = runCatching { CallEngineFactory.isAvailable(this) }.getOrDefault(false)
 
     private fun callPhaseLabel(phase: CallPhase): String = when (phase) {
         CallPhase.AUTHORIZING_OUTBOUND -> "正在申请呼叫授权"
-        CallPhase.REGISTERING -> "正在连接 SIP"
+        CallPhase.REGISTERING -> "正在连接呼叫控制"
         CallPhase.DIALING -> "正在呼叫"
         CallPhase.OUTBOUND_RINGING -> "等待远端接听"
         CallPhase.INCOMING_MATCHING -> "验证来电"
@@ -3301,7 +3263,7 @@ class MainActivity : AppCompatActivity() {
             id = R.id.main_content_scroll
             isFillViewport = true
             clipToPadding = false
-            contentDescription = "GSM2SIP 主机页面"
+            contentDescription = "Madoka 主机页面"
         }
         val centered = FrameLayout(this)
         centered.addView(

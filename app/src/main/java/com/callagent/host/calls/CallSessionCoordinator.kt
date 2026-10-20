@@ -28,9 +28,7 @@ data class CallSession(
     val muted: Boolean = false,
     val speaker: Boolean = false,
     val failure: String? = null,
-    val endNotice: String? = null,
-    val mediaTransport: CallMediaTransport = CallMediaTransport.SIP,
-    val controlTransport: CallControlTransport? = null
+    val endNotice: String? = null
 )
 
 /** Values copied from the authenticated server call snapshot. */
@@ -45,16 +43,14 @@ data class CallAuthority(
 
 /** Correlation from the authenticated control engine, checked against call authority. */
 data class IncomingInviteIdentity(
-    val sipCallId: String,
-    val serverCallIdHeader: String?,
-    val mediaTransport: CallMediaTransport = CallMediaTransport.SIP,
-    val controlTransport: CallControlTransport = CallControlTransport.SIP
+    val engineCallId: String,
+    val serverCallId: String?
 )
 
 /**
- * Serializes app-side transitions and makes repeated Android/SIP callbacks harmless.
- * Network and SIP operations are deliberately performed by the owner after inspecting
- * the returned transition; this class has no side effects.
+ * Serializes app-side transitions and makes repeated Android/engine callbacks harmless.
+ * Network and call-control operations are deliberately performed by the owner after
+ * inspecting the returned transition; this class has no side effects.
  */
 class CallSessionCoordinator {
     private val retiredCallIds = linkedSetOf<String>()
@@ -64,7 +60,7 @@ class CallSessionCoordinator {
         private set
 
     @Synchronized
-    fun beginOutbound(simId: String, remoteNumber: String, mediaTransport: CallMediaTransport = CallMediaTransport.SIP): Boolean {
+    fun beginOutbound(simId: String, remoteNumber: String): Boolean {
         if (current?.phase?.isLive() == true || current?.phase == CallPhase.AUTHORIZING_OUTBOUND) return false
         current = CallSession(
             callId = "pending",
@@ -72,19 +68,17 @@ class CallSessionCoordinator {
             simId = simId,
             remoteNumber = remoteNumber,
             phase = CallPhase.AUTHORIZING_OUTBOUND,
-            expiresAtEpochMillis = 0L,
-            mediaTransport = mediaTransport
+            expiresAtEpochMillis = 0L
         )
         return true
     }
 
     @Synchronized
-    fun outboundAuthorized(callId: String, expiresAtEpochMillis: Long, nowEpochMillis: Long,
-                           controlTransport: CallControlTransport = CallControlTransport.SIP): Boolean {
+    fun outboundAuthorized(callId: String, expiresAtEpochMillis: Long, nowEpochMillis: Long): Boolean {
         val state = current ?: return false
         if (state.phase != CallPhase.AUTHORIZING_OUTBOUND || callId.isBlank() || expiresAtEpochMillis <= nowEpochMillis) return false
         current = state.copy(callId = callId, expiresAtEpochMillis = expiresAtEpochMillis,
-            phase = CallPhase.REGISTERING, controlTransport = controlTransport)
+            phase = CallPhase.REGISTERING)
         return true
     }
 
@@ -102,8 +96,8 @@ class CallSessionCoordinator {
 
     @Synchronized
     fun incomingInvite(invite: IncomingInviteIdentity, authority: CallAuthority, nowEpochMillis: Long): Boolean {
-        if (current?.phase?.isLive() == true || invite.sipCallId.isBlank()) return false
-        if (invite.serverCallIdHeader.isNullOrBlank() || invite.serverCallIdHeader != authority.callId) return false
+        if (current?.phase?.isLive() == true || invite.engineCallId.isBlank()) return false
+        if (invite.serverCallId.isNullOrBlank() || invite.serverCallId != authority.callId) return false
         if (authority.callId in retiredCallIds) return false
         if (authority.direction !in setOf("incoming", "inbound")) return false
         if (authority.state !in setOf("pending_wakeup", "ringing", "connecting")) return false
@@ -114,9 +108,7 @@ class CallSessionCoordinator {
             simId = authority.simId,
             remoteNumber = authority.remoteNumber,
             phase = CallPhase.INCOMING_RINGING,
-            expiresAtEpochMillis = authority.expiresAtEpochMillis,
-            mediaTransport = invite.mediaTransport,
-            controlTransport = invite.controlTransport
+            expiresAtEpochMillis = authority.expiresAtEpochMillis
         )
         return true
     }

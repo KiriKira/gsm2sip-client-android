@@ -261,8 +261,6 @@ class HostSmsArchiveRecordProviderTest {
         accessExpiresAt = "2099-01-01T00:00:00Z",
         refreshToken = "MUST-NOT-EXPORT-refresh-token",
         refreshExpiresAt = "2099-01-02T00:00:00Z",
-        sipAvailable = false,
-        sipReason = null
     )
 
     private fun record(localId: String, serverId: String, body: String) = SmsRecord(

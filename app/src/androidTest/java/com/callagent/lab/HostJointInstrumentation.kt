@@ -11,7 +11,6 @@ import com.callagent.host.data.SessionStore
 import com.callagent.host.mesh.HostNodes
 import com.callagent.host.calls.*
 import com.google.android.material.bottomnavigation.BottomNavigationView
-import com.google.android.material.materialswitch.MaterialSwitch
 import org.json.JSONObject
 import org.json.JSONArray
 import java.util.concurrent.CopyOnWriteArrayList
@@ -121,21 +120,8 @@ class HostJointInstrumentation:Instrumentation(){
                             HostNodes.catchUpSilently(targetContext,node)
                             reply.put("added_node",node.key)
                         }
-                        "rtc"->{
-                            onMain{
-                                if(host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation)==null){
-                                    checkNotNull(host.findViewById<android.view.View>(R.id.screen_back)){"actual_back_button_missing"}.performClick()
-                                }
-                            }
-                            onMain{checkNotNull(host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation)){"actual_tabs_missing"}.selectedItemId=R.id.tab_settings}
-                            onMain{
-                                val toggle=checkNotNull(host.findViewById<MaterialSwitch>(R.id.webrtc_audio_switch)){"actual_ui_switch_missing"}
-                                check(toggle.isEnabled){"actual_ui_switch_disabled"}
-                                if(toggle.isChecked!=command.getBoolean("enabled"))toggle.performClick()
-                                check(toggle.isChecked==command.getBoolean("enabled")){"actual_ui_switch_did_not_toggle"}
-                            }
-                            check(CallPreferences(targetContext).webRtcFor(SessionStore(targetContext).read())==command.getBoolean("enabled")){"ui_preference_not_saved"}
-                        }
+                        // WebRTC is the only call path since 0.4; there is no switch left.
+                        "rtc"->check(command.getBoolean("enabled")){"sip_removed"}
                         "dial"->{
                             onMain{if(host.findViewById<android.view.View>(R.id.dialer_call_button)==null)host.findViewById<BottomNavigationView>(R.id.main_bottom_navigation).selectedItemId=R.id.tab_phone}
                             onMain{if(host.findViewById<android.view.View>(R.id.dialer_call_button)==null)check(host.findViewById<android.view.View>(R.id.dialer_open).performClick())}
@@ -165,8 +151,8 @@ class HostJointInstrumentation:Instrumentation(){
                     }
                     val call=CallRuntime.currentSession
                     reply.put("status","OK").put("listening",CallRuntime.isForegroundListening).put("phase",call?.phase?.name)
-                        .put("call_id",call?.callId).put("media",call?.mediaTransport?.label).put("call_failure",call?.failure)
-                        .put("call_control",CallRuntime.controlLabel).put("runtime_status",CallRuntime.currentStatus).put("pcm",JSONArray(tones.map{it.report()}))
+                        .put("call_id",call?.callId).put("media","WebRTC").put("call_failure",call?.failure)
+                        .put("call_control","rtc").put("runtime_status",CallRuntime.currentStatus).put("pcm",JSONArray(tones.map{it.report()}))
                         .put("active_node",HostNodes.activeNode(targetContext)?.apiBaseUrl)
                         .put("node_health",JSONArray(HostNodes.nodes(targetContext).map{node->
                             val health=HostNodes.health(targetContext)[node.key]
