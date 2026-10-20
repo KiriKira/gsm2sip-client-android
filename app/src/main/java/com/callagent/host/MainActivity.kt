@@ -222,6 +222,8 @@ class MainActivity : AppCompatActivity() {
     private var restoreFocusedInput: String? = null
     private var restoreFocusedSelection = -1
     private var safeWindowInsets = Insets.NONE
+    /** Whether [safeWindowInsets] came from the window yet; until then the first frame would draw unpadded. */
+    private var windowInsetsKnown = false
     private var imeVisible = false
     private var foldGeometry: FoldGeometry? = null
     private var windowLayoutListening = false
@@ -657,7 +659,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 HostTab.SETTINGS -> {
                     renderSettingsHome(content)
-                    homeNavigation(HostTab.SETTINGS)
+                    homeChrome(HostTab.SETTINGS)
                 }
             }
             HostDestination.Dialer -> renderDialer(content)
@@ -715,6 +717,12 @@ class MainActivity : AppCompatActivity() {
         frame.addView(nav, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(80), Gravity.BOTTOM))
         val containerColor = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorPrimaryContainer))
         val onContainer = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnPrimaryContainer))
+        // Every tab puts the same 80dp bar in a frame; Settings used to hand the
+        // bar over bare, where it was measured at its own height instead.
+        if (tab == HostTab.SETTINGS) {
+            frame.minimumHeight = dp(80)
+            return frame
+        }
         val fab: View = if (tab == HostTab.MESSAGES) {
             // Google Messages: an extended "start chat" button.
             ExtendedFloatingActionButton(this).apply {
@@ -3263,6 +3271,16 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(materialColor(com.google.android.material.R.attr.colorSurface))
             clipChildren = false
             clipToPadding = false
+            // Each render builds a new host. Start it at the last known insets, so
+            // a tab switch does not draw one frame unpadded and then jump; before
+            // the window has reported any, keep it hidden for that one frame.
+            if (windowInsetsKnown) {
+                setPadding(safeWindowInsets.left, safeWindowInsets.top, safeWindowInsets.right, safeWindowInsets.bottom)
+            } else {
+                visibility = View.INVISIBLE
+                // Insets arrive in the first traversal; never stay hidden if they do not.
+                post { visibility = View.VISIBLE }
+            }
         }
         val scroll = ScrollView(this).apply {
             id = R.id.main_content_scroll
@@ -3303,6 +3321,8 @@ class MainActivity : AppCompatActivity() {
             ) {
                 view.setPadding(safeWindowInsets.left, safeWindowInsets.top, safeWindowInsets.right, safeWindowInsets.bottom)
             }
+            windowInsetsKnown = true
+            view.visibility = View.VISIBLE
             view.post { updateAdaptiveLayout() }
             windowInsets
         }
