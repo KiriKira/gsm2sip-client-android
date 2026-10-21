@@ -55,6 +55,6 @@ internal object CallSignalingNotification {
     }
 
     private fun prepare(context: Context) {
-        HostNotificationChannels.ensure(context)
+        HostNotificationChannels.ensureCallSignaling(context)
     }
 }

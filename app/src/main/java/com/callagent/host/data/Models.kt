@@ -57,7 +57,8 @@ data class GatewaySnapshot @JvmOverloads constructor(
     val batteryPercent: Int?,
     val charging: Boolean?,
     /** The old phone's stable identity across server nodes (mesh extension). */
-    val installId: String? = null
+    val installId: String? = null,
+    val rtcCallControlReady: Boolean = false
 )
 
 /** A host paired to the same owner account as the current client session. */

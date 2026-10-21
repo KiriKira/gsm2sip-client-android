@@ -122,10 +122,10 @@ class HostNodesTest {
     }
 
     @Test
-    fun healthWithProbeHistorySurvivesAReload() {
+    fun healthSurvivesAReload() {
         HostNodes.register(app, "key-vps", vps, "install-1")
         val health = NodeHealth(consecutiveSuccesses = 2, rttMillis = 70, gatewayOnline = true, checkedAt = 5,
-            gatewayId = "gw-vps", callReady = true, recent = listOf(ProbeSample(true, 70, 4), ProbeSample(false, null, 5)))
+            gatewayId = "gw-vps", callReady = true)
         HostNodes.recordHealth(app, mapOf("key-vps" to health))
         assertEquals(health, HostNodes.health(app)["key-vps"])
     }

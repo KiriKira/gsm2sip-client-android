@@ -76,7 +76,8 @@ class ApiClient(
                 sipRegistered = item.optNullableBoolean("sip_registered"),
                 batteryPercent = item.optNullableInt("battery_percent"),
                 charging = item.optNullableBoolean("charging"),
-                installId = item.optNullableString("install_id")?.lowercase()
+                installId = item.optNullableString("install_id")?.lowercase(),
+                rtcCallControlReady = item.optBoolean("rtc_call_control_ready", false)
             )
         }
     }
@@ -172,6 +173,17 @@ class ApiClient(
     }
 
     fun getCall(callId: String): RemoteCall = parseCall(authenticatedRequest("GET", "/calls/${pathSegment(callId)}"))
+
+    internal fun rtcRequest(method: String, path: String, body: JSONObject?): JSONObject {
+        require(path.matches(Regex("/(rtc/legs/[a-zA-Z0-9_-]+|rtc/control/(capability|calls(/[a-zA-Z0-9_-]+(/operations)?)?|incoming)|calls/[a-zA-Z0-9_-]+/media(/active)?)")))
+        return try { authenticatedRequest(method, path, body) }
+        catch (failure: ApiFailure) { throw com.callagent.rtcmedia.MediaApiException(failure.httpStatus, failure.code) }
+        catch (_: java.io.IOException) { throw com.callagent.rtcmedia.MediaApiException(503, "NETWORK_UNAVAILABLE") }
+    }
+
+    fun rtcControlAvailable(): Boolean = request("GET", "/capabilities", body = null, token = null, idempotencyKey = null).optBoolean("rtc_call_control", false)
+    fun sipControlAvailable(): Boolean = request("GET", "/capabilities", body = null, token = null, idempotencyKey = null).optBoolean("sip_call_control", false)
+    fun rtcCall(callId: String): RemoteCall = parseCall(rtcRequest("GET", "/rtc/control/calls/${pathSegment(callId)}", null))
 
     /** [callId] is sent only for a mesh profile, whose servers all support the field. */
     fun createCallIntent(

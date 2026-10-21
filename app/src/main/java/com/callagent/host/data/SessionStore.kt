@@ -18,15 +18,26 @@ import javax.crypto.spec.GCMParameterSpec
  * preferences name. All stores share one process lock so a node switch moves
  * sessions between them atomically with respect to readers and refreshes.
  */
-class SessionStore @JvmOverloads constructor(context: Context, prefsName: String = ACTIVE_PREFS) {
+class SessionStore @JvmOverloads constructor(context: Context, private val prefsName: String = ACTIVE_PREFS) {
     private val preferences = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
     private val alias = "gsm2sip-host-session-v1"
 
     fun read(): HostSession? = synchronized(processLock) { readLocked() }
 
     private fun readLocked(): HostSession? {
-        val ivText = preferences.getString("iv", null) ?: return null
-        val ciphertextText = preferences.getString("ciphertext", null) ?: return null
+        val ivText = preferences.getString("iv", null)
+        val ciphertextText = preferences.getString("ciphertext", null)
+        if (ivText == null || ciphertextText == null) {
+            decryptedSessions.remove(prefsName)
+            return null
+        }
+        // UI rendering and authenticated signaling share this store. Repeating
+        // a Keystore operation for every read serializes both behind Binder.
+        // Compare both persisted values on every read so refresh, clear, node
+        // switches and external preference changes immediately invalidate it.
+        decryptedSessions[prefsName]?.takeIf {
+            it.iv == ivText && it.ciphertext == ciphertextText
+        }?.let { return it.session }
         return try {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, Base64.decode(ivText, Base64.NO_WRAP)))
@@ -49,7 +60,7 @@ class SessionStore @JvmOverloads constructor(context: Context, prefsName: String
                 profileId = json.optString("profile_id").takeIf { it.isNotBlank() && it != "null" },
                 profileDatabase = json.optString("profile_database").takeIf { it.isNotBlank() && it != "null" },
                 nodeScope = json.optString("node_scope", "")
-            )
+            ).also { remember(ivText, ciphertextText, it) }
         } catch (_: Exception) {
             clearLocked()
             null
@@ -130,16 +141,27 @@ class SessionStore @JvmOverloads constructor(context: Context, prefsName: String
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val ciphertext = cipher.doFinal(json.toString().toByteArray(Charsets.UTF_8))
+        val ivText = Base64.encodeToString(cipher.iv, Base64.NO_WRAP)
+        val ciphertextText = Base64.encodeToString(ciphertext, Base64.NO_WRAP)
         val saved = preferences.edit()
-            .putString("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .putString("ciphertext", Base64.encodeToString(ciphertext, Base64.NO_WRAP))
+            .putString("iv", ivText)
+            .putString("ciphertext", ciphertextText)
             .commit()
         if (!saved) throw java.io.IOException("Could not store the encrypted session")
+        remember(ivText, ciphertextText, session)
     }
 
     private fun clearLocked() {
+        decryptedSessions.remove(prefsName)
         if (!preferences.edit().clear().commit()) {
             throw java.io.IOException("Could not clear the encrypted session")
+        }
+    }
+
+    private fun remember(iv: String, ciphertext: String, session: HostSession) {
+        decryptedSessions[prefsName] = CachedSession(iv, ciphertext, session)
+        while (decryptedSessions.size > 16) {
+            decryptedSessions.remove(decryptedSessions.keys.first())
         }
     }
 
@@ -160,6 +182,9 @@ class SessionStore @JvmOverloads constructor(context: Context, prefsName: String
     companion object {
         const val ACTIVE_PREFS = "host-session"
         private val processLock = Any()
+        private data class CachedSession(val iv: String, val ciphertext: String, val session: HostSession)
+        // Process memory only; all access is covered by processLock.
+        private val decryptedSessions = linkedMapOf<String, CachedSession>()
 
         /** Run [block] while no store can read or write; used for node switches. */
         internal fun <T> exclusive(block: () -> T): T = synchronized(processLock, block)

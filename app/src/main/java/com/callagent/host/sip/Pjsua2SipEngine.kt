@@ -66,6 +66,12 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
     @Volatile private var accountTransport: SipTransport? = null
     @Volatile private var audioDeviceOpened = false
     @Volatile private var hasStarted = false
+    private val externalMedia = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+
+    override fun setExternalMedia(callId: String, enabled: Boolean) {
+        check(calls[callId]?.state != SipCallState.CONFIRMED) { "Media mode cannot change during a call" }
+        if (enabled) externalMedia.add(callId) else externalMedia.remove(callId)
+    }
 
     override fun start(config: SipConfiguration, listener: SipEngine.Listener) {
         synchronized(lifecycleLock) {
@@ -184,8 +190,8 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
             onPjsipThread {
                 synchronized(call.audioGateLock) {
                     // This is the first point at which incoming-call audio hardware can open.
-                    openAudioDevice()
-                    call.audioAllowed = true
+                    if (callId !in externalMedia) openAudioDevice()
+                    call.audioAllowed = callId !in externalMedia
                     call.muted = false
                     val operation = callParam(pjsip_status_code.PJSIP_SC_OK)
                     try {
@@ -244,6 +250,7 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
     }
 
     override fun enableAudio(callId: String) {
+        if (callId in externalMedia) return
         val call = requireCall(callId)
         try {
             onPjsipThread {
@@ -319,6 +326,7 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
                 runCatching { ep?.libDestroy() }
                 calls.values.forEach { call -> runCatching { call.delete() } }
                 calls.clear()
+                externalMedia.clear()
                 notifyRegistration(SipRegistrationState.STOPPED, null, null)
                 runCatching { acc?.delete() }
                 runCatching { ep?.delete() }
@@ -434,6 +442,7 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
     }
 
     private fun connectAudioIfReady(call: ManagedCall) {
+        if (call.operationId in externalMedia) return
         if (closed.get()) return
         synchronized(call.audioGateLock) {
             if (!call.audioAllowed || closed.get()) return
@@ -496,6 +505,7 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
                 call.stopAudio()
             }
             calls.remove(call.operationId, call)
+            externalMedia.remove(call.operationId)
             // Let the JNI director callback return before releasing its Java wrapper.
             mainHandler.postDelayed({ runCatching { call.delete() } }, 100L)
             if (calls.isEmpty() && audioDeviceOpened) {
@@ -518,7 +528,7 @@ class Pjsua2SipEngine(context: Context) : SipEngine {
         pjsip_inv_state.PJSIP_INV_STATE_CONNECTING -> SipCallState.EARLY
         pjsip_inv_state.PJSIP_INV_STATE_CONFIRMED -> SipCallState.CONFIRMED
         pjsip_inv_state.PJSIP_INV_STATE_DISCONNECTED ->
-            if (info.lastStatusCode >= 300) SipCallState.FAILED else SipCallState.DISCONNECTED
+            terminalSipCallState(info.lastStatusCode)
         else -> SipCallState.EARLY
     }
 

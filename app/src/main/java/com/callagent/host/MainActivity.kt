@@ -49,6 +49,7 @@ import com.callagent.host.background.BackgroundStatus
 import com.callagent.host.calls.CallAudioEndpoint
 import com.callagent.host.calls.CallNotificationManager
 import com.callagent.host.calls.CallPhase
+import com.callagent.host.calls.CallPreferences
 import com.callagent.host.calls.CallRuntime
 import com.callagent.host.calls.CallActionActivity
 import com.callagent.host.calls.startCallUi
@@ -211,6 +212,7 @@ class MainActivity : AppCompatActivity() {
     private var callServerReason: String? = null
     private var callAvailabilityLoading = false
     private var callAvailabilityCheckedAt = 0L
+    private var callAvailabilityGeneration = 0L
     private var pendingDialAfterMicGrant: (() -> Unit)? = null
     private var selectedRestoreSimId: String? = null
     private var savedScrollY = 0
@@ -220,6 +222,8 @@ class MainActivity : AppCompatActivity() {
     private var restoreFocusedInput: String? = null
     private var restoreFocusedSelection = -1
     private var safeWindowInsets = Insets.NONE
+    /** Whether [safeWindowInsets] came from the window yet; until then the first frame would draw unpadded. */
+    private var windowInsetsKnown = false
     private var imeVisible = false
     private var foldGeometry: FoldGeometry? = null
     private var windowLayoutListening = false
@@ -655,7 +659,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 HostTab.SETTINGS -> {
                     renderSettingsHome(content)
-                    homeNavigation(HostTab.SETTINGS)
+                    homeChrome(HostTab.SETTINGS)
                 }
             }
             HostDestination.Dialer -> renderDialer(content)
@@ -681,16 +685,34 @@ class MainActivity : AppCompatActivity() {
         installContent(content, fixedBottomView = fixed)
     }
 
-    private fun homeNavigation(selected: HostTab): BottomNavigationView = BottomNavigationView(this).apply {
-        id = R.id.main_bottom_navigation
-        inflateMenu(R.menu.main_navigation)
-        labelVisibilityMode = BottomNavigationView.LABEL_VISIBILITY_LABELED
-        selectedItemId = when (selected) {
+    /**
+     * One bottom bar for the activity's lifetime. Every render rebuilds the
+     * page, and a freshly built bar draws its first frame without the
+     * selected tab's indicator and then animates it in: on launch (the first
+     * data refresh re-renders) and on every tab switch the bar visibly
+     * jumped. Reusing it keeps its drawn state; only the selection changes.
+     */
+    private var homeNavigationBar: BottomNavigationView? = null
+
+    private fun homeNavigation(selected: HostTab): BottomNavigationView {
+        val nav = homeNavigationBar ?: BottomNavigationView(this).apply {
+            id = R.id.main_bottom_navigation
+            inflateMenu(R.menu.main_navigation)
+            labelVisibilityMode = BottomNavigationView.LABEL_VISIBILITY_LABELED
+            // The content host already pads for system bars and the keyboard; Material would
+            // add the same bottom inset again and stretch the bar over the page while typing.
+            ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets -> insets }
+            setPadding(0, 0, 0, 0)
+        }.also { homeNavigationBar = it }
+        (nav.parent as? ViewGroup)?.removeView(nav)
+        val itemId = when (selected) {
             HostTab.PHONE -> R.id.tab_phone
             HostTab.MESSAGES -> R.id.tab_messages
             HostTab.SETTINGS -> R.id.tab_settings
         }
-        setOnItemSelectedListener { item ->
+        nav.setOnItemSelectedListener(null)
+        if (nav.selectedItemId != itemId) nav.selectedItemId = itemId
+        nav.setOnItemSelectedListener { item ->
             val tab = when (item.itemId) {
                 R.id.tab_phone -> HostTab.PHONE
                 R.id.tab_messages -> HostTab.MESSAGES
@@ -700,11 +722,8 @@ class MainActivity : AppCompatActivity() {
             navigate(navigation.selectTab(tab))
             true
         }
-        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(80), Gravity.BOTTOM)
-        // The content host already pads for system bars and the keyboard; Material would
-        // add the same bottom inset again and stretch the bar over the page while typing.
-        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets -> insets }
-        setPadding(0, 0, 0, 0)
+        nav.layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(80), Gravity.BOTTOM)
+        return nav
     }
 
     private fun homeChrome(tab: HostTab): View {
@@ -713,6 +732,12 @@ class MainActivity : AppCompatActivity() {
         frame.addView(nav, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(80), Gravity.BOTTOM))
         val containerColor = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorPrimaryContainer))
         val onContainer = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnPrimaryContainer))
+        // Every tab puts the same 80dp bar in a frame; Settings used to hand the
+        // bar over bare, where it was measured at its own height instead.
+        if (tab == HostTab.SETTINGS) {
+            frame.minimumHeight = dp(80)
+            return frame
+        }
         val fab: View = if (tab == HostTab.MESSAGES) {
             // Google Messages: an extended "start chat" button.
             ExtendedFloatingActionButton(this).apply {
@@ -1087,6 +1112,8 @@ class MainActivity : AppCompatActivity() {
             addPairingForm(form)
             content.addView(form)
         } else {
+            content.addView(HostUi.groupHeader(this, "通话语音"))
+            addWebRtcAudioPreference(content)
             content.addView(HostUi.groupHeader(this, "服务器与设备"))
             content.addView(HostUi.tile(this, HostUi.Position.SINGLE,
                 title = session?.apiBaseUrl.orEmpty(),
@@ -1627,7 +1654,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val query = contactsQuery.trim()
-        val matching = dialerContacts.filter { query.isBlank() || it.name.contains(query, true) || it.number.contains(query, true) }.take(3)
+        val matching = dialerContacts.filter { query.isBlank() || HostContactsRepository.matches(it, query) }.take(3)
         if (matching.isEmpty()) {
             if (query.isNotBlank()) list.addView(body("没有匹配的联系人。", selectable = false).apply { gravity = Gravity.CENTER })
             return
@@ -1709,7 +1736,7 @@ class MainActivity : AppCompatActivity() {
             paired = session != null,
             gatewayOnline = current != null && GatewayStatusPresenter.isOnline(current,
                 current.lastSeenAt?.let { runCatching { Instant.parse(it) }.getOrNull() }, System.currentTimeMillis()),
-            gatewaySipRegistered = current?.sipRegistered,
+            gatewaySipRegistered = if(independentCallControlAvailable) null else current?.sipRegistered,
             gatewayRevision = current?.mappingRevision,
             line = line,
             callServerAvailable = callServerAvailable,
@@ -2007,10 +2034,22 @@ class MainActivity : AppCompatActivity() {
         smsThreadSendButton?.isEnabled = line?.canSend == true && gateway?.mappingRevision == line.mappingRevision
     }
 
+    private var independentCallControlAvailable = false
+
+    private fun resetCallAvailability() {
+        callAvailabilityGeneration += 1L
+        callAvailabilityLoading = false
+        callAvailabilityCheckedAt = 0L
+        callServerAvailable = null
+        callServerReason = null
+        independentCallControlAvailable = false
+    }
+
     private fun refreshCallAvailability(force: Boolean = false) {
         if (session == null || callAvailabilityLoading) return
         if (!force && System.currentTimeMillis() - callAvailabilityCheckedAt < 60_000L) return
         callAvailabilityLoading = true
+        val generation = callAvailabilityGeneration
         renderCurrentScreen()
         val expected = session ?: return
         val expectedDatabase = database
@@ -2018,25 +2057,29 @@ class MainActivity : AppCompatActivity() {
         executor.execute {
             val result = runCatching {
                 if (sessionStore.read()?.sameSessionInstance(expected) != true || database !== expectedDatabase) throw SessionChanged()
-                expectedApi.getSipConfiguration()
+                val rtc = CallPreferences(this).webRtcFor(expected) && expectedApi.rtcControlAvailable()
+                if (rtc) Triple(true, null, true) else expectedApi.getSipConfiguration().let { Triple(it.available, it.reason, false) }
             }
             mainHandler.post {
+                if (generation != callAvailabilityGeneration) return@post
                 callAvailabilityLoading = false
-                callAvailabilityCheckedAt = System.currentTimeMillis()
                 val latest = sessionStore.read()
-                val currentStillExpected = session?.sameSessionInstance(expected) == true && database === expectedDatabase
+                val currentStillExpected = session?.sameSessionInstance(expected) == true && database === expectedDatabase &&
+                    (latest == null || latest.sameSessionInstance(expected))
                 val revoked = result.exceptionOrNull() is SessionNeedsPairing && latest == null && currentStillExpected
                 if (!currentStillExpected && !revoked) return@post
+                callAvailabilityCheckedAt = System.currentTimeMillis()
                 result.onSuccess {
-                    callServerAvailable = it.available
-                    callServerReason = it.reason
+                    callServerAvailable = it.first
+                    callServerReason = it.second
+                    independentCallControlAvailable = it.third
                 }.onFailure { failure ->
                     callServerAvailable = false
                     callServerReason = when (failure) {
                         is SessionNeedsPairing -> "配对会话已失效，请重新配对。"
                         is SessionChanged -> "配对账户已变化，请刷新。"
                         is ApiFailure -> "服务器暂不可用（${failure.code}）。"
-                        else -> "无法读取服务器 SIP 可用状态。"
+                        else -> "无法读取服务器语音可用状态。"
                     }
                 }
                 if (revoked) {
@@ -2052,13 +2095,39 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun addWebRtcAudioPreference(panel: LinearLayout) {
+        val call = CallRuntime.currentSession
+        val mediaSession = SessionStore(this).read()
+        val mediaPreferences = CallPreferences(this)
+        val webRtcSwitch = MaterialSwitch(this).apply {
+            id = R.id.webrtc_audio_switch
+            text = "WebRTC 语音"
+            contentDescription = "WebRTC 语音开关"
+            isChecked = mediaPreferences.webRtcFor(mediaSession)
+            isEnabled = mediaSession != null && (call == null || !isLiveCallPhase(call.phase))
+            setOnCheckedChangeListener { _, enabled ->
+                if (!mediaPreferences.setWebRtc(mediaSession, enabled)) {
+                    showToast("语音协议设置保存失败。")
+                } else {
+                    android.util.Log.i("GsmRtc", "event=preference_changed media=${if (enabled) "webrtc" else "sip"} scope=new_calls")
+                    CallRuntime.onVoicePolicyChanged(this@MainActivity)
+                    resetCallAvailability()
+                    refreshCallAvailability(force = true)
+                }
+                renderCurrentScreen()
+            }
+        }
+        panel.addView(webRtcSwitch)
+        panel.addView(body("${if (webRtcSwitch.isChecked) "新服务端使用 Go 呼叫控制与 WebRTC 音频；旧服务端保留兼容路径。" else "新通话使用原 SIP 音频。"} 通话期间不能切换，实际控制路径显示在通话页和日志中。"))
+    }
+
     private fun renderCallPanel() {
         val panel = callPanel ?: return
         panel.removeAllViews()
         val call = CallRuntime.currentSession
         if (call != null && isLiveCallPhase(call.phase)) {
             panel.addView(messageCard(
-                "${call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程号码"} · ${call.simId}\n${callPhaseLabel(call.phase)}${CallRuntime.currentStatus.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()}"
+                "${call.remoteNumber?.takeIf { it.isNotBlank() } ?: "远程号码"} · ${call.simId}\n本次语音：${call.mediaTransport.label} · 控制：${CallRuntime.controlLabel}\n${callPhaseLabel(call.phase)}${CallRuntime.currentStatus.takeIf { it.isNotBlank() }?.let { "\n$it" }.orEmpty()}"
             ))
             when (call.phase) {
                 CallPhase.INCOMING_RINGING -> {
@@ -2080,13 +2149,13 @@ class MainActivity : AppCompatActivity() {
                     val mute = smallButton(if (call.muted) "取消静音" else "静音")
                     mute.setOnClickListener { CallRuntime.setMuted(this, call.callId, !call.muted) }
                     panel.addView(mute)
-                    val endpoints = CallRuntime.audioEndpoints(call.callId)
-                    if (endpoints.isNotEmpty()) {
-                        val selected = CallRuntime.selectedAudioEndpoint(call.callId)
-                        val route = smallButton("音频：${selected?.displayName() ?: "自动"}")
-                        route.setOnClickListener { chooseAudioEndpoint(call.callId, endpoints) }
-                        panel.addView(route)
+                    val speakerOn = CallRuntime.selectedAudioEndpoint(call.callId)?.let { it == CallAudioEndpoint.SPEAKER } ?: call.speaker
+                    val route = smallButton(if (speakerOn) "切换到听筒" else "切换到扬声器")
+                    route.setOnClickListener {
+                        CallRuntime.toggleSpeaker(this, call.callId, !speakerOn)
+                        renderCallPanel()
                     }
+                    panel.addView(route)
                     val controls = smallButton("打开通话界面 / DTMF")
                     controls.setOnClickListener { startCallUi(call.callId) }
                     panel.addView(controls)
@@ -2127,7 +2196,7 @@ class MainActivity : AppCompatActivity() {
 
         val serverText = when {
             callAvailabilityLoading -> "正在检查服务器呼叫服务…"
-            callServerAvailable == true -> "服务器 SIP 配置可用。"
+            callServerAvailable == true -> if(independentCallControlAvailable) "服务器 Go/RTC 呼叫控制可用。" else "服务器 SIP 配置可用。"
             callServerAvailable == false -> callServerReason ?: "服务器呼叫服务不可用。"
             else -> "服务器呼叫状态尚未检查。"
         }
@@ -2215,24 +2284,12 @@ class MainActivity : AppCompatActivity() {
         beginDial(line, recipient)
     }
 
-    private fun chooseAudioEndpoint(callId: String, endpoints: List<CallAudioEndpoint>) {
-        val labels = endpoints.map { it.displayName() }.toTypedArray()
-        MaterialAlertDialogBuilder(this)
-            .setTitle("通话音频设备")
-            .setItems(labels) { _, which ->
-                endpoints.getOrNull(which)?.let { CallRuntime.selectAudioEndpoint(this, callId, it) }
-                renderCallPanel()
-            }
-            .setNegativeButton("取消", null)
-            .show()
-    }
-
     private fun validDialAddress(value: String): Boolean =
         value.length in 2..40 && value.firstOrNull()?.let { it.isDigit() || it == '+' || it == '*' || it == '#' } == true &&
             value.all { it.isDigit() || it in "+*#()-. " }
 
     private fun localSipEngineAvailable(): Boolean = runCatching {
-        val factory = Class.forName("com.callagent.host.sip.SipEngineFactory")
+        val factory = Class.forName("com.callagent.host.calls.CallEngineFactory")
         val singleton = runCatching { factory.getField("INSTANCE").get(null) }.getOrNull()
         val method = if (singleton != null) singleton.javaClass.getMethod("isAvailable", Context::class.java)
         else factory.getMethod("isAvailable", Context::class.java)
@@ -3010,6 +3067,7 @@ class MainActivity : AppCompatActivity() {
             statusMessage = "已切换到节点 ${HostNodes.hostLabel(latest.apiBaseUrl)}。"
             showDashboard()
             ensurePairedRuntimeStarted()
+            refreshCallAvailability(force = true)
             syncFromServer(showProgress = false)
             return
         }
@@ -3019,13 +3077,19 @@ class MainActivity : AppCompatActivity() {
         selectedSimId = null
         switchDatabase(session)
         statusMessage = message
-        if (session == null) showPairing(message) else showDashboard()
+        if (session == null) showPairing(message) else {
+            showDashboard()
+            refreshCallAvailability(force = true)
+        }
     }
 
     private fun switchDatabase(ownerSession: HostSession?) {
         val nextName = ownerSession?.databaseName() ?: "host-unpaired.db"
         val nextScope = ownerSession?.nodeScope.orEmpty()
         if (databaseName == nextName && databaseScope == nextScope && ::database.isInitialized) return
+        // Availability belongs to this node and account. A failed retired
+        // node's late response must not disable the healthy replacement.
+        resetCallAvailability()
         if (databaseName.isNotBlank() && databaseName != nextName) {
             CallRuntime.disableForegroundListening(this)
         }
@@ -3222,6 +3286,16 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(materialColor(com.google.android.material.R.attr.colorSurface))
             clipChildren = false
             clipToPadding = false
+            // Each render builds a new host. Start it at the last known insets, so
+            // a tab switch does not draw one frame unpadded and then jump; before
+            // the window has reported any, keep it hidden for that one frame.
+            if (windowInsetsKnown) {
+                setPadding(safeWindowInsets.left, safeWindowInsets.top, safeWindowInsets.right, safeWindowInsets.bottom)
+            } else {
+                visibility = View.INVISIBLE
+                // Insets arrive in the first traversal; never stay hidden if they do not.
+                post { visibility = View.VISIBLE }
+            }
         }
         val scroll = ScrollView(this).apply {
             id = R.id.main_content_scroll
@@ -3262,6 +3336,8 @@ class MainActivity : AppCompatActivity() {
             ) {
                 view.setPadding(safeWindowInsets.left, safeWindowInsets.top, safeWindowInsets.right, safeWindowInsets.bottom)
             }
+            windowInsetsKnown = true
+            view.visibility = View.VISIBLE
             view.post { updateAdaptiveLayout() }
             windowInsets
         }

@@ -54,13 +54,8 @@ object NodeRowPresenter {
             )
         }
 
-    private fun quality(state: NodeHealth): String? {
-        val availability = state.availabilityPercent ?: return null
-        val parts = mutableListOf("近 ${state.recent.size} 次可用 $availability%")
-        state.medianRttMillis?.let { parts += "中位延迟 $it ms" }
-        parts += if (state.callReady) "可通话" else "仅短信"
-        return parts.joinToString(" · ")
-    }
+    private fun quality(state: NodeHealth): String? =
+        if (state.checkedAt == 0L) null else if (state.callReady) "可通话" else "仅短信"
 
     /** Label/value pairs for the node detail dialog. */
     fun details(node: HostNode, state: NodeHealth?, active: Boolean, now: Long): List<Pair<String, String>> = buildList {
@@ -73,11 +68,8 @@ object NodeRowPresenter {
         add("状态" to if (state.healthy) "正常" else (state.issue ?: "不可用"))
         add("旧手机" to if (state.gatewayOnline) "在线" else "不在线")
         add("通话" to if (state.callReady) "可通话（旧手机已在该节点注册 SIP）" else "仅短信（旧手机未在该节点注册 SIP）")
-        state.rttMillis?.let { add("最近延迟" to "$it ms") }
-        state.medianRttMillis?.let { add("中位延迟" to "$it ms") }
-        state.availabilityPercent?.let { add("可用率" to "近 ${state.recent.size} 次 $it%") }
-        add("最近检测" to "${((now - state.checkedAt) / 1000).coerceAtLeast(0)} 秒前")
-        if (state.recent.isNotEmpty()) add("最近结果" to state.recent.joinToString("") { if (it.ok) "●" else "○" })
+        state.rttMillis?.let { add("延迟" to "$it ms") }
+        add("检测时间" to "${((now - state.checkedAt) / 1000).coerceAtLeast(0)} 秒前")
     }
 }
 

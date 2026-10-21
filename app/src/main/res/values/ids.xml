@@ -1,4 +1,5 @@
 <resources>
+    <item name="webrtc_audio_switch" type="id" />
     <item name="pairing_server" type="id" />
     <item name="gateway_status_card" type="id" />
     <item name="dialer_readiness" type="id" />

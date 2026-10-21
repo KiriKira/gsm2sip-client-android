@@ -33,7 +33,6 @@ import com.callagent.host.contacts.HostContactsRepository
 import com.callagent.host.ui.DialPadKeyView
 import com.callagent.host.ui.HostUi
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.color.MaterialColors
 
 /** Controls observe the process-wide owner; folding or returning never ends a call. */
@@ -231,6 +230,9 @@ class CallActionActivity : AppCompatActivity() {
             setTextColor(color(androidx.appcompat.R.attr.colorPrimary))
             setPadding(0, dp(8), 0, dp(if (compact) 8 else 16))
         })
+        if (call != null) root.addView(label("语音：${call.mediaTransport.label} · 控制：${CallRuntime.controlLabel}", 14f).apply {
+            setTextColor(color(com.google.android.material.R.attr.colorOnSurfaceVariant))
+        })
         call?.endNotice?.takeIf { it.isNotBlank() }?.let { root.addView(label(it, 15f)) }
         if (call?.phase == CallPhase.FAILED) root.addView(label("连接失败，请检查网络后重试", 15f))
         if (call?.phase == CallPhase.ACTIVE && CallRuntime.currentStatus.let { it.contains("网络") || it.contains("恢复") }) {
@@ -275,13 +277,11 @@ class CallActionActivity : AppCompatActivity() {
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             controls.addView(roundControl("键盘", R.drawable.call_ui_keypad, keypadVisible) { keypadVisible = !keypadVisible; render() },
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            controls.addView(roundControl("音频", R.drawable.call_ui_speaker, call.speaker) {
-                val endpoints = CallRuntime.audioEndpoints(activeId)
-                if (endpoints.isEmpty()) CallRuntime.toggleSpeaker(this, activeId, !call.speaker)
-                else MaterialAlertDialogBuilder(this).setTitle("音频输出")
-                    .setItems(endpoints.map { it.displayName() }.toTypedArray()) { _, which ->
-                        CallRuntime.selectAudioEndpoint(this, activeId, endpoints[which])
-                    }.show()
+            // One tap toggles speaker and earpiece; a picker for two choices
+            // only added a step, and it could miss taps while the screen redrew.
+            val speakerOn = CallRuntime.selectedAudioEndpoint(activeId)?.let { it == CallAudioEndpoint.SPEAKER } ?: call.speaker
+            controls.addView(roundControl(if (speakerOn) "扬声器" else "听筒", R.drawable.call_ui_speaker, speakerOn) {
+                CallRuntime.toggleSpeaker(this, activeId, !speakerOn)
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             root.addView(controls, LinearLayout.LayoutParams(dp(360).coerceAtMost(resources.displayMetrics.widthPixels - dp(40)), ViewGroup.LayoutParams.WRAP_CONTENT))
         }

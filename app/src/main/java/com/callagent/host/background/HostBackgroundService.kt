@@ -401,6 +401,7 @@ class HostBackgroundService : Service() {
                     return
                 }
                 reconnectAttempt.set(0)
+                CallRuntime.wakeChannelLive = true
                 setConnection("Live updates connected")
             }
 
@@ -439,6 +440,8 @@ class HostBackgroundService : Service() {
                 if (!isSocketCurrent(session, expectedGeneration, localSocketGeneration)) return
                 // A 401/1008 close is repaired by HTTPS token refresh in the next sync before reconnect.
                 setConnection("Periodic HTTPS sync")
+                // The active node may be gone (a VPN dropped): check now, not on the next timer.
+                forceNodeProbe.set(true)
                 if (response?.code == 401) {
                     authReconnectPending.set(true)
                     enqueueSync()
@@ -461,6 +464,7 @@ class HostBackgroundService : Service() {
     private fun clearSocket(candidate: WebSocket) = synchronized(webSocketLock) {
         if (socket === candidate) {
             socket = null
+            CallRuntime.wakeChannelLive = false
         }
     }
 
@@ -469,6 +473,7 @@ class HostBackgroundService : Service() {
             socketGeneration.incrementAndGet()
             socket.also { socket = null }
         }
+        CallRuntime.wakeChannelLive = false
         old?.cancel()
     }
 

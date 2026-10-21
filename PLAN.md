@@ -1,5 +1,11 @@
 # PLAN — gsm2sip-client-android 主机 App v1
 
+> 2026-10-19：独立 Go/HTTPS 呼叫控制与原生 WebRTC 已完成两台持续运行的 KVM 模拟器、三个真实 Docker 节点联合验收，并发布沿用原签名的 Debug Release。纯模式三节点不运行 Asterisk，SIP/ARI 抓包为 0；呼入/呼出双向测试 PCM、呼叫事件、TURN UDP/TCP、控制/媒体故障与 A→B→C→A 切换通过。WebRTC 开关关闭时的 SIP 来电、开启时的混合来电事件另行通过。物理蜂窝 HAL 和真实手机音频仍待真机验收。 [本批结果](docs/webrtc-independent-validation-20261019.md)。下文保留原计划背景。
+
+> 2026-10-16 后续路线：[三端 WebRTC 通话迁移计划](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/plan-webrtc.md)。
+> 本文保留 v1 原始任务与验收背景；通话迁移的实施次序和边界以新计划为准，不再先做自研 SIP。
+> UI、短信、配对、SIM、备份、多节点和后台行为必须保持；现行协议在新契约正式落地前仍有效。
+
 状态：Material 3 Expressive Views 与用户开启的 WSS/HTTPS 后台短信同步已落代码，FCM/锁屏来电仍待实现；M1/M2 主干实现进行中；HTTPS pairing、Keystore token、SQLite cache/outbox、双卡状态与短信 UI 已落代码；真实设备端到端仍待验收。SIP native SDK 不随 M1/M2 打包，M0/M3 probe 仍需按 [sdk-probe.md](docs/sdk-probe.md) 完成。
 日期：2026-10-03  
 目标仓库：`KiriKira/gsm2sip-client-android`
@@ -95,6 +101,13 @@ V1 的完成标准：
 - FCM 是外部推送传输依赖，即使 SIP/API/数据库全部自建，也不能称“完全不依赖第三方”。只发送随机 call_id 和 expiry，权威号码及通话状态由客户端登录后从自建 server 获取。
 - Firebase Cloud Messaging 的 Android 客户端要求 Google Play 服务。没有 GMS 的设备上，已实现用户开启的后台短信 FGS + HTTPS/WSS，配合电池优化豁免改善可达性；休眠态来电仍无通用可靠 socket 保证，后续可以增加厂商推送并进行真机验收。当前无 GMS 路线按尽力而为模式提供状态诊断；不能承诺一般 Android 上无条件可靠后台响铃。
 - 用户强制停止 App、关闭通知、撤销系统允许、厂商深度休眠或网络断开时，来电可能错过。App 应暴露推送/通知/电池限制诊断状态及最后同步时间，不谎报在线可达。
+
+**当前状态与 FCM 待办（2026-10-20 记录）：**
+
+- WebRTC 呼入现在走 WSS 唤醒：服务器在有呼入时向该主机推 `sync_required`，RTC 通话引擎立即查询；空闲时只保留每 20 秒一次的兜底轮询（同时刷新服务器 90 秒有效的 RTC 能力），通话中仍为 750 ms。没有 WSS 时退回每 3 秒。
+- FCM 作为第二条唤醒通道，**等改包名和项目名之后再注册 Firebase 项目并接入**，避免 `google-services.json` 与应用 ID 绑定后再迁移。
+- 不需要每个服务器节点都配置 FCM 凭据：只要有一台节点（例如家中网络稳定的主节点）持有 Firebase 服务账号并负责发推送即可。主机被唤醒后照常通过当前可用节点查询和接听，不必走发推送的那台。
+
 
 ## 6. SIP SDK 选择与安全门槛
 

@@ -1,10 +1,14 @@
 # gsm2sip-client-android
 
+2026-10-19 更新：WebRTC 熄屏保活已修复，三端按本批一起更新；同版本备用切换与实际通话已验证。[本批验收与 Debug 下载](docs/webrtc-screenoff-validation-20261019.md)。
+
+本分支的设置页 **WebRTC 语音** 开关已接入独立 Go/HTTPS 呼叫控制和原生 WebRTC 音频；纯 RTC 节点不读取 SIP 凭据或初始化 PJSUA2。迁移阶段保留可选 SIP 兼容，拨号页继续显示联系人建议；每通电话显示并保留实际媒体/控制协议。[部署与控制协议](https://github.com/KiriKira/gsm2sip-server/blob/ci/webrtc-sip-debug-20261017/docs/rtc-call-control-v1.md)。独立控制 KVM 联合验收已通过并发布原签名 Debug；[独立控制验收与下载](docs/webrtc-independent-validation-20261019.md)。[旧过渡版本记录](docs/webrtc-joint-validation-20261019.md) 仅保留历史；物理蜂窝音频最后由真机验证。
+
 [自动构建与 Release、固定签名配置](docs/releases.md)：`main` 推送发布预览版，版本标签发布正式版；首次发布前运行签名 Secrets 配置脚本。
 
 Android host app for controlling calls and SMS through the two SIMs in a separate Android gateway phone (SMS-only operation needs no root). The Material 3 Expressive interface follows the Google Phone / Messages look (search pill, rounded list tiles, monogram avatars, pill dial pad, round in-call controls) and has three bottom destinations: **电话 / 短信 / 设置**. Phone history opens a dedicated dial pad; SMS conversations show their remote SIM and open a message editor. Server pairing, permissions, paired devices and backups live in Settings. See [the host UI design](docs/host-ui-redesign.md).
 
-The app now includes a pinned PJSUA2 SIP SDK, self-managed Telecom calls, CallStyle notifications, mute/DTMF/audio routing and server-authorized remote call intents. Calling requires configured server/gateway voice capability; real dual-SIM audio remains a device acceptance gate. It does not read or send SMS through the host phone or fall back to the host carrier dialer.
+The app includes independent Go/HTTPS call control, native WebRTC, optional PJSUA2 SIP compatibility, self-managed Telecom calls, CallStyle notifications, mute/DTMF/audio routing and server-authorized remote calls. Calling requires configured server/gateway voice capability; real dual-SIM audio remains a device acceptance gate. It does not read or send SMS through the host phone or fall back to the host carrier dialer.
 
 Several hosts can pair to the same owner and gateway, using separate one-time codes and credentials. Settings lists paired hosts and preserves its last snapshot offline and through folding. Incoming calls select the first host that actually answers; other hosts show that another device answered. One host rejecting does not reject the call for everyone. See [multi-host operation](docs/multi-host.md); the shared protocol supports future platforms, while a Windows client is not yet implemented.
 

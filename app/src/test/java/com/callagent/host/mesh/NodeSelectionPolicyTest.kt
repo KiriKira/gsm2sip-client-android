@@ -22,9 +22,8 @@ class NodeSelectionPolicyTest {
     }
 
     @Test
-    fun oneFailedProbeDoesNotSwitchButTwoDo() {
+    fun theActiveNodeFailingNowSwitchesAtOnce() {
         var health = mapOf("home" to observe(null, ok), "vps-a" to observe(null, ok), "vps-b" to observe(null, ok))
-        health = health + ("home" to observe(health["home"], down))
         assertNull(NodeSelectionPolicy.choose(priority, "home", health, busy = false))
         health = health + ("home" to observe(health["home"], down))
         assertEquals("vps-a", NodeSelectionPolicy.choose(priority, "home", health, busy = false))
@@ -44,19 +43,21 @@ class NodeSelectionPolicyTest {
 
     @Test
     fun failbackWaitsForSeveralHealthyProbes() {
-        val recovering = mapOf("home" to healthy(2), "vps-a" to healthy(10), "vps-b" to healthy(10))
+        val recovering = mapOf("home" to healthy(1), "vps-a" to healthy(10), "vps-b" to healthy(10))
         assertNull(NodeSelectionPolicy.choose(priority, "vps-a", recovering, busy = false))
-        val stable = recovering + ("home" to healthy(3))
+        val stable = recovering + ("home" to healthy(2))
         assertEquals("home", NodeSelectionPolicy.choose(priority, "vps-a", stable, busy = false))
         assertNull("lower priority nodes never pull the phone away",
             NodeSelectionPolicy.choose(priority, "home", stable, busy = false))
     }
 
     @Test
-    fun busyPhoneNeverSwitches() {
+    fun aCallHoldsTheNodeAndAnSmsOnlyHoldsFailback() {
         val health = mapOf("home" to failing(5), "vps-a" to healthy(5))
-        assertNull(NodeSelectionPolicy.choose(priority, "home", health, busy = true))
-        assertNull(NodeSelectionPolicy.choose(priority, "vps-a", mapOf("home" to healthy(9)), busy = true))
+        assertNull(NodeSelectionPolicy.choose(priority, "home", health, busy = true, callInProgress = true))
+        assertEquals("a failed node cannot carry the SMS anyway", "vps-a",
+            NodeSelectionPolicy.choose(priority, "home", health, busy = true, callInProgress = false))
+        assertNull(NodeSelectionPolicy.choose(priority, "vps-a", mapOf("home" to healthy(9), "vps-a" to healthy(9)), busy = true, callInProgress = false))
     }
 
     @Test
@@ -85,20 +86,11 @@ class NodeSelectionPolicyTest {
     private fun failing(failures: Int) = NodeHealth(consecutiveFailures = failures, checkedAt = 1L)
 
     @Test
-    fun qualityKeepsTheLastTwentyProbesAndReportsMedianAndAvailability() {
-        var health: NodeHealth? = null
-        repeat(25) { index ->
-            val observation = if (index % 5 == 4) down else ok.copy(rttMillis = 100L + index, callReady = true, gatewayId = "gw-1")
-            health = NodeSelectionPolicy.record(health, observation, now = index.toLong())
-        }
-        val state = health!!
-        assertEquals(20, state.recent.size)
-        assertEquals("16 of the last 20 probes were healthy", 80, state.availabilityPercent)
-        assertEquals(115L, state.medianRttMillis)
-        assertEquals("the gateway ID survives a failed probe", "gw-1", state.gatewayId)
-        assertFalse("a failed probe is not call-ready", state.callReady)
-        val recovered = NodeSelectionPolicy.record(state, ok.copy(callReady = true), now = 99)
-        assertTrue(recovered.callReady)
-        assertNull(NodeHealth().availabilityPercent)
+    fun theGatewayIdSurvivesAFailedProbeAndCallReadinessFollowsTheLatestProbe() {
+        val ready = NodeSelectionPolicy.record(null, ok.copy(callReady = true, gatewayId = "gw-1"), now = 1)
+        val failed = NodeSelectionPolicy.record(ready, down, now = 2)
+        assertEquals("gw-1", failed.gatewayId)
+        assertFalse(failed.callReady)
+        assertTrue(NodeSelectionPolicy.record(failed, ok.copy(callReady = true), now = 3).callReady)
     }
 }

@@ -2,7 +2,6 @@ package com.callagent.host.ui
 
 import com.callagent.host.mesh.HostNode
 import com.callagent.host.mesh.NodeHealth
-import com.callagent.host.mesh.ProbeSample
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -36,16 +35,16 @@ class NodeRowPresenterTest {
     @Test
     fun qualityLineAndDetailsDescribeTheNode() {
         val health = NodeHealth(consecutiveSuccesses = 3, rttMillis = 90, gatewayOnline = true, checkedAt = 10_000,
-            gatewayId = "gw", callReady = true,
-            recent = listOf(ProbeSample(true, 80, 1), ProbeSample(false, null, 2), ProbeSample(true, 120, 3), ProbeSample(true, 90, 4)))
+            gatewayId = "gw", callReady = true)
         val row = NodeRowPresenter.rows(nodes, mapOf("b" to health), activeKey = "b")[1]
-        assertEquals("近 4 次可用 75% · 中位延迟 90 ms · 可通话", row.quality)
+        assertEquals("only the current state, no probe history", "可通话", row.quality)
         assertNull("no quality before any probe", NodeRowPresenter.rows(nodes, emptyMap(), "a")[0].quality)
 
         val details = NodeRowPresenter.details(nodes[1], health, active = true, now = 25_000).toMap()
         assertEquals("正在使用", details["角色"])
-        assertEquals("15 秒前", details["最近检测"])
-        assertEquals("●○●●", details["最近结果"])
+        assertEquals("15 秒前", details["检测时间"])
+        assertEquals("90 ms", details["延迟"])
+        assertNull(details["最近结果"])
         assertTrue(details.getValue("通话").startsWith("可通话"))
         assertEquals("尚未检测", NodeRowPresenter.details(nodes[0], null, false, 0).toMap()["状态"])
     }

@@ -13,10 +13,7 @@ data class NodeObservation(
     val callReady: Boolean = false
 )
 
-/** One probe result kept for the node quality view. */
-data class ProbeSample(val ok: Boolean, val rttMillis: Long?, val at: Long)
-
-/** Rolling health of one node, persisted between probes. */
+/** Health of one node as of its latest probe, persisted between probes. */
 data class NodeHealth(
     val consecutiveFailures: Int = 0,
     val consecutiveSuccesses: Int = 0,
@@ -25,37 +22,25 @@ data class NodeHealth(
     val checkedAt: Long = 0L,
     val issue: String? = null,
     val gatewayId: String? = null,
-    val callReady: Boolean = false,
-    /** Most recent probes, oldest first, at most [NodeSelectionPolicy.QUALITY_SAMPLES]. */
-    val recent: List<ProbeSample> = emptyList()
+    val callReady: Boolean = false
 ) {
     val healthy: Boolean get() = consecutiveSuccesses > 0
-
-    /** Share of recent probes that were healthy, 0..100; null before any probe. */
-    val availabilityPercent: Int? get() =
-        if (recent.isEmpty()) null else recent.count { it.ok } * 100 / recent.size
-
-    /** Median round trip of the recent healthy probes. */
-    val medianRttMillis: Long? get() {
-        val values = recent.filter { it.ok }.mapNotNull { it.rttMillis }.sorted()
-        return if (values.isEmpty()) null else values[values.size / 2]
-    }
 }
 
 /**
- * Pure node choice. Nodes are tried in the user's priority order:
- * - failover: the active node failed [FAILOVER_AFTER_FAILURES] probes in a row
- *   (unreachable, old phone offline there, or too slow) → the first healthy
- *   node in priority order;
+ * Pure node choice, from each node's state now rather than its history.
+ * Nodes are tried in the user's priority order:
+ * - failover: the active node's latest probe failed (unreachable, old phone
+ *   offline there, or too slow; [NodeMonitor] re-probes it once first) → the
+ *   first node that is healthy now. A failed node cannot carry an SMS, so
+ *   only a call in progress holds it (switching rebinds the call engine);
  * - failback: a higher-priority node was healthy for [FAILBACK_AFTER_SUCCESSES]
- *   probes in a row → return to it, so a flapping link does not bounce;
- * - never while busy (an SMS submission or a call is in flight).
+ *   probes in a row → return to it, so a flapping link does not bounce; never
+ *   while busy (an SMS submission or a call is in flight).
  */
 object NodeSelectionPolicy {
     const val MAX_HEALTHY_RTT_MS = 3_000L
-    const val FAILOVER_AFTER_FAILURES = 2
-    const val FAILBACK_AFTER_SUCCESSES = 3
-    const val QUALITY_SAMPLES = 20
+    const val FAILBACK_AFTER_SUCCESSES = 2
 
     fun healthy(observation: NodeObservation): Boolean =
         observation.reachable && observation.gatewayOnline &&
@@ -72,7 +57,6 @@ object NodeSelectionPolicy {
             checkedAt = now,
             gatewayId = observation.gatewayId ?: before.gatewayId,
             callReady = ok && observation.callReady,
-            recent = (before.recent + ProbeSample(ok, observation.rttMillis, now)).takeLast(QUALITY_SAMPLES),
             issue = observation.issue ?: when {
                 !observation.reachable -> "无法连接"
                 !observation.gatewayOnline -> "旧手机不在线"
@@ -86,16 +70,26 @@ object NodeSelectionPolicy {
      * @param priority node keys, highest priority first; only nodes that hold a session.
      * @return the node to switch to, or null to stay on [active].
      */
-    fun choose(priority: List<String>, active: String?, health: Map<String, NodeHealth>, busy: Boolean): String? {
-        if (busy || priority.isEmpty()) return null
+    fun choose(
+        priority: List<String>,
+        active: String?,
+        health: Map<String, NodeHealth>,
+        busy: Boolean,
+        callInProgress: Boolean = busy
+    ): String? {
+        if (priority.isEmpty()) return null
         val activeIndex = if (active == null) -1 else priority.indexOf(active)
         if (activeIndex < 0) return priority.firstOrNull { health[it]?.healthy == true }
+        val activeHealth = health[active]
+        if (activeHealth != null && activeHealth.checkedAt > 0L && !activeHealth.healthy) {
+            if (callInProgress) return null
+            return priority.firstOrNull { it != active && health[it]?.healthy == true }
+        }
+        if (busy) return null
         for (index in 0 until activeIndex) {
             val key = priority[index]
             if ((health[key]?.consecutiveSuccesses ?: 0) >= FAILBACK_AFTER_SUCCESSES) return key
         }
-        val activeHealth = health[active] ?: return null
-        if (activeHealth.consecutiveFailures < FAILOVER_AFTER_FAILURES) return null
-        return priority.firstOrNull { it != active && health[it]?.healthy == true }
+        return null
     }
 }

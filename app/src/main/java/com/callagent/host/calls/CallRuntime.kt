@@ -41,7 +41,9 @@ object CallRuntime {
     val currentCallId: String? get() = coordinator.current?.callId?.takeUnless { it == "pending" }
     val currentSession: CallSession? get() = coordinator.current
     val currentStatus: String get() = statusText
+    val controlLabel: String get() = currentSession?.controlTransport?.label ?: service?.controlLabel ?: "待确认"
     val isForegroundListening: Boolean get() = service?.isForegroundListening == true
+    val isSignalingReady: Boolean get() = service?.isSignalingReady == true
     val isListeningRequested: Boolean get() = wantsForegroundListening
 
     fun restoreForegroundPreference(context: Context, session: HostSession?) {
@@ -56,7 +58,7 @@ object CallRuntime {
             service?.stopForSessionChange()
         }
         SipCredentialStore(context).clearForDifferentSession(session)
-        wantsForegroundListening = CallPreferences(context).enabledFor(session) && session?.sipAvailable == true
+        wantsForegroundListening = CallPreferences(context).enabledFor(session) && (session?.sipAvailable == true || CallPreferences(context).webRtcFor(session))
         rememberedSessionInstance = nextSessionInstance
         rememberedProfileKey = session?.profileKey
     }
@@ -95,8 +97,9 @@ object CallRuntime {
     ): Boolean {
         if (context.isFinishing || context.isDestroyed) return false
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return false
-        if (!coordinator.beginOutbound(simId, destination)) return false
-        statusText = "正在检查远程 SIM 和 SIP 服务…"
+        val mode = if (CallPreferences(context).webRtcFor(SessionStore(context).read())) CallMediaTransport.WEBRTC else CallMediaTransport.SIP
+        if (!coordinator.beginOutbound(simId, destination, mode)) return false
+        statusText = "正在检查远程 SIM 和语音服务…"
         notifyChanged("pending")
         val accepted = HostCallService.startOutbound(
             context.applicationContext,
@@ -114,6 +117,15 @@ object CallRuntime {
         return accepted
     }
 
+    fun onVoicePolicyChanged(context: Context) {
+        val session = SessionStore(context).read() ?: return
+        service?.stopForSessionChange()
+        if (CallPreferences(context).enabledFor(session)) {
+            wantsForegroundListening = true
+            HostCallService.setForegroundListening(context.applicationContext, true)
+        }
+    }
+
     fun enableForegroundListening(activity: Activity): Boolean {
         return ensureIncomingCallSignalingForPairedSession(activity)
     }
@@ -127,7 +139,7 @@ object CallRuntime {
         val context = activity.applicationContext
         val session = runCatching { SessionStore(context).read() }.getOrNull() ?: return false
         val preferences = CallPreferences(context)
-        if (!preferences.canAutoListenFor(session, availabilityOverride ?: session.sipAvailable)) return false
+        if (!preferences.canAutoListenFor(session, availabilityOverride ?: (session.sipAvailable || preferences.webRtcFor(session)))) return false
 
         synchronized(signalingStartLock) {
             if (!isVisibleAndFocused(activity)) return false
@@ -144,7 +156,7 @@ object CallRuntime {
             }
             if (signalingStartRequestedFor == session.sessionInstanceId) return true
 
-            statusText = "正在启动后台 SIP 来电接收…"
+            statusText = "正在启动后台来电接收…"
             notifyChanged(currentCallId)
             signalingStartRequestedFor = session.sessionInstanceId
             val started = if (service != null) {
@@ -262,7 +274,24 @@ object CallRuntime {
     fun selectedAudioEndpoint(callId: String): CallAudioEndpoint? = CallTelecomController.currentAudioEndpoint(callId)
 
     fun selectAudioEndpoint(context: Context, callId: String, endpoint: CallAudioEndpoint) {
-        CallTelecomController.selectAudioEndpoint(callId, endpoint)
+        if (CallTelecomController.selectAudioEndpoint(callId, endpoint)) return
+        // No Telecom connection to route through: switch the speaker directly,
+        // so the button never silently does nothing.
+        if (endpoint != CallAudioEndpoint.SPEAKER && endpoint != CallAudioEndpoint.EARPIECE) return
+        val audio = context.applicationContext.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val speaker = endpoint == CallAudioEndpoint.SPEAKER
+        runCatching {
+            if (android.os.Build.VERSION.SDK_INT >= 31) {
+                if (speaker) audio.availableCommunicationDevices
+                    .firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+                    ?.let(audio::setCommunicationDevice)
+                else audio.clearCommunicationDevice()
+            } else {
+                @Suppress("DEPRECATION")
+                audio.isSpeakerphoneOn = speaker
+            }
+        }
+        onTelecomAudioRoute(callId, endpoint)
     }
 
     fun sendDtmf(context: Context, callId: String, digits: String) {
@@ -327,6 +356,9 @@ object CallRuntime {
     }
 
     /** Wake an already-owned call service without starting SIP or another foreground service. */
+    /** The background service's WebSocket to the active node is open, so wake hints arrive. */
+    @Volatile internal var wakeChannelLive = false
+
     internal fun requestCallSyncFromWakeHint() {
         service?.requestCallSyncFromWakeHint()
     }
