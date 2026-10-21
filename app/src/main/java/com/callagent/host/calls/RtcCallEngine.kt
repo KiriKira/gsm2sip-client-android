@@ -40,15 +40,17 @@ internal class RtcCallEngine(
     }
     @Volatile private var wakeRequested=false
     /** Polls at once; the server's WebSocket wake hint for this device lands here. */
-    fun wake(){wakeRequested=true;schedulePoll(0)}
+    override fun wake(){wakeRequested=true;schedulePoll(0)}
     @Synchronized private fun schedulePoll(delayMs:Long){
         if(closed.get())return
         nextPoll?.cancel(false)
         nextPoll=runCatching{worker.schedule({
             wakeRequested=false
-            poll()
-            // A wake during this poll was cancelled by this reschedule: honour it.
-            schedulePoll(if(wakeRequested)0 else nextPollDelay())
+            try{poll()}finally{
+                // A wake during this poll was cancelled by this reschedule: honour it.
+                // In finally, so nothing a poll throws can end the polling for good.
+                schedulePoll(if(wakeRequested)0 else nextPollDelay())
+            }
         },delayMs,TimeUnit.MILLISECONDS)}.getOrNull()
     }
     /**
@@ -79,7 +81,7 @@ internal class RtcCallEngine(
                 store(id,snapshot);report(id)
             }
         }catch(_:Throwable){
-            // Idle polls are 20 s apart, so time alone would fail on one miss.
+            // Idle polls are seconds apart, so time alone would fail on one miss.
             if(++failedPolls>=3 && System.nanoTime()-lastControl>15_000_000_000L){
                 media.values.forEach{it.enableAudio(false)}
                 snapshots.keys.forEach{fail(it,"control_authorization_unavailable")}
@@ -166,7 +168,9 @@ internal class RtcCallEngine(
     private companion object {
         val TERMINAL=setOf(EngineCallState.DISCONNECTED,EngineCallState.FAILED)
         const val LIVE_POLL_MS=750L
-        const val IDLE_POLL_MS=20_000L
+        // A ringing call expires 25 s after the gateway offers it; a lost wake
+        // must still leave most of that window to ring and answer.
+        const val IDLE_POLL_MS=8_000L
         const val IDLE_POLL_WITHOUT_WAKE_MS=3_000L
     }
     override fun close(){

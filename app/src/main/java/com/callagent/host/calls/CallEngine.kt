@@ -49,5 +49,7 @@ interface CallEngine : AutoCloseable {
     fun enableAudio(callId: String)
     fun suspendAudio(callId: String)
     fun refreshNetwork()
+    /** The server's wake channel says this device has a call event: look now. */
+    fun wake() = Unit
     override fun close()
 }

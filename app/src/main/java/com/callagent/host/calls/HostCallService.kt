@@ -329,7 +329,10 @@ class HostCallService : android.app.Service() {
 
     /** A websocket is only a wake hint; poll over the existing SIP service's serial worker. */
     internal fun requestCallSyncFromWakeHint() {
-        (callEngine as? RtcCallEngine)?.wake()
+        // Through the interface: with the SIP fallback configured the engine is a
+        // CompatibilityCallEngine, and a cast to RtcCallEngine silently dropped
+        // every wake, leaving incoming calls to the idle poll.
+        callEngine?.wake()
         if (!callSyncWakeHintQueued.compareAndSet(false, true)) return
         mainHandler.post {
             callSyncWakeHintQueued.set(false)

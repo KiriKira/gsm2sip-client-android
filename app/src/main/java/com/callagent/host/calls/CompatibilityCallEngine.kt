@@ -31,5 +31,6 @@ internal class CompatibilityCallEngine(
     override fun enableAudio(callId: String) = owner(callId).enableAudio(callId)
     override fun suspendAudio(callId: String) = owner(callId).suspendAudio(callId)
     override fun refreshNetwork() { rtc.refreshNetwork(); runCatching { sip.refreshNetwork() } }
+    override fun wake() = rtc.wake()
     override fun close() { try { rtc.close() } finally { sip.close(); sipCalls.clear() } }
 }
