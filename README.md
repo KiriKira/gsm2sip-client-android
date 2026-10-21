@@ -4,7 +4,7 @@ Madoka 是三端系统的主机 App：通过服务端 **SoulGem** 使用另一�
 （仓库、包名 `com.callagent.host` 和签名不变，可直接覆盖升级或回退。）
 
 **0.4.0**：通话只走 WebRTC（服务端呼叫控制 + 原生 ICE/DTLS-SRTP/Opus），SIP/PJSUA2 已彻底移除，设置页也不再有“WebRTC 语音”开关。
-需要服务端同为 0.4 或之后的版本；升级和回退方法见服务端的 [0.4 发布说明](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/release-0.4.md)。
+建议先把服务端升级到 0.4（上一版服务端需开启 `RTC_MEDIA_ENABLED`/`RTC_CONTROL_ENABLED` 才能通话）；升级和回退方法见服务端的 [0.4 发布说明](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/release-0.4.md)，三端联合测试见 [0.4 联合测试计划](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/plan-0.4-joint-test.md)。
 WebRTC 实现见 [docs/webrtc-implementation.md](docs/webrtc-implementation.md)；10-19 的联合验收记录保留为历史。
 
 [自动构建与 Release、固定签名配置](docs/releases.md)：`main` 推送发布预览版，版本标签发布正式版；首次发布前运行签名 Secrets 配置脚本。
