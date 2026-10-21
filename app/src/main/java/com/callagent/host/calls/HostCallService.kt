@@ -302,7 +302,8 @@ class HostCallService : android.app.Service() {
 
     /** A websocket is only a wake hint: the engine polls call control at once. */
     internal fun requestCallSyncFromWakeHint() {
-        (callEngine as? RtcCallEngine)?.wake()
+        // Through the interface, so no engine type can silently drop a wake.
+        callEngine?.wake()
     }
 
     internal fun hangupCall(callId: String) {

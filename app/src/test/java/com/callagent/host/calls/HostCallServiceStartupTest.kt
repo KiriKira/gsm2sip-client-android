@@ -72,8 +72,23 @@ class HostCallServiceStartupTest {
     }
 
     private fun field(name:String)=HostCallService::class.java.getDeclaredField(name).apply{isAccessible=true}
+    @Test fun wakeHintReachesAnyEngineThroughTheInterface() {
+        StartupTelecomShadow.release = CountDownLatch(0)
+        StartupTelecomShadow.returned = CountDownLatch(1)
+        val controller=Robolectric.buildService(HostCallService::class.java).create()
+        val service=controller.get()
+        try {
+            val engine=CountingEngine()
+            field("callEngine").set(service,engine)
+            service.requestCallSyncFromWakeHint()
+            assertEquals("a wake hint must reach the call engine",1,engine.woken)
+        } finally {controller.destroy()}
+    }
+
     private class CountingEngine:CallEngine {
         var closed=0
+        var woken=0
+        override fun wake(){woken++}
         override fun connect()=Unit
         override fun dial(serverCallId:String,destination:String)=Unit
         override fun answer(callId:String)=Unit
