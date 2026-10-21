@@ -123,16 +123,38 @@ internal class RtcCallEngine(
     private fun startMedia(id:String){
         val admission=RtcAudioSession.select(api,id)
         check(admission.getString("call_control")=="rtc"){"Server call control required"}
-        val rtc=RtcAudioSession(context,admission,api,false,pcmForCall?.invoke(id),onReady={report(id)},onFailure={reason->
-            fail(id,reason)
-            runCatching{worker.execute{runCatching{control.operation(id,"hangup")}}}
-        })
+        val rtc=RtcAudioSession(context,admission,api,false,pcmForCall?.invoke(id),onReady={report(id)},
+            onFailure={reason->handleMediaFailure(id,reason)})
         check(media.putIfAbsent(id,rtc)==null)
         rtc.enableAudio(id in audioAllowed);rtc.start()
     }
+    private fun handleMediaFailure(id:String,reason:String){
+        runCatching{worker.execute{
+            // A normal remote hangup closes media authorization immediately;
+            // its control snapshot can arrive after the faster media poll.
+            // Confirm that terminal intent before reporting a media failure.
+            if(reason=="server_authorization_closed"){
+                val current=runCatching{control.get(id)}.getOrNull()
+                if(current!=null){
+                    store(id,current)
+                    val latest=snapshots[id]
+                    if(latest?.optBoolean("end_requested")==true || latest?.optString("state")=="ended"){
+                        report(id)
+                        return@execute
+                    }
+                }
+            }
+            fail(id,reason)
+            runCatching{control.operation(id,"hangup")}
+        }}
+    }
     private fun fail(id:String,reason:String){
         val snapshot=snapshots[id]?:return
-        if(delivered.put(id,EngineCallState.FAILED) in setOf(EngineCallState.FAILED,EngineCallState.DISCONNECTED))return
+        var newlyFailed=false
+        delivered.compute(id){_,previous->
+            if(previous in TERMINAL)previous else EngineCallState.FAILED.also{newlyFailed=true}
+        }
+        if(!newlyFailed)return
         media.remove(id)?.close();audioAllowed.remove(id)
         Log.w("GsmRtc","media=webrtc call_control=rtc call_id=$id event=failed reason=$reason")
         listener.onCallState(EngineCallSnapshot(id,direction(snapshot),EngineCallState.FAILED,serverCallId=id,
