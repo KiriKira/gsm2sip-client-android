@@ -1423,6 +1423,10 @@ class MainActivity : AppCompatActivity() {
      * Returns that panel for [installContent] to pin.
      */
     private fun renderDialer(content: LinearLayout): View {
+        // Removed SIMs remain in the cache for history, but are no longer
+        // choices for a new call, even when a replacement uses the same slot.
+        val dialerSims = sims.filter { it.state != "removed" }
+        if (dialerSims.none { it.simId == selectedSimId }) selectedSimId = null
         content.addView(topBar("拨号"))
 
         val contactHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
@@ -1555,7 +1559,7 @@ class MainActivity : AppCompatActivity() {
             isSingleLine = true
             chipSpacingHorizontal = dp(6)
         }
-        sims.sortedBy { it.slotIndex }.forEach { line ->
+        dialerSims.sortedBy { it.slotIndex }.forEach { line ->
             val chip = Chip(this).apply {
                 text = "SIM ${line.slotIndex + 1}"
                 isCheckable = true
@@ -1574,7 +1578,7 @@ class MainActivity : AppCompatActivity() {
                 renderCurrentScreen(preserveInput = true)
             }
         }
-        val selected = sims.firstOrNull { it.simId == selectedSimId }
+        val selected = dialerSims.firstOrNull { it.simId == selectedSimId }
         val dial = button("拨打").apply {
             id = R.id.dialer_call_button
             contentDescription = "拨出"
