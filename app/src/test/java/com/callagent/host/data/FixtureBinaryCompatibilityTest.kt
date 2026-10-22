@@ -14,7 +14,7 @@ class FixtureBinaryCompatibilityTest {
         HostSession::class.java.getConstructor(
             String::class.java, String::class.java, String::class.java, String::class.java, String::class.java,
             String::class.java, String::class.java, String::class.java, String::class.java,
-            Boolean::class.javaPrimitiveType, String::class.java, String::class.java
+            String::class.java
         )
         GatewaySnapshot::class.java.getConstructor(
             String::class.java, String::class.java, Boolean::class.javaPrimitiveType, String::class.java,

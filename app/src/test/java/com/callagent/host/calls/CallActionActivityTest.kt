@@ -81,7 +81,7 @@ class CallActionActivityTest {
     @Test
     fun openingIncomingScreenNeverAnswersOrRequestsMicrophone() {
         val now = System.currentTimeMillis()
-        assertTrue(coordinator.incomingInvite(IncomingInviteIdentity("fixture-sip", "fixture-incoming"),
+        assertTrue(coordinator.incomingInvite(IncomingInviteIdentity("fixture-engine", "fixture-incoming"),
             CallAuthority("fixture-incoming", "incoming", "ringing", "sim-2", "+12025550103", now + 60000), now))
         val intent = Intent(RuntimeEnvironment.getApplication(), CallActionActivity::class.java)
             .putExtra(CallActionActivity.EXTRA_CALL_ID, "fixture-incoming")

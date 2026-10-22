@@ -84,23 +84,17 @@ public final class PairedUiFixtureInstrumentation extends Instrumentation {
         Field coordinatorField = runtimeType.getDeclaredField("coordinator");
         coordinatorField.setAccessible(true);
         Object coordinator = coordinatorField.get(runtime);
-        Class<?> mediaType = hostClass(target.getClassLoader(),
-                "com.callagent.host.calls.CallMediaTransport");
-        Object sipMedia = mediaType.getField("SIP").get(null);
-        Class<?> controlType = hostClass(target.getClassLoader(),
-                "com.callagent.host.calls.CallControlTransport");
-        Object sipControl = controlType.getField("SIP").get(null);
         String callId = "synthetic-call-ui-fixture";
         String incomingId = "synthetic-call-ui-incoming-fixture";
         final android.app.Activity[] currentActivity = new android.app.Activity[1];
         try {
             long now = System.currentTimeMillis();
             boolean began = (Boolean) coordinator.getClass()
-                    .getMethod("beginOutbound", String.class, String.class, mediaType)
-                    .invoke(coordinator, "synthetic-sim-a", "+15550102001", sipMedia);
+                    .getMethod("beginOutbound", String.class, String.class)
+                    .invoke(coordinator, "synthetic-sim-a", "+15550102001");
             boolean authorized = began && (Boolean) coordinator.getClass()
-                    .getMethod("outboundAuthorized", String.class, long.class, long.class, controlType)
-                    .invoke(coordinator, callId, now + 600000L, now, sipControl);
+                    .getMethod("outboundAuthorized", String.class, long.class, long.class)
+                    .invoke(coordinator, callId, now + 600000L, now);
             boolean ready = authorized && (Boolean) coordinator.getClass()
                     .getMethod("registrationReady", String.class).invoke(coordinator, callId);
             if (!ready) throw new IllegalStateException("could not prepare synthetic outgoing call UI phase");
@@ -131,8 +125,8 @@ public final class PairedUiFixtureInstrumentation extends Instrumentation {
             Class<?> inviteType = hostClass(target.getClassLoader(),
                     "com.callagent.host.calls.IncomingInviteIdentity");
             Class<?> authorityType = hostClass(target.getClassLoader(), "com.callagent.host.calls.CallAuthority");
-            Object invite = inviteType.getConstructor(String.class, String.class, mediaType, controlType)
-                    .newInstance("synthetic-sip-call-id", incomingId, sipMedia, sipControl);
+            Object invite = inviteType.getConstructor(String.class, String.class)
+                    .newInstance("synthetic-engine-call-id", incomingId);
             Object authority = authorityType.getConstructor(String.class, String.class, String.class,
                     String.class, String.class, long.class)
                     .newInstance(incomingId, "incoming", "ringing", "synthetic-sim-b",
@@ -256,13 +250,11 @@ public final class PairedUiFixtureInstrumentation extends Instrumentation {
         }
         Object syntheticSession = sessionType.getConstructor(
                 String.class, String.class, String.class, String.class, String.class,
-                String.class, String.class, String.class, String.class, boolean.class,
-                String.class, String.class
+                String.class, String.class, String.class, String.class, String.class
         ).newInstance(
                 SESSION_ID, API_BASE, OWNER_ID, DEVICE_ID, "client",
                 "synthetic-ui-fixture-access-token", "2099-01-01T00:00:00Z",
-                "synthetic-ui-fixture-refresh-token", "2099-01-01T00:00:00Z",
-                false, "SYNTHETIC_OFFLINE_FIXTURE", null
+                "synthetic-ui-fixture-refresh-token", "2099-01-01T00:00:00Z", null
         );
         boolean saved = (Boolean) storeType.getMethod("writeIfCurrent", sessionType, sessionType)
                 .invoke(store, current, syntheticSession);

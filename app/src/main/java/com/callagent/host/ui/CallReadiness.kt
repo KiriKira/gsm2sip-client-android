@@ -15,7 +15,7 @@ object CallReadiness {
     fun evaluate(
         paired: Boolean,
         gatewayOnline: Boolean,
-        gatewaySipRegistered: Boolean?,
+        gatewayVoiceReady: Boolean?,
         gatewayRevision: Long?,
         line: SimLine?,
         callServerAvailable: Boolean?,
@@ -28,7 +28,6 @@ object CallReadiness {
             callServerAvailable == null -> "正在检查服务器通话能力…"
             callServerAvailable == false -> when (callServerReason) {
                 null, "" -> "服务器未启用通话。"
-                "sip_not_configured" -> "服务器尚未配置通话（SIP/Asterisk）。"
                 else -> if (callServerReason.any { it.code > 0x7f }) callServerReason else "服务器未启用通话（$callServerReason）。"
             }
             !localEngineAvailable -> "本机通话组件不可用。"
@@ -42,8 +41,8 @@ object CallReadiness {
             gatewayRevision != line.mappingRevision -> "SIM 配置已变化，正在同步…"
             else -> null
         }
-        val hint = if (blocker == null && gatewaySipRegistered == false) {
-            "旧手机语音未注册，呼叫可能失败；请在旧手机完成“远程通话”设置。"
+        val hint = if (blocker == null && gatewayVoiceReady == false) {
+            "旧手机通话尚未就绪，呼叫可能失败；请在旧手机完成“远程通话”设置。"
         } else null
         return Result(blocker, hint)
     }

@@ -69,7 +69,7 @@ jobs:
             exit 1
           fi
           build_tag="build-${GITHUB_RUN_NUMBER}-${sha7}"
-          build_version_name="0.3.0-${build_tag}"
+          build_version_name="0.4.0-${build_tag}"
           sign_release=true
           publish_enabled=false
           prerelease=false
@@ -310,7 +310,7 @@ jobs:
           set -euo pipefail
           {
             echo 'GSM_RELEASE_VERSION_CODE=1000000000'
-            echo "GSM_RELEASE_VERSION_NAME=0.3.0-debug-build-${GITHUB_RUN_NUMBER}"
+            echo "GSM_RELEASE_VERSION_NAME=0.4.0-debug-build-${GITHUB_RUN_NUMBER}"
           } >> "$GITHUB_ENV"
       - name: Test and build debuggable ARM64 APK
         run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --max-workers=2

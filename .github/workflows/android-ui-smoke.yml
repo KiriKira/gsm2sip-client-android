@@ -7,9 +7,7 @@ on:
       - '.github/workflows/android-ui-smoke.yml'
       - 'app/**'
       - 'scripts/android-ui-smoke.py'
-      - 'scripts/run-native-smoke.sh'
       - 'scripts/run-paired-ui-fixture.sh'
-      - 'scripts/native-smoke/**'
       - 'scripts/paired-ui-fixture/**'
       - 'scripts/paired-ui-fixture.py'
       - 'scripts/package-ui-review-evidence.py'
@@ -65,7 +63,7 @@ jobs:
           fi
           smoke_keystore="$RUNNER_TEMP/gsm2sip-host-debug.keystore"
           install -m 600 "$debug_keystore" "$smoke_keystore"
-          echo "PJSUA_SMOKE_KEYSTORE=$smoke_keystore" >> "$GITHUB_ENV"
+          echo "HOST_SMOKE_KEYSTORE=$smoke_keystore" >> "$GITHUB_ENV"
           sha256sum app/build/outputs/apk/debug/app-debug.apk | tee artifacts/android-ui-smoke/apk.sha256
 
       - name: Install and exercise the host app on a foldable emulator
@@ -85,7 +83,6 @@ jobs:
           script: >-
             bash -c 'result=0;
             python3 scripts/android-ui-smoke.py --apk app/build/outputs/apk/debug/app-debug.apk --package com.callagent.host --scenario host --device-profile "7.6in Foldable" --artifact-dir artifacts/android-ui-smoke || result=1;
-            bash scripts/run-native-smoke.sh || result=1;
             bash scripts/run-paired-ui-fixture.sh || result=1;
             exit "$result"'
 

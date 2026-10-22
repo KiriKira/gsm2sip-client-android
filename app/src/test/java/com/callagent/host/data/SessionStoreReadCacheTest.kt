@@ -20,7 +20,7 @@ class SessionStoreReadCacheTest {
     private val name = "read-cache-test"
     private var oldProvider: Provider? = null
     private val initial = HostSession("instance", "https://example.test/v1", "owner", "device", "client",
-        "access", "2099-01-01T00:00:00Z", "refresh", "2099-01-02T00:00:00Z", false, null)
+        "access", "2099-01-01T00:00:00Z", "refresh", "2099-01-02T00:00:00Z")
 
     @Before fun setUp() {
         oldProvider = Security.getProvider("AndroidKeyStore")

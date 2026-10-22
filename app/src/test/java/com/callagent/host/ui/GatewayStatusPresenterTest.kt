@@ -24,7 +24,7 @@ class GatewayStatusPresenterTest {
     private fun gateway(lastSeen: String? = "2026-10-11T07:59:30Z", online: Boolean = true, sip: Boolean? = true,
                         battery: Int? = 80, charging: Boolean? = true) = GatewaySnapshot(
         gatewayId = "gw", deviceName = "旧小米", online = online, lastSeenAt = lastSeen, mappingRevision = 3,
-        root = true, sipRegistered = sip, batteryPercent = battery, charging = charging
+        root = true, voiceReady = sip, batteryPercent = battery, charging = charging
     )
 
     private fun line(slot: Int, state: String = "active", verified: Boolean = true, service: String? = "in_service",

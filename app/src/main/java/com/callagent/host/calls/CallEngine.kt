@@ -6,30 +6,22 @@ enum class EngineConnectionState { STOPPED, CONNECTING, READY, FAILED }
 enum class EngineCallState { INCOMING, RINGING, EARLY, CONNECTED, DISCONNECTED, FAILED }
 enum class EngineCallDirection { INBOUND, OUTBOUND }
 enum class CallRejection { DECLINED, EXPIRED }
-enum class CallMediaTransport(val label: String) { SIP("SIP"), WEBRTC("WebRTC") }
-enum class CallControlTransport(val label: String) { SIP("SIP"), RTC("Go/RTC") }
 
 /**
  * [callId] is the engine's operation key. [serverCallId] is correlation supplied by the
- * authenticated signaling path and must still be checked against the server's call authority.
- * [transportCallId] identifies an incoming leg, not a second business call.
+ * authenticated control path and must still be checked against the server's call authority.
  */
 data class EngineCallSnapshot(
     val callId: String,
     val direction: EngineCallDirection,
     val state: EngineCallState,
     val serverCallId: String? = null,
-    val transportCallId: String? = null,
-    val terminalStatusCode: Int? = null,
-    val terminalReason: String? = null,
-    val mediaTransport: CallMediaTransport = CallMediaTransport.SIP,
-    val controlTransport: CallControlTransport = CallControlTransport.SIP
+    val terminalReason: String? = null
 )
 
 /**
- * Call controls used by the service. Transport-specific credential bootstrap stays outside
- * this interface. Implementations must never turn ICE connectivity alone into CONNECTED:
- * that event represents an accepted call, under the transport's validated call authority.
+ * Call controls used by the service. Implementations must never turn ICE connectivity alone
+ * into CONNECTED: that event represents an accepted call, under the server's call authority.
  * Telecom owns audio routes; media opens only after the foreground-service authorization.
  */
 interface CallEngine : AutoCloseable {
@@ -49,5 +41,14 @@ interface CallEngine : AutoCloseable {
     fun enableAudio(callId: String)
     fun suspendAudio(callId: String)
     fun refreshNetwork()
+    /** The server's wake channel says this device has a call event: look now. */
+    fun wake() = Unit
     override fun close()
+}
+
+object CallEngineFactory {
+    /** Only an instrumentation process can inject hardware in memory. Ordinary
+     * app builds have no synthetic PCM implementation or external control. */
+    internal var pcmForInstrumentation: ((String) -> com.callagent.rtcmedia.PcmBridge?)? = null
+    fun isAvailable(context: android.content.Context): Boolean = com.callagent.rtcmedia.RtcAudioSession.isAvailable(context)
 }

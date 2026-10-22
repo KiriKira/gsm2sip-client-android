@@ -37,7 +37,7 @@ internal object CallTelecomController {
         val component = ComponentName(app, HostCallConnectionService::class.java)
         val handle = PhoneAccountHandle(component, ACCOUNT_ID)
         val telecom = app.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
-        val account = PhoneAccount.builder(handle, "GSM2SIP 远程 SIM")
+        val account = PhoneAccount.builder(handle, "Madoka 远程 SIM")
             .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
             .setSupportedUriSchemes(listOf("gsm2sip"))
             .build()

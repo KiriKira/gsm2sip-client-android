@@ -67,7 +67,7 @@ object GatewayStatusPresenter {
         val lastSeen = gateway.lastSeenAt?.let(::parseInstant)
         val online = isOnline(gateway, lastSeen, nowMillis)
         val name = gateway.deviceName.ifBlank { "旧手机" }
-        val voiceReady = online && gateway.sipRegistered == true
+        val voiceReady = online && gateway.voiceReady == true
         if (!online && server !is ServerLink.Connected) {
             // A stale snapshot only means this phone has not heard from the
             // server lately, not that the old phone went away.
@@ -83,7 +83,7 @@ object GatewayStatusPresenter {
         val detail = if (online) {
             listOfNotNull(
                 batteryText(gateway.batteryPercent, gateway.charging),
-                if (gateway.sipRegistered == true) "通话就绪" else "仅短信",
+                if (gateway.voiceReady == true) "通话就绪" else "仅短信",
             ).joinToString(" · ")
         } else {
             val seen = lastSeen?.let { "最后在线 ${relativeTime(it.toEpochMilli(), nowMillis, zone)}" } ?: "从未上报"

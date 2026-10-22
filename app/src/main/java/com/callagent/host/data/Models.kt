@@ -14,8 +14,6 @@ data class HostSession @JvmOverloads constructor(
     val accessExpiresAt: String,
     val refreshToken: String,
     val refreshExpiresAt: String,
-    val sipAvailable: Boolean,
-    val sipReason: String?,
     val pendingRefreshKey: String? = null,
     /**
      * Set when this pairing is one node of a multi-node (mesh) profile. Every
@@ -53,12 +51,12 @@ data class GatewaySnapshot @JvmOverloads constructor(
     val lastSeenAt: String?,
     val mappingRevision: Long,
     val root: Boolean?,
-    val sipRegistered: Boolean?,
+    /** The old phone currently advertises call control, so calls can go through it. */
+    val voiceReady: Boolean?,
     val batteryPercent: Int?,
     val charging: Boolean?,
     /** The old phone's stable identity across server nodes (mesh extension). */
-    val installId: String? = null,
-    val rtcCallControlReady: Boolean = false
+    val installId: String? = null
 )
 
 /** A host paired to the same owner account as the current client session. */

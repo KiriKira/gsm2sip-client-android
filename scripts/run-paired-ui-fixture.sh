@@ -20,11 +20,11 @@ for required in "$BUILD_TOOLS/aapt" "$BUILD_TOOLS/d8" "$BUILD_TOOLS/zipalign" "$
     [[ -x "$required" || -f "$required" ]] || { echo "Missing required SDK component: $required" >&2; exit 1; }
 done
 
-HOST_APK="${PJSUA_SMOKE_HOST_APK:-$ROOT/app/build/outputs/apk/debug/app-debug.apk}"
+HOST_APK="${HOST_SMOKE_HOST_APK:-$ROOT/app/build/outputs/apk/debug/app-debug.apk}"
 if [[ "$HOST_APK" != /* ]]; then HOST_APK="$ROOT/$HOST_APK"; fi
 [[ -f "$HOST_APK" ]] || { echo "Host debug APK not found: $HOST_APK" >&2; exit 1; }
 
-KEYSTORE="${PJSUA_SMOKE_KEYSTORE:-}"
+KEYSTORE="${HOST_SMOKE_KEYSTORE:-}"
 if [[ -z "$KEYSTORE" && -n "${ANDROID_USER_HOME:-}" && -f "$ANDROID_USER_HOME/debug.keystore" ]]; then
     KEYSTORE="$ANDROID_USER_HOME/debug.keystore"
 fi
@@ -103,9 +103,9 @@ build_fixture > "$OUT/build.log" 2>&1 || {
 }
 cat "$OUT/build.log"
 
-export PAIRED_UI_FIXTURE_STOREPASS="${PJSUA_SMOKE_KEYSTORE_PASSWORD:-android}"
-export PAIRED_UI_FIXTURE_KEYPASS="${PJSUA_SMOKE_KEY_PASSWORD:-$PAIRED_UI_FIXTURE_STOREPASS}"
-KEY_ALIAS="${PJSUA_SMOKE_KEY_ALIAS:-androiddebugkey}"
+export PAIRED_UI_FIXTURE_STOREPASS="${HOST_SMOKE_KEYSTORE_PASSWORD:-android}"
+export PAIRED_UI_FIXTURE_KEYPASS="${HOST_SMOKE_KEY_PASSWORD:-$PAIRED_UI_FIXTURE_STOREPASS}"
+KEY_ALIAS="${HOST_SMOKE_KEY_ALIAS:-androiddebugkey}"
 "$BUILD_TOOLS/apksigner" sign --ks "$KEYSTORE" --ks-key-alias "$KEY_ALIAS" \
     --ks-pass env:PAIRED_UI_FIXTURE_STOREPASS --key-pass env:PAIRED_UI_FIXTURE_KEYPASS \
     --out "$FIXTURE_APK" "$ALIGNED_APK"

@@ -1,5 +1,7 @@
 # PLAN — gsm2sip-client-android 主机 App v1
 
+> **0.4.0（Madoka）**：SIP/PJSUA2 已移除，通话只走服务端呼叫控制与 WebRTC，“WebRTC 语音”开关也已去掉。下文关于开关、SIP 兼容和迁移期的描述是历史记录。
+
 > 2026-10-19：独立 Go/HTTPS 呼叫控制与原生 WebRTC 已完成两台持续运行的 KVM 模拟器、三个真实 Docker 节点联合验收，并发布沿用原签名的 Debug Release。纯模式三节点不运行 Asterisk，SIP/ARI 抓包为 0；呼入/呼出双向测试 PCM、呼叫事件、TURN UDP/TCP、控制/媒体故障与 A→B→C→A 切换通过。WebRTC 开关关闭时的 SIP 来电、开启时的混合来电事件另行通过。物理蜂窝 HAL 和真实手机音频仍待真机验收。 [本批结果](docs/webrtc-independent-validation-20261019.md)。下文保留原计划背景。
 
 > 2026-10-16 后续路线：[三端 WebRTC 通话迁移计划](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/plan-webrtc.md)。
@@ -104,7 +106,7 @@ V1 的完成标准：
 
 **当前状态与 FCM 待办（2026-10-20 记录）：**
 
-- WebRTC 呼入现在走 WSS 唤醒：服务器在有呼入时向该主机推 `sync_required`，RTC 通话引擎立即查询；空闲时只保留每 20 秒一次的兜底轮询（同时刷新服务器 90 秒有效的 RTC 能力），通话中仍为 750 ms。没有 WSS 时退回每 3 秒。
+- WebRTC 呼入现在走 WSS 唤醒：服务器在有呼入时向该主机推 `sync_required`，RTC 通话引擎立即查询；空闲时只保留每 8 秒一次的兜底轮询（呼入只响 25 秒，唤醒丢失时也要留出响铃时间）（同时刷新服务器 90 秒有效的 RTC 能力），通话中仍为 750 ms。没有 WSS 时退回每 3 秒。
 - FCM 作为第二条唤醒通道，**等改包名和项目名之后再注册 Firebase 项目并接入**，避免 `google-services.json` 与应用 ID 绑定后再迁移。
 - 不需要每个服务器节点都配置 FCM 凭据：只要有一台节点（例如家中网络稳定的主节点）持有 Firebase 服务账号并负责发推送即可。主机被唤醒后照常通过当前可用节点查询和接听，不必走发推送的那台。
 

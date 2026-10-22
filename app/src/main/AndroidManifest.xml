@@ -22,8 +22,9 @@
         android:allowBackup="false"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:icon="@drawable/host_icon"
-        android:label="GSM2SIP Host"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="Madoka"
         android:supportsRtl="true"
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true"
@@ -69,7 +70,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-enabled encrypted SIP signaling and authenticated call status checks for remote SIM telephone calls." />
+                android:value="User-enabled encrypted call control and authenticated call status checks for remote SIM telephone calls." />
         </service>
         <service
             android:name=".calls.CallForegroundService"

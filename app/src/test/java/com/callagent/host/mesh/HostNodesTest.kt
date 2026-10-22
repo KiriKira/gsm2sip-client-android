@@ -150,7 +150,5 @@ class HostNodesTest {
         accessExpiresAt = "2099-01-01T00:00:00Z",
         refreshToken = "refresh-$id",
         refreshExpiresAt = "2099-01-02T00:00:00Z",
-        sipAvailable = false,
-        sipReason = null
     )
 }

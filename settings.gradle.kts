@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Gsm2SipHost"
+rootProject.name = "Madoka"
 include(":app")
 
 include(":rtcmedia")

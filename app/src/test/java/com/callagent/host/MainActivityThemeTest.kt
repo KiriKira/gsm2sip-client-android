@@ -31,6 +31,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import org.robolectric.util.ReflectionHelpers
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.Key
@@ -53,6 +54,39 @@ import javax.crypto.spec.SecretKeySpec
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28, 34])
 class MainActivityThemeTest {
+    @Test
+    @Config(sdk = [28])
+    fun dialerExcludesRemovedSimWhenReplacementUsesSameSlot() {
+        val application = RuntimeEnvironment.getApplication()
+        application.getSharedPreferences("host-session", 0).edit().clear().commit()
+        application.getSharedPreferences("host-settings", 0).edit().clear().commit()
+        Shadows.shadowOf(application).grantPermissions("${application.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")
+        val controller = Robolectric.buildActivity(MainActivity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val removed = SimLine("old-sim", 0, "Removed line", null, null, "removed", 8, true, "out_of_service")
+            val active = SimLine("current-sim", 0, "Current line", null, null, "active", 9, true, "in_service")
+            ReflectionHelpers.setField(activity, "sims", listOf(removed, active))
+            ReflectionHelpers.setField(activity, "selectedSimId", removed.simId)
+            activity.findViewById<View>(R.id.dialer_open).performClick()
+
+            val visible = chips(activity)
+            assertEquals("a historical mapping must not duplicate the current slot choice", 1, visible.size)
+            assertEquals("SIM 1", visible.single().text.toString())
+            assertTrue(visible.single().contentDescription.toString().contains(active.label))
+            assertFalse(visible.single().contentDescription.toString().contains(removed.label))
+            assertEquals("a removed selection must be cleared rather than silently mapped to its replacement", null,
+                ReflectionHelpers.getField<String?>(activity, "selectedSimId"))
+            visible.single().performClick()
+            assertTrue(chips(activity).single().isChecked)
+            assertEquals(active.simId, ReflectionHelpers.getField<String>(activity, "selectedSimId"))
+            assertEquals("history mappings must stay available in the cache", listOf(removed, active),
+                ReflectionHelpers.getField<List<SimLine>>(activity, "sims"))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
     @Test
     fun unpairedScreenInflatesMaterialInputsAndButtonsUnderExpressiveTheme() {
         val application = RuntimeEnvironment.getApplication()
@@ -142,8 +176,6 @@ class MainActivityThemeTest {
                     accessExpiresAt = "2099-01-01T00:00:00Z",
                     refreshToken = "test-refresh",
                     refreshExpiresAt = "2099-01-02T00:00:00Z",
-                    sipAvailable = false,
-                    sipReason = "test",
                 )
             }
             oldActivity.findViewById<TextInputEditText>(R.id.pairing_server).setText("https://pairing.example.test")
@@ -199,8 +231,6 @@ class MainActivityThemeTest {
             accessExpiresAt = "2099-01-01T00:00:00Z",
             refreshToken = "test-only-refresh-token",
             refreshExpiresAt = "2099-01-01T00:00:00Z",
-            sipAvailable = false,
-            sipReason = "test-only fixture",
         )
         val databaseName = clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
         application.deleteDatabase(databaseName)
@@ -215,7 +245,7 @@ class MainActivityThemeTest {
                     lastSeenAt = "2026-10-04T09:30:00Z",
                     mappingRevision = 42,
                     root = false,
-                    sipRegistered = false,
+                    voiceReady = false,
                     batteryPercent = 84,
                     charging = false,
                 ))

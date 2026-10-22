@@ -53,8 +53,6 @@ class SessionStore @JvmOverloads constructor(context: Context, private val prefs
                 accessExpiresAt = json.getString("access_expires_at"),
                 refreshToken = json.getString("refresh_token"),
                 refreshExpiresAt = json.getString("refresh_expires_at"),
-                sipAvailable = json.optJSONObject("sip")?.optBoolean("available", false) ?: false,
-                sipReason = json.optJSONObject("sip")?.optString("reason")?.takeIf { it.isNotBlank() && it != "null" },
                 pendingRefreshKey = json.optString("pending_refresh_key")
                     .takeIf { it.isNotBlank() && it != "null" },
                 profileId = json.optString("profile_id").takeIf { it.isNotBlank() && it != "null" },
@@ -133,7 +131,6 @@ class SessionStore @JvmOverloads constructor(context: Context, private val prefs
             .put("access_expires_at", session.accessExpiresAt)
             .put("refresh_token", session.refreshToken)
             .put("refresh_expires_at", session.refreshExpiresAt)
-            .put("sip", JSONObject().put("available", session.sipAvailable).put("reason", session.sipReason))
         session.pendingRefreshKey?.let { json.put("pending_refresh_key", it) }
         session.profileId?.let { json.put("profile_id", it) }
         session.profileDatabase?.let { json.put("profile_database", it) }

@@ -21,7 +21,7 @@ import com.callagent.host.data.HostSession
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29], shadows = [StartupTelecomShadow::class])
 class HostCallServiceStartupTest {
-    @Test fun differentRtcNodeRetiresEngineEvenWithIdenticalNullSipConfiguration() {
+    @Test fun differentNodeRetiresEngine() {
         StartupTelecomShadow.release = CountDownLatch(0)
         StartupTelecomShadow.returned = CountDownLatch(1)
         val controller = Robolectric.buildService(HostCallService::class.java).create()
@@ -29,7 +29,7 @@ class HostCallServiceStartupTest {
         try {
             assertTrue(StartupTelecomShadow.returned.await(5, TimeUnit.SECONDS))
             val old = HostSession("node-a", "https://a.example.invalid/v1", "owner", "client-a", "client",
-                "access", "2099-01-01T00:00:00Z", "refresh", "2099-02-01T00:00:00Z", false, null)
+                "access", "2099-01-01T00:00:00Z", "refresh", "2099-02-01T00:00:00Z")
             for (next in listOf(old.copy(apiBaseUrl="https://b.example.invalid/v1"),
                 old.copy(sessionInstanceId="node-b", deviceId="client-b"))) {
                 val engine = CountingEngine()
@@ -39,7 +39,7 @@ class HostCallServiceStartupTest {
                 field("connectionState").set(service,EngineConnectionState.READY)
                 val oldListener = HostCallService::class.java.getDeclaredMethod("listenerFor",Long::class.javaPrimitiveType)
                     .apply{isAccessible=true}.invoke(service,7L) as CallEngine.Listener
-                service.retireMismatchedEngine(next,null)
+                service.retireMismatchedEngine(next)
                 assertEquals("old authenticated node must be closed",1,engine.closed)
                 assertNull(field("callEngine").get(service))
                 oldListener.onConnectionState(EngineConnectionState.READY)
@@ -59,12 +59,12 @@ class HostCallServiceStartupTest {
         try {
             assertTrue(StartupTelecomShadow.returned.await(5,TimeUnit.SECONDS))
             val session=HostSession("node-a","https://a.example.invalid/v1","owner","client-a","client",
-                "access","2099-01-01T00:00:00Z","refresh","2099-02-01T00:00:00Z",false,null)
+                "access","2099-01-01T00:00:00Z","refresh","2099-02-01T00:00:00Z")
             val engine=CountingEngine()
             field("callEngine").set(service,engine)
             field("engineSession").set(service,session)
             field("connectionState").set(service,EngineConnectionState.READY)
-            service.retireMismatchedEngine(session.copy(accessToken="renewed-access",refreshToken="renewed-refresh"),null)
+            service.retireMismatchedEngine(session.copy(accessToken="renewed-access",refreshToken="renewed-refresh"))
             assertEquals(0,engine.closed)
             assertSame(engine,field("callEngine").get(service))
             assertTrue(service.isSignalingReady)
@@ -72,8 +72,23 @@ class HostCallServiceStartupTest {
     }
 
     private fun field(name:String)=HostCallService::class.java.getDeclaredField(name).apply{isAccessible=true}
+    @Test fun wakeHintReachesAnyEngineThroughTheInterface() {
+        StartupTelecomShadow.release = CountDownLatch(0)
+        StartupTelecomShadow.returned = CountDownLatch(1)
+        val controller=Robolectric.buildService(HostCallService::class.java).create()
+        val service=controller.get()
+        try {
+            val engine=CountingEngine()
+            field("callEngine").set(service,engine)
+            service.requestCallSyncFromWakeHint()
+            assertEquals("a wake hint must reach the call engine",1,engine.woken)
+        } finally {controller.destroy()}
+    }
+
     private class CountingEngine:CallEngine {
         var closed=0
+        var woken=0
+        override fun wake(){woken++}
         override fun connect()=Unit
         override fun dial(serverCallId:String,destination:String)=Unit
         override fun answer(callId:String)=Unit
@@ -99,7 +114,7 @@ class HostCallServiceStartupTest {
                 "connectionState" to EngineConnectionState.READY)) {
                 HostCallService::class.java.getDeclaredField(name).apply { isAccessible = true }.set(service, value)
             }
-            assertTrue(CallRuntime.coordinator.beginOutbound("sim", "15550100200", CallMediaTransport.WEBRTC))
+            assertTrue(CallRuntime.coordinator.beginOutbound("sim", "15550100200"))
             service.onStartCommand(Intent(service, HostCallService::class.java)
                 .setAction("com.callagent.host.calls.OUTBOUND"), 0, 1)
             val completed = CountDownLatch(1)
@@ -137,7 +152,7 @@ class HostCallServiceStartupTest {
                 reachedBarrier.countDown()
                 releaseBarrier.await(10, TimeUnit.SECONDS)
             }
-            if (newCall) assertTrue(CallRuntime.coordinator.beginOutbound("sim", "15550100200", CallMediaTransport.WEBRTC))
+            if (newCall) assertTrue(CallRuntime.coordinator.beginOutbound("sim", "15550100200"))
             service.onStartCommand(Intent(service, HostCallService::class.java)
                 .setAction("com.callagent.host.calls.LISTEN"), 0, 2)
             StartupTelecomShadow.release.countDown()
