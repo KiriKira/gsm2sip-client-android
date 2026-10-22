@@ -223,6 +223,21 @@ object HostBackgroundRuntime {
         HostBackgroundService.requestSync(context.applicationContext)
     }
 
+    /**
+     * An FCM wake-up: sync now, starting the service if Android stopped it.
+     * A high-priority FCM message is what allows that start from the background.
+     */
+    internal fun wakeFromPush(context: Context) {
+        val app = context.applicationContext
+        if (HostBackgroundService.isRunning) {
+            HostBackgroundService.requestSync(app)
+            return
+        }
+        if (!restoreAllowed(app)) return
+        val intent = Intent(app, HostBackgroundService::class.java)
+        runCatching { if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(intent) else app.startService(intent) }
+    }
+
     internal fun restoreAllowed(context: Context): Boolean {
         val app = context.applicationContext
         if (observeTaskManagerStop(app)) return false

@@ -29,6 +29,7 @@ import com.callagent.host.calls.SimLabels
 import com.callagent.host.notify.HostNotificationChannels
 import com.callagent.host.notify.InboundSmsNotifications
 import com.callagent.host.mesh.NodeMonitor
+import com.callagent.host.push.PushRegistration
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.WebSocket
@@ -238,6 +239,8 @@ class HostBackgroundService : Service() {
             }
             if (!isCurrent(bound, expectedGeneration)) return
             RuntimeState.update(this, connection = if (socket != null) "Live updates connected" else "Periodic HTTPS sync", lastSyncAt = System.currentTimeMillis(), issue = null)
+            // A reachable node is the moment to register FCM where due; this is throttled.
+            PushRegistration.sync(this)
             sendBroadcast(Intent(HostBackgroundRuntime.BACKGROUND_SYNCED).setPackage(packageName))
             val latest = sessionStore.read()
             if (latest != null && latest.sameSessionInstance(bound) && latest.accessToken != bound.accessToken) {

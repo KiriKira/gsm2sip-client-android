@@ -744,8 +744,10 @@ class HostCallService : android.app.Service() {
             val generation = engineGeneration + 1L
             engineGeneration = generation
             val api = apiForCurrentSession()
+            val pushSession = targetSession.sessionInstanceId
             callEngine = RtcCallEngine(this, com.callagent.rtcmedia.MediaApi { method, path, body -> api.rtcRequest(method, path, body) },
-                listenerFor(generation), CallEngineFactory.pcmForInstrumentation)
+                listenerFor(generation), CallEngineFactory.pcmForInstrumentation,
+                pushReady = { com.callagent.host.push.PushRegistration.isReady(this, pushSession) })
             engineSession = targetSession
         }
         if (connectionState !in setOf(EngineConnectionState.READY, EngineConnectionState.CONNECTING)) {

@@ -38,12 +38,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- gsm2sip://join links (usually from a QR code) pair several server nodes at once. -->
+            <!-- mahogsm://join links (usually from a QR code) pair several server nodes at once. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="gsm2sip" android:host="join" />
+                <data android:scheme="mahogsm" android:host="join" />
             </intent-filter>
         </activity>
         <activity
@@ -97,5 +97,13 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <!-- FCM wake-ups; inert when the build has no Firebase config. -->
+        <service
+            android:name=".push.MadokaMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

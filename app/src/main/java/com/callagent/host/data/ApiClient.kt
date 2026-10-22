@@ -51,7 +51,9 @@ class ApiClient(
         }
         val response = publicRequest(
             "POST", "/pairings/claim",
+            // A join code pairs either phone, so the claim names this one's role.
             JSONObject().put("pairing_code", pairingCode).put("device_name", deviceName).put("platform", "android")
+                .put("role", "client")
         )
         val result = sessionFromPairing(response)
         if (result.role != "client") throw IOException("Pairing code is not for a host client")
@@ -192,6 +194,15 @@ class ApiClient(
         answeredAt = json.optNullableString("answered_at"),
         endedAt = json.optNullableString("ended_at"), reason = json.optNullableString("reason")
     )
+
+    /** Whether this server currently sends FCM wake-ups; only then is a token registered there. */
+    fun pushAvailable(): Boolean =
+        request("GET", "/capabilities", body = null, token = null, idempotencyKey = null).optBoolean("push", false)
+
+    /** Store this phone's FCM token on the server; FCM validates it first. */
+    fun registerPushToken(token: String) {
+        authenticatedRequest("PUT", "/devices/self/push-token", JSONObject().put("token", token))
+    }
 
     /** Public protocol extensions of this server; also a cheap reachability probe. */
     fun capabilities(): Set<String> {

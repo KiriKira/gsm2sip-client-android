@@ -15,7 +15,9 @@ internal class RtcCallEngine(
     private val context: Context,
     private val api: MediaApi,
     private val listener: CallEngine.Listener,
-    private val pcmForCall: ((String) -> PcmBridge?)? = null
+    private val pcmForCall: ((String) -> PcmBridge?)? = null,
+    /** This node's FCM wake-ups are registered for the current token. */
+    private val pushReady: () -> Boolean = { false }
 ) : CallEngine {
     private val control = RtcCallControl(api)
     private val worker = Executors.newSingleThreadScheduledExecutor { Thread(it,"RTC-Call-Control") }
@@ -58,11 +60,10 @@ internal class RtcCallEngine(
      * server routes calls to it for 90 s) and backs up a lost hint; HTTPS every
      * 750 ms kept the radio busy and the phone hot, worst on a weak signal.
      */
-    private fun nextPollDelay():Long=when{
-        media.isNotEmpty() || delivered.values.any{it !in TERMINAL} -> LIVE_POLL_MS
-        CallRuntime.wakeChannelLive -> IDLE_POLL_MS
-        else -> IDLE_POLL_WITHOUT_WAKE_MS
-    }
+    private fun nextPollDelay():Long=idlePollDelay(
+        live = media.isNotEmpty() || delivered.values.any{it !in TERMINAL},
+        wakeChannelLive = CallRuntime.wakeChannelLive,
+        pushReady = runCatching(pushReady).getOrDefault(false))
     private fun poll() {
         if(closed.get())return
         try {
@@ -70,6 +71,7 @@ internal class RtcCallEngine(
             val now=System.nanoTime()
             if(now-lastCapability>15_000_000_000L){control.capability(true);lastCapability=now}
             val all=control.calls();lastControl=System.nanoTime();failedPolls=0
+            lastPollSucceededAt=android.os.SystemClock.elapsedRealtime()
             if(!ready){ready=true;listener.onConnectionState(EngineConnectionState.READY)}
             all.forEach { snapshot ->
                 val id=snapshot.getString("call_id")
@@ -185,13 +187,26 @@ internal class RtcCallEngine(
     override fun enableAudio(callId:String){audioAllowed.add(callId);media[callId]?.enableAudio(true)}
     override fun suspendAudio(callId:String){audioAllowed.remove(callId);media[callId]?.enableAudio(false)}
     override fun refreshNetwork()=wake()
-    private companion object {
-        val TERMINAL=setOf(EngineCallState.DISCONNECTED,EngineCallState.FAILED)
-        const val LIVE_POLL_MS=750L
+    internal companion object {
+        private val TERMINAL=setOf(EngineCallState.DISCONNECTED,EngineCallState.FAILED)
+        private const val LIVE_POLL_MS=750L
         // A ringing call expires 25 s after the gateway offers it; a lost wake
         // must still leave most of that window to ring and answer.
-        const val IDLE_POLL_MS=8_000L
-        const val IDLE_POLL_WITHOUT_WAKE_MS=3_000L
+        private const val IDLE_POLL_MS=8_000L
+        private const val IDLE_POLL_WITHOUT_WAKE_MS=3_000L
+        /** With FCM wake-ups registered on this node, polling is only the last backup. */
+        private const val IDLE_POLL_WITH_PUSH_MS=30_000L
+        private const val IDLE_POLL_WITH_PUSH_WITHOUT_WAKE_MS=10_000L
+
+        /** When call control last answered, on the elapsed-realtime clock. */
+        @Volatile internal var lastPollSucceededAt = 0L
+
+        /** Without push the cadence is exactly as before, so a node without FCM costs nothing extra. */
+        internal fun idlePollDelay(live: Boolean, wakeChannelLive: Boolean, pushReady: Boolean): Long = when {
+            live -> LIVE_POLL_MS
+            wakeChannelLive -> if (pushReady) IDLE_POLL_WITH_PUSH_MS else IDLE_POLL_MS
+            else -> if (pushReady) IDLE_POLL_WITH_PUSH_WITHOUT_WAKE_MS else IDLE_POLL_WITHOUT_WAKE_MS
+        }
     }
     override fun close(){
         if(!closed.compareAndSet(false,true))return
