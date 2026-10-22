@@ -9,6 +9,7 @@ import java.net.URL
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 data class EventPage(
     val messages: List<SmsRecord>,
@@ -35,6 +36,12 @@ class ApiClient(
 ) {
     private val apiRoot: String = normalizeApiBaseUrl(configuredBaseUrl)
     private val boundSession: HostSession? = sessionStore.read()
+    // Refreshes of one pairing must share an idempotency/token rotation lock,
+    // even when a node switch moves its session between stores. A disconnected
+    // node's HTTP refresh must never hold requests to another pairing.
+    private val refreshLock = boundSession?.sessionInstanceId?.let {
+        refreshLocks.computeIfAbsent(it) { Any() }
+    } ?: Any()
 
     fun pair(pairingCode: String, deviceName: String): HostSession {
         val expectedSession = sessionStore.read()
@@ -400,7 +407,7 @@ class ApiClient(
     }
 
     companion object {
-        private val refreshLock = Any()
+        private val refreshLocks = ConcurrentHashMap<String, Any>()
     }
 }
 
