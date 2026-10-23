@@ -204,6 +204,11 @@ class ApiClient(
         authenticatedRequest("PUT", "/devices/self/push-endpoint", JSONObject().put("endpoint", endpoint))
     }
 
+    /** Stop this server posting wake-ups to this phone. */
+    fun deletePushEndpoint() {
+        authenticatedRequest("DELETE", "/devices/self/push-endpoint")
+    }
+
     /** Public protocol extensions of this server; also a cheap reachability probe. */
     fun capabilities(): Set<String> {
         val json = request("GET", "/capabilities", body = null, token = null, idempotencyKey = null)

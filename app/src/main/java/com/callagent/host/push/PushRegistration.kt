@@ -21,15 +21,20 @@ import java.util.concurrent.atomic.AtomicBoolean
  * names, which returns an endpoint URL; nodes see only that URL and need no
  * Firebase credentials. Nothing runs without Firebase, Google Play services
  * or a relay URL, and a node is contacted only when
- * [PushRegistrationPolicy] says so, never on a timer of its own.
+ * [PushRegistrationPolicy] says so, never on a timer of its own. A build
+ * without push withdraws what an earlier build registered, so nodes stop
+ * posting wake-ups this build cannot receive.
  */
 object PushRegistration {
     private const val TAG = "HostPush"
     private const val PREFS = "host-push"
     private const val KEY_TOKEN = "token"
     private const val KEY_ENDPOINT = "endpoint"
+    private const val KEY_ENDPOINT_RELAY = "endpoint_relay"
     private const val KEY_RELAY = "relay"
     private const val NODE_PREFIX = "node."
+    /** Stands in for the endpoint hash in a node's state while withdrawing. */
+    private const val WITHDRAWING = "withdraw"
     private const val PASS_INTERVAL_MS = 10 * 60 * 1000L
     @Volatile private var lastPassAt = 0L
     private val executor = Executors.newSingleThreadExecutor { Thread(it, "push-registration") }
@@ -51,17 +56,22 @@ object PushRegistration {
      */
     fun sync(context: Context, force: Boolean = false) {
         val app = context.applicationContext
-        if (!available(app)) return
+        val withdraw = !available(app)
+        if (withdraw && prefs(app).all.isEmpty()) return
         val now = SystemClock.elapsedRealtime()
         if (!force && lastPassAt != 0L && now - lastPassAt < PASS_INTERVAL_MS) return
         lastPassAt = now
-        executor.execute { runCatching { runSync(app) }.onFailure { Log.w(TAG, "registration pass failed: ${it.javaClass.simpleName}") } }
+        executor.execute {
+            runCatching { if (withdraw) runWithdraw(app) else runSync(app) }
+                .onFailure { Log.w(TAG, "registration pass failed: ${it.javaClass.simpleName}") }
+        }
     }
 
     /** Whether the node behind [sessionInstanceId] wakes this phone at its current endpoint. */
     fun isReady(context: Context, sessionInstanceId: String): Boolean {
+        if (!available(context)) return false
         val prefs = prefs(context)
-        val endpoint = prefs.getString(KEY_ENDPOINT, null) ?: return false
+        val endpoint = currentEndpoint(prefs) ?: return false
         return PushRegistrationPolicy.ready(
             PushRegistrationPolicy.NodeState.decode(prefs.getString(NODE_PREFIX + sessionInstanceId, null)), hash(endpoint))
     }
@@ -117,7 +127,7 @@ object PushRegistration {
             if (endpointRejected) {
                 val relay = PushRegistrationPolicy.NodeState.decode(prefs.getString(KEY_RELAY, null))
                 prefs.edit().remove(KEY_ENDPOINT).putString(KEY_RELAY,
-                    PushRegistrationPolicy.after(PushRegistrationPolicy.Outcome.REFUSED, relay, hash(token), now).encode()).apply()
+                    PushRegistrationPolicy.after(PushRegistrationPolicy.Outcome.REFUSED, relay, relayKey(token), now).encode()).apply()
                 return
             }
         }
@@ -127,11 +137,53 @@ object PushRegistration {
         }
     }
 
+    /**
+     * This build has no push (no relay URL or no Firebase): ask every node an
+     * earlier build registered with to forget the endpoint, then forget the
+     * token. Unreachable nodes are asked again with the usual backoff.
+     */
+    private fun runWithdraw(app: Context) {
+        val prefs = prefs(app)
+        val live = mutableSetOf<String>()
+        for ((session, store) in pairings(app)) {
+            val key = NODE_PREFIX + session.sessionInstanceId
+            if (!prefs.contains(key)) continue
+            live += key
+            val state = PushRegistrationPolicy.NodeState.decode(prefs.getString(key, null))
+            val now = System.currentTimeMillis()
+            if (!PushRegistrationPolicy.shouldAttempt(state, WITHDRAWING, now)) continue
+            val done = try {
+                ApiClient(session.apiBaseUrl, store).deletePushEndpoint()
+                true
+            } catch (failure: ApiFailure) {
+                // A revoked or unknown device holds no endpoint either.
+                !failure.retryable
+            } catch (_: Exception) {
+                false
+            }
+            Log.i(TAG, "node ${session.apiBaseUrl.hashCode()} push=${if (done) "withdrawn" else "withdraw-retry"}")
+            if (done) {
+                prefs.edit().remove(key).apply()
+                live -= key
+            } else {
+                prefs.edit().putString(key, PushRegistrationPolicy.after(
+                    PushRegistrationPolicy.Outcome.RETRY, state, WITHDRAWING, now).encode()).apply()
+            }
+        }
+        // Nodes no longer paired revoked this phone's session, and its endpoint with it.
+        if (live.isEmpty()) prefs.edit().clear().apply()
+    }
+
+    /** The cached endpoint, if it came from the relay this build uses. */
+    private fun currentEndpoint(prefs: android.content.SharedPreferences): String? =
+        prefs.getString(KEY_ENDPOINT, null)?.takeIf { prefs.getString(KEY_ENDPOINT_RELAY, null) == BuildConfig.PUSH_RELAY_URL }
+
     /** The relay endpoint for [token], asking the relay only when there is none and its retry time has come. */
     private fun endpointFor(app: Context, token: String): String? {
         val prefs = prefs(app)
-        prefs.getString(KEY_ENDPOINT, null)?.let { return it }
-        val tokenHash = hash(token)
+        currentEndpoint(prefs)?.let { return it }
+        // Keyed to the relay too, so a build with another relay asks it at once.
+        val tokenHash = relayKey(token)
         val state = PushRegistrationPolicy.NodeState.decode(prefs.getString(KEY_RELAY, null))
         val now = System.currentTimeMillis()
         if (state.tokenHash == tokenHash && now < state.nextAttemptAt && !state.registered) return null
@@ -139,7 +191,7 @@ object PushRegistration {
             .onFailure { Log.w(TAG, "relay registration failed: ${it.javaClass.simpleName}") }.getOrNull()
         val outcome = if (endpoint != null) PushRegistrationPolicy.Outcome.REGISTERED else PushRegistrationPolicy.Outcome.RETRY
         prefs.edit().putString(KEY_RELAY, PushRegistrationPolicy.after(outcome, state, tokenHash, now).encode())
-            .apply { if (endpoint != null) putString(KEY_ENDPOINT, endpoint) }.apply()
+            .apply { if (endpoint != null) putString(KEY_ENDPOINT, endpoint).putString(KEY_ENDPOINT_RELAY, BuildConfig.PUSH_RELAY_URL) }.apply()
         return endpoint
     }
 
@@ -150,6 +202,8 @@ object PushRegistration {
             FirebaseMessaging.getInstance().token.addOnSuccessListener { token -> onNewToken(app, token) }
         }.onFailure { Log.w(TAG, "FCM unavailable: ${it.javaClass.simpleName}") }
     }
+
+    private fun relayKey(token: String) = hash(BuildConfig.PUSH_RELAY_URL + "\n" + token)
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
