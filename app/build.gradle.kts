@@ -19,6 +19,14 @@ val appVersionCode = releaseVersionCodeText?.toIntOrNull()?.also {
     throw GradleException("GSM_RELEASE_VERSION_CODE must be a positive integer.")
 }
 
+// The Kyubey relay that turns this build's FCM token into a push endpoint;
+// empty disables push. Release CI sets it from the PUSH_RELAY_URL variable.
+val pushRelayUrl = (System.getenv("MAHOGSM_PUSH_RELAY_URL") ?: providers.gradleProperty("pushRelayUrl").orNull ?: "").trim().also {
+    if (it.isNotEmpty() && (!it.startsWith("https://") || it.any { c -> c == '"' || c == '\\' || c.isWhitespace() })) {
+        throw GradleException("MAHOGSM_PUSH_RELAY_URL must be an https:// URL.")
+    }
+}
+
 fun releasePackagingRequested(taskNames: Iterable<String>): Boolean = taskNames.any { name ->
     val taskName = name.substringAfterLast(':')
     taskName.contains("Release", ignoreCase = true) &&
@@ -41,6 +49,11 @@ android {
         ndk { abiFilters += "arm64-v8a" }
 
         testInstrumentationRunner = providers.gradleProperty("rtcLabRunner").orElse("androidx.test.runner.AndroidJUnitRunner").get()
+        buildConfigField("String", "PUSH_RELAY_URL", "\"$pushRelayUrl\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {

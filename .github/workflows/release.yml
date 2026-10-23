@@ -21,6 +21,9 @@ jobs:
   build:
     name: Build and verify signed APK
     runs-on: ubuntu-latest
+    env:
+      # The Kyubey relay this build registers its FCM token with; empty builds have no push.
+      MAHOGSM_PUSH_RELAY_URL: ${{ vars.PUSH_RELAY_URL }}
     permissions:
       contents: read
     outputs:
@@ -185,7 +188,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${GOOGLE_SERVICES_JSON_BASE64:-}" ]]; then
-            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 is not set; this build has no FCM wake-ups."
+            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 is not set; this build has no push wake-ups."
             exit 0
           fi
           python3 - <<'PY'
@@ -316,6 +319,9 @@ jobs:
     name: Permanent-key signed debug APK
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/webrtc-sip-debug-20261017'
     runs-on: ubuntu-latest
+    env:
+      # The Kyubey relay this build registers its FCM token with; empty builds have no push.
+      MAHOGSM_PUSH_RELAY_URL: ${{ vars.PUSH_RELAY_URL }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -346,7 +352,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z "${GOOGLE_SERVICES_JSON_BASE64:-}" ]]; then
-            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 is not set; this build has no FCM wake-ups."
+            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 is not set; this build has no push wake-ups."
             exit 0
           fi
           python3 - <<'PY'

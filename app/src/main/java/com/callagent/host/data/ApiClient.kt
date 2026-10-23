@@ -195,13 +195,13 @@ class ApiClient(
         endedAt = json.optNullableString("ended_at"), reason = json.optNullableString("reason")
     )
 
-    /** Whether this server currently sends FCM wake-ups; only then is a token registered there. */
+    /** Whether this server posts wake-ups to push endpoints; only then is one registered there. */
     fun pushAvailable(): Boolean =
         request("GET", "/capabilities", body = null, token = null, idempotencyKey = null).optBoolean("push", false)
 
-    /** Store this phone's FCM token on the server; FCM validates it first. */
-    fun registerPushToken(token: String) {
-        authenticatedRequest("PUT", "/devices/self/push-token", JSONObject().put("token", token))
+    /** Store this phone's push endpoint on the server, which tests it first. */
+    fun registerPushEndpoint(endpoint: String) {
+        authenticatedRequest("PUT", "/devices/self/push-endpoint", JSONObject().put("endpoint", endpoint))
     }
 
     /** Public protocol extensions of this server; also a cheap reachability probe. */
