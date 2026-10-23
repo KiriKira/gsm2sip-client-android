@@ -56,6 +56,11 @@ class PushPolicyTest {
         assertEquals(750L, RtcCallEngine.idlePollDelay(live = true, wakeChannelLive = true, pushReady = true))
         assertEquals(30_000L, RtcCallEngine.idlePollDelay(live = false, wakeChannelLive = true, pushReady = true))
         assertEquals(10_000L, RtcCallEngine.idlePollDelay(live = false, wakeChannelLive = false, pushReady = true))
+        // Failing idle polls back off to a minute; a live call never does.
+        assertEquals(listOf(6_000L, 12_000L, 24_000L, 48_000L, 60_000L, 60_000L),
+            (1..6).map { RtcCallEngine.idlePollDelay(live = false, wakeChannelLive = false, pushReady = false, failedPolls = it) })
+        assertEquals(60_000L, RtcCallEngine.idlePollDelay(live = false, wakeChannelLive = true, pushReady = true, failedPolls = 9))
+        assertEquals(750L, RtcCallEngine.idlePollDelay(live = true, wakeChannelLive = false, pushReady = false, failedPolls = 9))
     }
 
     @Test

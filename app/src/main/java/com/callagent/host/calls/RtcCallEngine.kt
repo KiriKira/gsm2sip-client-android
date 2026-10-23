@@ -63,7 +63,8 @@ internal class RtcCallEngine(
     private fun nextPollDelay():Long=idlePollDelay(
         live = media.isNotEmpty() || delivered.values.any{it !in TERMINAL},
         wakeChannelLive = CallRuntime.wakeChannelLive,
-        pushReady = runCatching(pushReady).getOrDefault(false))
+        pushReady = runCatching(pushReady).getOrDefault(false),
+        failedPolls = failedPolls)
     private fun poll() {
         if(closed.get())return
         try {
@@ -201,11 +202,24 @@ internal class RtcCallEngine(
         /** When call control last answered, on the elapsed-realtime clock. */
         @Volatile internal var lastPollSucceededAt = 0L
 
-        /** Without push the cadence is exactly as before, so a node without FCM costs nothing extra. */
-        internal fun idlePollDelay(live: Boolean, wakeChannelLive: Boolean, pushReady: Boolean): Long = when {
-            live -> LIVE_POLL_MS
-            wakeChannelLive -> if (pushReady) IDLE_POLL_WITH_PUSH_MS else IDLE_POLL_MS
-            else -> if (pushReady) IDLE_POLL_WITH_PUSH_WITHOUT_WAKE_MS else IDLE_POLL_WITHOUT_WAKE_MS
+        /** Longest wait between idle polls that keep failing. */
+        private const val FAILED_POLL_MAX_MS=60_000L
+
+        /**
+         * Without push the cadence is exactly as before, so a node without FCM
+         * costs nothing extra. Idle polls that keep failing (a weak signal, a
+         * node that is down) back off to a minute: retrying every 3 s kept the
+         * radio and, through the signaling lease, the CPU awake for nothing.
+         * A network change or a wake hint still polls at once.
+         */
+        internal fun idlePollDelay(live: Boolean, wakeChannelLive: Boolean, pushReady: Boolean, failedPolls: Int = 0): Long {
+            if (live) return LIVE_POLL_MS
+            val base = when {
+                wakeChannelLive -> if (pushReady) IDLE_POLL_WITH_PUSH_MS else IDLE_POLL_MS
+                else -> if (pushReady) IDLE_POLL_WITH_PUSH_WITHOUT_WAKE_MS else IDLE_POLL_WITHOUT_WAKE_MS
+            }
+            if (failedPolls <= 0) return base
+            return (base shl failedPolls.coerceAtMost(5)).coerceAtMost(maxOf(base, FAILED_POLL_MAX_MS))
         }
     }
     override fun close(){
