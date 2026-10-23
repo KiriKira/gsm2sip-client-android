@@ -52,8 +52,8 @@ class ApiClient(
         val response = publicRequest(
             "POST", "/pairings/claim",
             // A join code pairs either phone, so the claim names this one's role.
-            JSONObject().put("pairing_code", pairingCode).put("device_name", deviceName).put("platform", "android")
-                .put("role", "client")
+            JSONObject().put("pairing_code", pairingCode).put("device_name", clampDeviceName(deviceName))
+                .put("platform", "android").put("role", "client")
         )
         val result = sessionFromPairing(response)
         if (result.role != "client") throw IOException("Pairing code is not for a host client")
@@ -464,3 +464,10 @@ private fun JSONObject.optNullableBoolean(name: String): Boolean? =
     if (!has(name) || isNull(name)) null else optBoolean(name)
 
 data class MessagePage(val items: List<SmsRecord>, val nextCursor: String?, val resyncRequired: Boolean)
+
+/** The server allows 100 characters (code points) for a device name. */
+internal fun clampDeviceName(name: String): String {
+    val trimmed = name.trim()
+    return if (trimmed.codePointCount(0, trimmed.length) <= 100) trimmed
+    else trimmed.substring(0, trimmed.offsetByCodePoints(0, 100))
+}
