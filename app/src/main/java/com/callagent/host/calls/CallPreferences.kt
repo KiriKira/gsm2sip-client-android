@@ -38,11 +38,17 @@ internal class CallPreferences(context: Context) {
     fun canAutoListenFor(session: HostSession?, signalingAvailable: Boolean): Boolean =
         session?.role == "client" && signalingAvailable
 
+    /** The SIM the last call was dialled from; the dial pad offers it first. */
+    var lastDialSim: String?
+        get() = preferences.getString(KEY_LAST_DIAL_SIM, null)
+        set(value) { preferences.edit().putString(KEY_LAST_DIAL_SIM, value).apply() }
+
     fun clear() = preferences.edit().clear().commit()
 
     private companion object {
         // Stored name kept from the SIP releases so the setting survives updates and rollbacks.
         const val KEY_ENABLED = "foreground_sip_opt_in"
         const val KEY_SESSION = "session_instance"
+        const val KEY_LAST_DIAL_SIM = "dialer_last_sim"
     }
 }

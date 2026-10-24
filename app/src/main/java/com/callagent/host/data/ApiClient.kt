@@ -226,6 +226,7 @@ class ApiClient(
         val items = json.optJSONArray("extensions") ?: JSONArray()
         return ServerCapabilities(json.optBoolean("rtc_call_control", false), json.optBoolean("push", false),
             (0 until items.length()).mapNotNull { items.optString(it).takeIf(String::isNotBlank) }.toSet())
+            .also { ServerPushSignal.observed(apiRoot, it.push) }
     }
 
     fun createMessage(envelope: RetryEnvelope): MessageAccepted {

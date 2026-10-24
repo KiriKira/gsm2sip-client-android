@@ -49,6 +49,7 @@ import com.callagent.host.background.BackgroundStatus
 import com.callagent.host.calls.CallAudioEndpoint
 import com.callagent.host.calls.CallNotificationManager
 import com.callagent.host.calls.CallPhase
+import com.callagent.host.calls.CallPreferences
 import com.callagent.host.calls.CallEngineFactory
 import com.callagent.host.calls.CallRuntime
 import com.callagent.host.calls.CallActionActivity
@@ -104,6 +105,7 @@ import com.callagent.host.ui.PairingFormViewModel
 import com.callagent.host.ui.HostDestination
 import com.callagent.host.ui.HostNavigationState
 import com.callagent.host.ui.HostTab
+import com.callagent.host.ui.DialerSimChoice
 import com.callagent.host.ui.PhoneRowView
 import com.callagent.host.ui.SmsPeerKey
 import com.callagent.host.ui.SmsThread
@@ -346,6 +348,10 @@ class MainActivity : AppCompatActivity() {
         if (savedInstanceState == null && intent?.action == ACTION_SHOW_SMS) {
             navigation = smsNotificationNavigation(intent)
         }
+        if (savedInstanceState == null) dialIntentNumber(intent)?.let { number ->
+            callDestination = number
+            navigation = navigation.openDialer()
+        }
         showDashboard()
         if (session != null) syncFromServer(showProgress = false)
         if (savedInstanceState == null) handleJoinLink(intent)
@@ -428,7 +434,27 @@ class MainActivity : AppCompatActivity() {
         if (intent.action == ACTION_SHOW_SMS) {
             navigate(smsNotificationNavigation(intent))
         }
+        dialIntentNumber(intent)?.let { number ->
+            callDestination = number
+            navigate(navigation.openDialer())
+            callDestinationEdit?.setText(number)
+        }
         handleJoinLink(intent)
+    }
+
+    /**
+     * A phone number another app asked to dial (a tapped tel: link offers
+     * Madoka next to the system phone app). It only fills the dial pad: the
+     * user still picks the SIM and presses call. Null when [source] is not a
+     * dial request; empty when it names no number.
+     */
+    private fun dialIntentNumber(source: Intent?): String? {
+        val action = source?.action ?: return null
+        if (action != Intent.ACTION_DIAL && action != Intent.ACTION_VIEW) return null
+        val data = source.data
+        if (data == null) return if (action == Intent.ACTION_DIAL) "" else null
+        if (!data.scheme.equals("tel", ignoreCase = true)) return null
+        return normalizeDialNumber(data.schemeSpecificPart.orEmpty())
     }
 
     /** An SMS notification opens its conversation; the group summary opens the message list. */
@@ -1436,7 +1462,7 @@ class MainActivity : AppCompatActivity() {
         // Removed SIMs remain in the cache for history, but are no longer
         // choices for a new call, even when a replacement uses the same slot.
         val dialerSims = sims.filter { it.state != "removed" }
-        if (dialerSims.none { it.simId == selectedSimId }) selectedSimId = null
+        selectedSimId = DialerSimChoice.choose(selectedSimId, CallPreferences(this).lastDialSim, dialerSims)
         content.addView(topBar("拨号"))
 
         val contactHeader = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
@@ -1571,10 +1597,12 @@ class MainActivity : AppCompatActivity() {
         }
         dialerSims.sortedBy { it.slotIndex }.forEach { line ->
             val chip = Chip(this).apply {
-                text = "SIM ${line.slotIndex + 1}"
+                text = DialerSimChoice.chipLabel(line)
                 isCheckable = true
                 isSingleLine = true
                 maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                maxWidth = dp(160)
                 minHeight = dp(48)
                 isChecked = line.simId == selectedSimId
                 isCheckedIconVisible = false
@@ -1788,6 +1816,7 @@ class MainActivity : AppCompatActivity() {
                 this, gateway!!.gatewayId, line.simId, line.label, line.mappingRevision, number
             )
             if (accepted) {
+                CallPreferences(this).lastDialSim = line.simId
                 startActivity(Intent(this, CallActionActivity::class.java)
                     .setAction(CallActionActivity.ACTION_SHOW_CALL)
                     .putExtra(CallActionActivity.EXTRA_CALL_ID, CallRuntime.currentSession?.callId ?: "pending")

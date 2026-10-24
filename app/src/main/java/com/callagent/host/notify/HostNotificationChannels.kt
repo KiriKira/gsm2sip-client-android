@@ -4,8 +4,6 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.RingtoneManager
 import android.os.Build
 
 /**
@@ -20,12 +18,14 @@ object HostNotificationChannels {
     const val BACKGROUND_SERVICE = "host-background-service-min"
     const val CALL_SIGNALING = "call-signaling-min"
     const val INBOUND_SMS = "host-inbound-sms-content"
-    const val INCOMING_CALLS = "incoming-calls-ringing"
+    /** Silent: [com.callagent.host.calls.IncomingRinger] rings on the ring stream. */
+    const val INCOMING_CALLS = "incoming-calls-v2"
     const val ONGOING_CALLS = "ongoing-calls"
     const val CALL_ALERTS = "call-alerts"
     const val GROUP_INBOUND_SMS = "com.callagent.host.INBOUND_SMS"
 
-    private val RETIRED = listOf("host-background-service", "call_signaling", "host-inbound-sms", "remote_calls")
+    private val RETIRED = listOf("host-background-service", "call_signaling", "host-inbound-sms", "remote_calls",
+        "incoming-calls-ringing")
 
     /** The foreground-service deadline must not wait for unrelated SMS/call
      * channel maintenance or the accompanying System UI work. */
@@ -61,17 +61,10 @@ object HostNotificationChannels {
                 setShowBadge(true)
             },
             NotificationChannel(INCOMING_CALLS, "来电", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "远程 SIM 来电时响铃，并弹出接听和拒接按钮。"
+                description = "远程 SIM 来电时弹出接听和拒接按钮。铃声和振动按系统铃声音量与响铃模式播放。"
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                setSound(
-                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                enableVibration(true)
-                vibrationPattern = longArrayOf(0L, 1000L, 1000L)
+                setSound(null, null)
+                enableVibration(false)
                 setShowBadge(false)
             },
             NotificationChannel(CALL_ALERTS, "来电提醒", NotificationManager.IMPORTANCE_HIGH).apply {

@@ -55,7 +55,7 @@ internal object CallNotificationManager {
         // service is refused outright (IllegalArgumentException).
         notificationBuilder.setFullScreenIntent(incomingUiIntent(context, call.callId), true)
         // Ring like a phone call until it is answered, rejected or replaced.
-        return notificationBuilder.build().apply { flags = flags or Notification.FLAG_INSISTENT }
+        return notificationBuilder.build()
     }
 
     fun showOngoing(context: Context, call: CallSession) = post(context, ongoingNotification(context, call))
