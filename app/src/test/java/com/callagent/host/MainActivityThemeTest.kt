@@ -72,10 +72,10 @@ class MainActivityThemeTest {
 
             val visible = chips(activity)
             assertEquals("a historical mapping must not duplicate the current slot choice", 1, visible.size)
-            assertEquals("SIM 1", visible.single().text.toString())
+            assertEquals("SIM1", visible.single().text.toString())
             assertTrue(visible.single().contentDescription.toString().contains(active.label))
             assertFalse(visible.single().contentDescription.toString().contains(removed.label))
-            assertEquals("a removed selection must be cleared rather than silently mapped to its replacement", null,
+            assertEquals("a removed selection falls back to the current SIM, never to the removed mapping", active.simId,
                 ReflectionHelpers.getField<String?>(activity, "selectedSimId"))
             visible.single().performClick()
             assertTrue(chips(activity).single().isChecked)
@@ -329,8 +329,8 @@ class MainActivityThemeTest {
         assertTrue("SIM selector should be visible on the dialer page", activity.findViewById<View>(R.id.dialer_sim_selector) != null)
         val chips = chips(activity)
         assertEquals(2, chips.size)
-        assertEquals("SIM 1", chips[0].text.toString())
-        assertEquals("SIM 2", chips[1].text.toString())
+        assertEquals("SIM1 • Synthetic Carrier A", chips[0].text.toString())
+        assertEquals("SIM2 • Synthetic Carrier B", chips[1].text.toString())
         assertTrue("selection chips must stay single-line", chips.all { it.isSingleLine && it.maxLines == 1 })
         assertTrue(chips[0].isCheckable)
         assertTrue(chips[0].contentDescription.toString().contains("Synthetic primary line with a readable long identity"))

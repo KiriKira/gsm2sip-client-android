@@ -402,6 +402,8 @@ object CallRuntime {
 
     internal fun notifyChanged(callId: String?) {
         val host = service?.applicationContext ?: return
+        IncomingRinger.sync(host, coordinator.current)
+        ProximityScreenLock.sync(host, coordinator.current)
         host.sendBroadcast(
             Intent(ACTION_STATE_CHANGED)
                 .setPackage(host.packageName)

@@ -72,7 +72,7 @@ jobs:
             exit 1
           fi
           build_tag="build-${GITHUB_RUN_NUMBER}-${sha7}"
-          build_version_name="0.4.1-${build_tag}"
+          build_version_name="0.4.2-${build_tag}"
           sign_release=true
           publish_enabled=false
           prerelease=false
@@ -343,7 +343,7 @@ jobs:
           set -euo pipefail
           {
             echo 'GSM_RELEASE_VERSION_CODE=1000000000'
-            echo "GSM_RELEASE_VERSION_NAME=0.4.1-debug-build-${GITHUB_RUN_NUMBER}"
+            echo "GSM_RELEASE_VERSION_NAME=0.4.2-debug-build-${GITHUB_RUN_NUMBER}"
           } >> "$GITHUB_ENV"
       - name: Write the Firebase app config for FCM wake-ups
         env:

@@ -122,6 +122,8 @@ class HostCallService : android.app.Service() {
     override fun onDestroy() {
         destroying = true
         ringback.stop()
+        IncomingRinger.stop()
+        ProximityScreenLock.release()
         unregisterNetworkCallbackForDestroy()
         inboundExpiryCallbacks.values.forEach(mainHandler::removeCallbacks)
         inboundExpiryCallbacks.clear()

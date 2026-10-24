@@ -8,7 +8,7 @@ val releaseStorePassword = System.getenv("GSM_RELEASE_STORE_PASSWORD")?.takeIf {
 val releaseKeyAlias = System.getenv("GSM_RELEASE_KEY_ALIAS")?.takeIf { it.isNotEmpty() }
 val releaseKeyPassword = System.getenv("GSM_RELEASE_KEY_PASSWORD")?.takeIf { it.isNotEmpty() }
 val releaseVersionCodeText = System.getenv("GSM_RELEASE_VERSION_CODE")?.takeIf { it.isNotBlank() }
-val releaseVersionName = System.getenv("GSM_RELEASE_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.4.1"
+val releaseVersionName = System.getenv("GSM_RELEASE_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.4.2"
 val appVersionCode = releaseVersionCodeText?.toIntOrNull()?.also {
     if (it !in 1..2_100_000_000) {
         throw GradleException("GSM_RELEASE_VERSION_CODE must be between 1 and 2100000000.")
