@@ -600,6 +600,15 @@ class ClientDatabase @JvmOverloads constructor(
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    /** Session keys are scoped again by node; no schema migration or token is needed. */
+    @Synchronized
+    fun syncCheckpoint(sessionId: String, name: String): String? =
+        readSyncStateValue(readableDatabase, scoped("standby:$sessionId:$name"))
+
+    @Synchronized
+    fun saveSyncCheckpoint(sessionId: String, name: String, value: String) =
+        saveSyncStateValue(writableDatabase, scoped("standby:$sessionId:$name"), value)
+
     private fun eventCursor(db: SQLiteDatabase): String? = readSyncStateValue(db, eventCursorKey)
 
     private fun isHistoricalBaseline(db: SQLiteDatabase): Boolean =

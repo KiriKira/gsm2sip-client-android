@@ -49,6 +49,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
 
         testInstrumentationRunner = providers.gradleProperty("rtcLabRunner").orElse("androidx.test.runner.AndroidJUnitRunner").get()
+        // Experimental timing changes stay opt-in until physical-device acceptance.
+        buildConfigField("boolean", "STANDBY_EXPERIMENTS", providers.gradleProperty("standbyExperiments").orElse("false").get().toBoolean().toString())
         buildConfigField("String", "PUSH_RELAY_URL", "\"$pushRelayUrl\"")
     }
 

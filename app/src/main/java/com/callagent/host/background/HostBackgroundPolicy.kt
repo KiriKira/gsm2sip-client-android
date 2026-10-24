@@ -12,6 +12,13 @@ internal object HostBackgroundPolicy {
     const val INITIAL_BACKOFF_MS = 1_000L
     const val MAX_BACKOFF_MS = 5 * 60_000L
 
+    /** Timing experiments do not change production defaults. No FCM registration shortcut. */
+    fun syncDelay(socketLive: Boolean, failures: Int, experiments: Boolean): Long {
+        if (!experiments) return 30_000L
+        if (failures > 0) return (30_000L shl failures.coerceAtMost(4)).coerceAtMost(300_000L)
+        return if (socketLive) 120_000L else 30_000L
+    }
+
     fun shouldRestore(enabled: Boolean, pairedClient: Boolean): Boolean = enabled && pairedClient
 
     fun shouldEnablePairedBinding(

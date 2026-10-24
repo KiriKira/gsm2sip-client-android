@@ -68,10 +68,10 @@ object NodeMonitor {
                     if (node.key !in usable) {
                         NodeObservation(reachable = false, gatewayOnline = false, rttMillis = null, issue = "需要重新配对")
                     } else {
-                        val first = probe(app, node, installId)
+                        val first = com.callagent.host.data.StandbyDiagnostics.withCause("node_probe") { probe(app, node, installId) }
                         if (node.key == active && !NodeSelectionPolicy.healthy(first)) {
                             SystemClock.sleep(CONFIRM_DELAY_MS)
-                            probe(app, node, installId)
+                            com.callagent.host.data.StandbyDiagnostics.withCause("node_probe") { probe(app, node, installId) }
                         } else first
                     }
                 }
@@ -120,9 +120,9 @@ object NodeMonitor {
             val api = ApiClient(node.apiBaseUrl, store, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
             // Every enrolled node learns that this phone takes calls, even while
             // another node owns its active foreground call engine.
-            val supportsControl = api.rtcControlAvailable()
+            val capabilities = api.serverCapabilities()
+            val supportsControl = capabilities.rtcCallControl
             if (supportsControl) com.callagent.rtcmedia.RtcCallControl(com.callagent.rtcmedia.MediaApi { method, path, body -> api.rtcRequest(method, path, body) }).capability(true)
-            api.capabilities()
             val rtt = SystemClock.elapsedRealtime() - started
             val gateway = api.listGateways().firstOrNull { installId != null && it.installId == installId }
             NodeObservation(

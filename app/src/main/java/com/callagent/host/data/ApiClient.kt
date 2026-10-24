@@ -18,6 +18,8 @@ data class EventPage(
     val resyncRequired: Boolean
 )
 
+data class ServerCapabilities(val rtcCallControl: Boolean, val push: Boolean, val extensions: Set<String>)
+
 class ApiFailure(
     val httpStatus: Int,
     val code: String,
@@ -176,12 +178,19 @@ class ApiClient(
 
     internal fun rtcRequest(method: String, path: String, body: JSONObject?): JSONObject {
         require(path.matches(Regex("/(rtc/legs/[a-zA-Z0-9_-]+|rtc/control/(capability|calls(/[a-zA-Z0-9_-]+(/operations)?)?|incoming)|calls/[a-zA-Z0-9_-]+/media(/active)?)")))
-        return try { authenticatedRequest(method, path, body) }
+        return try {
+            if (method == "POST" && path == "/rtc/control/capability" && body?.has("enabled") == true && boundSession != null) {
+                if (sessionStore.read()?.sameSessionInstance(boundSession) != true) throw SessionChanged()
+                RtcCapabilityRefresh.request(boundSession.sessionInstanceId, body.getBoolean("enabled")) {
+                    authenticatedRequest(method, path, body)
+                }
+            } else authenticatedRequest(method, path, body)
+        }
         catch (failure: ApiFailure) { throw com.callagent.rtcmedia.MediaApiException(failure.httpStatus, failure.code) }
         catch (_: java.io.IOException) { throw com.callagent.rtcmedia.MediaApiException(503, "NETWORK_UNAVAILABLE") }
     }
 
-    fun rtcControlAvailable(): Boolean = request("GET", "/capabilities", body = null, token = null, idempotencyKey = null).optBoolean("rtc_call_control", false)
+    fun rtcControlAvailable(): Boolean = serverCapabilities().rtcCallControl
     fun rtcCall(callId: String): RemoteCall = parseCall(rtcRequest("GET", "/rtc/control/calls/${pathSegment(callId)}", null))
 
     private fun parseCall(json: JSONObject) = RemoteCall(
@@ -197,7 +206,7 @@ class ApiClient(
 
     /** Whether this server posts wake-ups to push endpoints; only then is one registered there. */
     fun pushAvailable(): Boolean =
-        request("GET", "/capabilities", body = null, token = null, idempotencyKey = null).optBoolean("push", false)
+        serverCapabilities().push
 
     /** Store this phone's push endpoint on the server, which tests it first. */
     fun registerPushEndpoint(endpoint: String) {
@@ -210,10 +219,13 @@ class ApiClient(
     }
 
     /** Public protocol extensions of this server; also a cheap reachability probe. */
-    fun capabilities(): Set<String> {
+    fun capabilities(): Set<String> = serverCapabilities().extensions
+
+    fun serverCapabilities(): ServerCapabilities {
         val json = request("GET", "/capabilities", body = null, token = null, idempotencyKey = null)
         val items = json.optJSONArray("extensions") ?: JSONArray()
-        return (0 until items.length()).mapNotNull { items.optString(it).takeIf(String::isNotBlank) }.toSet()
+        return ServerCapabilities(json.optBoolean("rtc_call_control", false), json.optBoolean("push", false),
+            (0 until items.length()).mapNotNull { items.optString(it).takeIf(String::isNotBlank) }.toSet())
     }
 
     fun createMessage(envelope: RetryEnvelope): MessageAccepted {
@@ -326,6 +338,8 @@ class ApiClient(
         expectBody: Boolean = true,
         rawBody: String? = null
     ): JSONObject {
+        val requestStarted = System.nanoTime()
+        var requestSucceeded = false
         val connection = (URL(apiRoot + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = connectTimeoutMillis
@@ -356,10 +370,12 @@ class ApiClient(
                 }.getOrDefault(false)
                 throw ApiFailure(status, code, retryable)
             }
+            requestSucceeded = true
             if (!expectBody || status == HttpURLConnection.HTTP_NO_CONTENT) return JSONObject()
             val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             return if (text.isBlank()) JSONObject() else JSONObject(text)
         } finally {
+            StandbyDiagnostics.record(method, path, requestSucceeded, System.nanoTime() - requestStarted)
             connection.disconnect()
         }
     }

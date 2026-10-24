@@ -227,15 +227,24 @@ object HostBackgroundRuntime {
      * An FCM wake-up: sync now, starting the service if Android stopped it.
      * A high-priority FCM message is what allows that start from the background.
      */
-    internal fun wakeFromPush(context: Context) {
+    internal fun wakeFromPush(context: Context, allowServiceStart: Boolean = true) {
         val app = context.applicationContext
         if (HostBackgroundService.isRunning) {
             HostBackgroundService.requestSync(app)
             return
         }
         if (!restoreAllowed(app)) return
+        if (!allowServiceStart) {
+            com.callagent.host.push.PushRecoveryJob.schedule(app)
+            android.util.Log.i("HostPush", "Scheduled system-owned recovery: no high-priority start exemption")
+            return
+        }
         val intent = Intent(app, HostBackgroundService::class.java)
         runCatching { if (Build.VERSION.SDK_INT >= 26) app.startForegroundService(intent) else app.startService(intent) }
+            .onFailure {
+                android.util.Log.w("HostPush", "Background restoration failed: ${it.javaClass.simpleName}")
+                com.callagent.host.push.PushRecoveryJob.schedule(app)
+            }
     }
 
     internal fun restoreAllowed(context: Context): Boolean {

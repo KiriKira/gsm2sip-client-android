@@ -48,7 +48,7 @@ import kotlin.random.Random
 class HostBackgroundService : Service() {
     private val scheduler: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor()
     private val generation = AtomicLong(1L)
-    private val syncQueued = AtomicBoolean(false)
+    private val syncRequests = CoalescedSyncRequests()
     private val periodicStarted = AtomicBoolean(false)
     private val authReconnectPending = AtomicBoolean(false)
     private val forceNodeProbe = AtomicBoolean(false)
@@ -64,10 +64,12 @@ class HostBackgroundService : Service() {
             .followSslRedirects(false)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
-            .pingInterval(25, TimeUnit.SECONDS)
+            .pingInterval(if (com.callagent.host.BuildConfig.STANDBY_EXPERIMENTS) 0 else 25, TimeUnit.SECONDS)
             .build()
     }
     @Volatile private var socket: WebSocket? = null
+    @Volatile private var socketLive = false
+    @Volatile private var syncFailures = 0
     @Volatile private var activeSession: HostSession? = null
     private val reconnectAttempt = java.util.concurrent.atomic.AtomicInteger(0)
     /** When the current socket opened, on the elapsed-realtime clock. */
@@ -76,10 +78,11 @@ class HostBackgroundService : Service() {
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
+            syncFailures = 0
             setConnection("Connecting to server")
             // A new network (home Wi-Fi, mobile data) can change which node is best.
             forceNodeProbe.set(true)
-            enqueueSync()
+            enqueueSync("network")
             scheduleWebSocketReconnect(500L)
         }
 
@@ -149,22 +152,26 @@ class HostBackgroundService : Service() {
         ensureWebSocket()
         enqueueSync()
         if (periodicStarted.compareAndSet(false, true)) {
-            scheduler.scheduleWithFixedDelay(
-                {
-                    if (isOptedInAndPaired()) enqueueSync()
-                    else stopForInvalidSession(
-                        "The paired account changed. Open the app to resume background sync for this account.",
-                        generation.get(),
-                        runCatching { sessionStore.read() }.getOrNull(),
-                        onlyIfStillInvalid = true
-                    )
-                },
-                FALLBACK_SYNC_MS,
-                FALLBACK_SYNC_MS,
-                TimeUnit.MILLISECONDS
-            )
+            schedulePeriodicSync()
         }
         return START_STICKY
+    }
+
+    private fun schedulePeriodicSync() {
+        if (scheduler.isShutdown) return
+        val delay = HostBackgroundPolicy.syncDelay(socketLive, syncFailures,
+            com.callagent.host.BuildConfig.STANDBY_EXPERIMENTS)
+        scheduler.schedule({
+            try {
+                if (isOptedInAndPaired()) {
+                    if (connectivityManager.activeNetwork != null) enqueueSync()
+                } else stopForInvalidSession(
+                    expectedGeneration = generation.get(),
+                    expectedSession = runCatching { sessionStore.read() }.getOrNull(),
+                    onlyIfStillInvalid = true
+                )
+            } finally { if (!scheduler.isShutdown) schedulePeriodicSync() }
+        }, delay, TimeUnit.MILLISECONDS)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -199,21 +206,32 @@ class HostBackgroundService : Service() {
         }
     }
 
-    private fun enqueueSync() {
-        if (!isOptedInAndPaired() || !syncQueued.compareAndSet(false, true)) return
+    private fun enqueueSync(reason: String = "periodic") {
+        if (!isOptedInAndPaired() || !syncRequests.offer()) return
+        submitSync(reason)
+    }
+
+    private fun submitSync(reason: String) {
         val expectedGeneration = generation.get()
-        scheduler.execute {
-            try {
-                if (expectedGeneration != generation.get()) return@execute
-                runSync(expectedGeneration)
-            } finally {
-                syncQueued.set(false)
-                if (expectedGeneration != generation.get() && isOptedInAndPaired()) enqueueSync()
+        try {
+            scheduler.execute {
+                try {
+                    if (expectedGeneration == generation.get() && isOptedInAndPaired()) {
+                        com.callagent.host.data.StandbyDiagnostics.withCause(reason) { runSync(expectedGeneration) }
+                    }
+                } finally {
+                    // Queue the follow-up on the executor: do not starve notification flush/reconnect tasks.
+                    if (syncRequests.complete()) submitSync(reason)
+                }
             }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            syncRequests.complete()
         }
     }
 
     private fun runSync(expectedGeneration: Long) {
+        // Absence of a default network is different from an unvalidated LAN/VPN network.
+        if (connectivityManager.activeNetwork == null) return
         // Pick the best server node first; a switch rebinds this service and
         // queues a fresh sync on the new node.
         if (runCatching { NodeMonitor.evaluate(this, force = forceNodeProbe.getAndSet(false)) }.getOrNull() != null) return
@@ -241,7 +259,8 @@ class HostBackgroundService : Service() {
                 engine.sync(deadline)
             }
             if (!isCurrent(bound, expectedGeneration)) return
-            RuntimeState.update(this, connection = if (socket != null) "Live updates connected" else "Periodic HTTPS sync", lastSyncAt = System.currentTimeMillis(), issue = null)
+            syncFailures = 0
+            RuntimeState.update(this, connection = if (socketLive) "Live updates connected" else "Periodic HTTPS sync", lastSyncAt = System.currentTimeMillis(), issue = null)
             // A reachable node is the moment to register FCM where due; this is throttled.
             PushRegistration.sync(this)
             sendBroadcast(Intent(HostBackgroundRuntime.BACKGROUND_SYNCED).setPackage(packageName))
@@ -266,6 +285,7 @@ class HostBackgroundService : Service() {
                 stopForInvalidSession("The paired account changed. Open the app to resume background sync for this account.", expectedGeneration, bound)
             }
         } catch (_: Exception) {
+            syncFailures = (syncFailures + 1).coerceAtMost(5)
             if (isCurrent(bound, expectedGeneration)) {
                 RuntimeState.update(this, connection = "Periodic HTTPS sync", issue = "Server unavailable; retrying over HTTPS.")
             }
@@ -386,6 +406,7 @@ class HostBackgroundService : Service() {
     }
 
     private fun ensureWebSocket() {
+        if (connectivityManager.activeNetwork == null) return
         synchronized(webSocketLock) {
             if (!isOptedInAndPaired() || socket != null) return
             val session = sessionStore.read() ?: return
@@ -410,6 +431,7 @@ class HostBackgroundService : Service() {
                 // weak signal a socket that opens and drops at once otherwise
                 // reconnected, with a full sync, about every second.
                 socketOpenedAt = SystemClock.elapsedRealtime()
+                socketLive = true
                 CallRuntime.wakeChannelLive = true
                 setConnection("Live updates connected")
             }
@@ -420,7 +442,7 @@ class HostBackgroundService : Service() {
                 if (hint.optInt("protocol_version", -1) == 1 && hint.optString("type") == "sync_required") {
                     // The websocket is only a wake hint; all data comes from the authenticated HTTPS event API.
                     CallRuntime.requestCallSyncFromWakeHint()
-                    enqueueSync()
+                    enqueueSync("websocket")
                 }
             }
 
@@ -473,6 +495,7 @@ class HostBackgroundService : Service() {
     private fun clearSocket(candidate: WebSocket) = synchronized(webSocketLock) {
         if (socket === candidate) {
             socket = null
+            socketLive = false
             CallRuntime.wakeChannelLive = false
         }
     }
@@ -482,6 +505,7 @@ class HostBackgroundService : Service() {
             socketGeneration.incrementAndGet()
             socket.also { socket = null }
         }
+        socketLive = false
         CallRuntime.wakeChannelLive = false
         old?.cancel()
     }
@@ -732,7 +756,7 @@ class HostBackgroundService : Service() {
         @Volatile private var liveService: HostBackgroundService? = null
 
         internal fun requestSync(context: Context) {
-            liveService?.takeIf { isRunning }?.enqueueSync()
+            liveService?.takeIf { isRunning }?.enqueueSync("push")
         }
 
         internal fun stopByUser(): Boolean = liveService?.stopFromUser() ?: true

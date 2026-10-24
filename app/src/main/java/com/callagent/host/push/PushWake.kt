@@ -27,20 +27,33 @@ internal object PushWake {
     private const val CALL_CHECK_MS = 12_000L
     private const val UNREACHABLE_NOTICE_ID = 0x4d48
 
-    fun handle(context: Context, kind: String?, deviceId: String?) {
+    private val nodeRequests = com.callagent.host.background.CoalescedSyncRequests()
+    private val nodeWorker = java.util.concurrent.Executors.newSingleThreadExecutor {
+        Thread(it, "push-node-check").apply { isDaemon = true }
+    }
+
+    fun recoverDeleted(context: Context) {
+        HostBackgroundRuntime.wakeFromPush(context, allowServiceStart = false)
+        CallRuntime.requestCallSyncFromWakeHint()
+    }
+
+    fun handle(context: Context, kind: String?, deviceId: String?, allowServiceStart: Boolean = true) {
         val app = context.applicationContext
         val pairings = PushRegistration.pairings(app)
         // Only wake-ups from a pairing this phone still holds are acted on.
         val from = pairings.firstOrNull { it.first.deviceId == deviceId }?.first ?: return
-        HostBackgroundRuntime.wakeFromPush(app)
-        CallRuntime.wakeFromPush(app)
+        // v1 call hints may also cover SMS: keep both fetches, with call control first.
+        if (allowServiceStart || CallRuntime.hasServiceForPush) CallRuntime.wakeFromPush(app)
+        HostBackgroundRuntime.wakeFromPush(app, allowServiceStart)
         val active = runCatching { SessionStore(app).read() }.getOrNull()
         if (pairings.size > 1 && active?.sessionInstanceId != from.sessionInstanceId) {
             // The event reached another node: re-check which one is usable now.
-            Thread({ runCatching { NodeMonitor.evaluate(app, force = true) } }, "push-node-check").start()
+            if (nodeRequests.offer()) nodeWorker.execute {
+                do { runCatching { NodeMonitor.evaluate(app, force = true) } } while (nodeRequests.complete())
+            }
         }
         // Without background call reception the user chose not to get calls here.
-        if (kind == "call" && CallRuntime.isListeningRequested) {
+        if (kind == "call" && CallRuntime.isListeningRequested && (allowServiceStart || CallRuntime.hasServiceForPush)) {
             val wokenAt = SystemClock.elapsedRealtime()
             Handler(Looper.getMainLooper()).postDelayed({
                 if (callUnreachable(CallRuntime.currentSession != null, RtcCallEngine.lastPollSucceededAt, wokenAt)) {
