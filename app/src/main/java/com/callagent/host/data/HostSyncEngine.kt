@@ -30,32 +30,49 @@ class HostSyncEngine(
         readTimeoutMillis = HTTP_TIMEOUT_MS
     )
 
-    fun sync(deadlineElapsedRealtime: Long): HostSyncOutcome {
+    fun sync(deadlineElapsedRealtime: Long): HostSyncOutcome =
+        SessionWorkLocks.withLock("sync:${boundSession.sessionInstanceId}") { syncLocked(deadlineElapsedRealtime) }
+
+    private fun syncLocked(deadlineElapsedRealtime: Long): HostSyncOutcome {
         ensureCurrent()
         deliverPendingNotifications()
-        ensureBudget(deadlineElapsedRealtime)
-        val remoteGateways = api.listGateways()
-        ensureCurrent()
-        val gateway = remoteGateways.firstOrNull()
-            ?: throw IOException("No gateway is paired with this account")
-
-        ensureBudget(deadlineElapsedRealtime)
-        val (_, remoteSims) = api.listSims(gateway.gatewayId)
-        ensureCurrent()
-        database.saveGateway(gateway)
-        database.replaceSims(remoteSims)
-
         val inboundCount = syncSms(deadlineElapsedRealtime)
         ensureCurrent()
         // Receipt failures are retried from the persisted cursor next round.
         // They never roll back local data or the separate notification journal.
         database.eventCursor()?.let { cursor ->
-            if (SystemClock.elapsedRealtime() + HTTP_TIMEOUT_MS + BUDGET_MARGIN_MS < deadlineElapsedRealtime) {
-                runCatching { api.acknowledgeEventCursor(cursor) }
+            if (database.syncCheckpoint(boundSession.sessionInstanceId, "acked") != cursor &&
+                SystemClock.elapsedRealtime() + HTTP_TIMEOUT_MS + BUDGET_MARGIN_MS < deadlineElapsedRealtime) {
+                runCatching {
+                    api.acknowledgeEventCursor(cursor)
+                    ensureCurrent()
+                    database.saveSyncCheckpoint(boundSession.sessionInstanceId, "acked", cursor)
+                }
                 ensureCurrent()
             }
         }
+        // Event delivery does not depend on a successful metadata refresh.
+        try { refreshMetadata(deadlineElapsedRealtime) }
+        catch (error: SessionChanged) { throw error }
+        catch (error: SessionNeedsPairing) { throw error }
+        catch (_: IOException) { /* Retry metadata next round, without undoing event delivery. */ }
         return HostSyncOutcome(inboundCount)
+    }
+
+    private fun refreshMetadata(deadline: Long) {
+        val now = System.currentTimeMillis()
+        val last = database.syncCheckpoint(boundSession.sessionInstanceId, "metadata_at")?.toLongOrNull() ?: 0L
+        val interval = if (com.callagent.host.BuildConfig.STANDBY_EXPERIMENTS) 300_000L else 30_000L
+        if (database.loadGateway() != null && last > 0L && now >= last && now - last < interval) return
+        ensureBudget(deadline)
+        val gateway = api.listGateways().firstOrNull() ?: throw IOException("No paired gateway")
+        ensureCurrent()
+        ensureBudget(deadline)
+        val (_, sims) = api.listSims(gateway.gatewayId)
+        ensureCurrent()
+        if (database.loadGateway() != gateway) database.saveGateway(gateway)
+        if (database.loadSims() != sims) database.replaceSims(sims)
+        database.saveSyncCheckpoint(boundSession.sessionInstanceId, "metadata_at", now.toString())
     }
 
     /**

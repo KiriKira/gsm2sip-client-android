@@ -47,7 +47,7 @@ internal class RtcCallEngine(
         nextPoll?.cancel(false)
         nextPoll=runCatching{worker.schedule({
             wakeRequested=false
-            try{poll()}finally{
+            try{com.callagent.host.data.StandbyDiagnostics.withCause("rtc") { poll() }}finally{
                 // A wake during this poll was cancelled by this reschedule: honour it.
                 // In finally, so nothing a poll throws can end the polling for good.
                 schedulePoll(if(wakeRequested)0 else nextPollDelay())

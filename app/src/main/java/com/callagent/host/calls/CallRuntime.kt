@@ -347,6 +347,8 @@ object CallRuntime {
     /** The background service's WebSocket to the active node is open, so wake hints arrive. */
     @Volatile internal var wakeChannelLive = false
 
+    internal val hasServiceForPush: Boolean get() = service != null
+
     /** An FCM wake-up: start call control if Android stopped it, else poll now. */
     internal fun wakeFromPush(context: Context) {
         val app = context.applicationContext

@@ -9,7 +9,13 @@ class MadokaMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         val data = message.data
-        if (data["type"] != "sync") return
-        PushWake.handle(applicationContext, data["kind"], data["device_id"])
+        if (data["type"] != "sync" || data["v"] !in setOf(null, "1")) return
+        android.util.Log.i("HostPush", "received priority=${message.priority} original=${message.originalPriority}")
+        PushWake.handle(applicationContext, data["kind"], data["device_id"],
+            allowServiceStart = message.priority == RemoteMessage.PRIORITY_HIGH)
+    }
+    override fun onDeletedMessages() {
+        // A missing hint does not imply a missing durable event. Respect each pairing's opt-in.
+        PushWake.recoverDeleted(applicationContext)
     }
 }
