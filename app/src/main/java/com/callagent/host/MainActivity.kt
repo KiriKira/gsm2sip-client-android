@@ -442,8 +442,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * A gsm2sip://join link lists one-time pairing codes for several server
-     * nodes. Unpaired, the first entry becomes the pairing and the rest are
+     * A mahogsm://join link lists join codes for several server nodes; both
+     * phones scan the same one. Unpaired, the first entry becomes the pairing and the rest are
      * added as nodes; paired, every entry is added as a node.
      */
     private fun handleJoinLink(source: Intent?) {
@@ -451,9 +451,9 @@ class MainActivity : AppCompatActivity() {
         if (!JoinLink.isJoinLink(link)) return
         // The link carries one-time secrets: never keep it around for a recreate.
         source?.data = null
-        val entries = JoinLink.parse(link!!, "client")
+        val entries = JoinLink.parse(link!!)
         if (entries == null) {
-            showToast("这个加入链接无效，或不是给主手机用的。")
+            showToast("这个加入链接无效或已过时，请在服务器上重新生成。")
             return
         }
         val paired = session != null
@@ -488,7 +488,10 @@ class MainActivity : AppCompatActivity() {
         nodeExecutor.execute {
             val lines = entries.map { entry ->
                 val label = HostNodes.hostLabel(entry.serverUrl)
-                runCatching { HostNodes.add(app, entry.serverUrl, entry.pairingCode, deviceName) }
+                runCatching {
+                    HostNodes.add(app, entry.serverUrl, entry.pairingCode, deviceName,
+                        onWaiting = { mainHandler.post { showToast("正在等待旧手机加入 $label…") } })
+                }
                     .fold(
                         onSuccess = { node -> HostNodes.catchUpSilently(app, node); "$label：已加入" },
                         onFailure = { failure ->
@@ -497,6 +500,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     )
             }
+            com.callagent.host.push.PushRegistration.sync(app, force = true)
             mainHandler.post {
                 if (isDestroyed) return@post
                 session = sessionStore.read() ?: session
@@ -1223,9 +1227,15 @@ class MainActivity : AppCompatActivity() {
                 statusMessage = "正在验证并添加节点…"
                 showToast("正在验证并添加节点…")
                 nodeExecutor.execute {
-                    val result = runCatching { HostNodes.add(app, url, code, deviceName) }
+                    val result = runCatching {
+                        HostNodes.add(app, url, code, deviceName,
+                            onWaiting = { mainHandler.post { showToast("正在等待旧手机加入这个服务器…") } })
+                    }
                     // History catch-up runs after the result is shown; it is silent and best-effort.
-                    result.getOrNull()?.let { node -> nodeExecutor.execute { HostNodes.catchUpSilently(app, node) } }
+                    result.getOrNull()?.let { node ->
+                        nodeExecutor.execute { HostNodes.catchUpSilently(app, node) }
+                        com.callagent.host.push.PushRegistration.sync(app, force = true)
+                    }
                     mainHandler.post {
                         if (isDestroyed) return@post
                         result.onSuccess { node ->
@@ -3184,6 +3194,7 @@ class MainActivity : AppCompatActivity() {
                 if (sessionStore.read()?.sameSessionInstance(paired) == true) {
                     syncFromServer(showProgress = true)
                 }
+                com.callagent.host.push.PushRegistration.sync(this, force = true)
             }
             pendingJoinNodes.takeIf { it.isNotEmpty() }?.let { rest ->
                 pendingJoinNodes = emptyList()

@@ -51,7 +51,9 @@ class ApiClient(
         }
         val response = publicRequest(
             "POST", "/pairings/claim",
-            JSONObject().put("pairing_code", pairingCode).put("device_name", deviceName).put("platform", "android")
+            // A join code pairs either phone, so the claim names this one's role.
+            JSONObject().put("pairing_code", pairingCode).put("device_name", clampDeviceName(deviceName))
+                .put("platform", "android").put("role", "client")
         )
         val result = sessionFromPairing(response)
         if (result.role != "client") throw IOException("Pairing code is not for a host client")
@@ -192,6 +194,20 @@ class ApiClient(
         answeredAt = json.optNullableString("answered_at"),
         endedAt = json.optNullableString("ended_at"), reason = json.optNullableString("reason")
     )
+
+    /** Whether this server posts wake-ups to push endpoints; only then is one registered there. */
+    fun pushAvailable(): Boolean =
+        request("GET", "/capabilities", body = null, token = null, idempotencyKey = null).optBoolean("push", false)
+
+    /** Store this phone's push endpoint on the server, which tests it first. */
+    fun registerPushEndpoint(endpoint: String) {
+        authenticatedRequest("PUT", "/devices/self/push-endpoint", JSONObject().put("endpoint", endpoint))
+    }
+
+    /** Stop this server posting wake-ups to this phone. */
+    fun deletePushEndpoint() {
+        authenticatedRequest("DELETE", "/devices/self/push-endpoint")
+    }
 
     /** Public protocol extensions of this server; also a cheap reachability probe. */
     fun capabilities(): Set<String> {
@@ -453,3 +469,10 @@ private fun JSONObject.optNullableBoolean(name: String): Boolean? =
     if (!has(name) || isNull(name)) null else optBoolean(name)
 
 data class MessagePage(val items: List<SmsRecord>, val nextCursor: String?, val resyncRequired: Boolean)
+
+/** The server allows 100 characters (code points) for a device name. */
+internal fun clampDeviceName(name: String): String {
+    val trimmed = name.trim()
+    return if (trimmed.codePointCount(0, trimmed.length) <= 100) trimmed
+    else trimmed.substring(0, trimmed.offsetByCodePoints(0, 100))
+}

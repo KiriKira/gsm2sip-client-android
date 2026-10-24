@@ -12,6 +12,7 @@ import android.net.Network
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.os.SystemClock
 import com.callagent.host.MainActivity
 import com.callagent.host.R
 import com.callagent.host.data.ClientDatabase
@@ -29,6 +30,7 @@ import com.callagent.host.calls.SimLabels
 import com.callagent.host.notify.HostNotificationChannels
 import com.callagent.host.notify.InboundSmsNotifications
 import com.callagent.host.mesh.NodeMonitor
+import com.callagent.host.push.PushRegistration
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.WebSocket
@@ -68,6 +70,8 @@ class HostBackgroundService : Service() {
     @Volatile private var socket: WebSocket? = null
     @Volatile private var activeSession: HostSession? = null
     private val reconnectAttempt = java.util.concurrent.atomic.AtomicInteger(0)
+    /** When the current socket opened, on the elapsed-realtime clock. */
+    @Volatile private var socketOpenedAt = 0L
     @Volatile private var callbackRegistered = false
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
@@ -238,6 +242,8 @@ class HostBackgroundService : Service() {
             }
             if (!isCurrent(bound, expectedGeneration)) return
             RuntimeState.update(this, connection = if (socket != null) "Live updates connected" else "Periodic HTTPS sync", lastSyncAt = System.currentTimeMillis(), issue = null)
+            // A reachable node is the moment to register FCM where due; this is throttled.
+            PushRegistration.sync(this)
             sendBroadcast(Intent(HostBackgroundRuntime.BACKGROUND_SYNCED).setPackage(packageName))
             val latest = sessionStore.read()
             if (latest != null && latest.sameSessionInstance(bound) && latest.accessToken != bound.accessToken) {
@@ -400,7 +406,10 @@ class HostBackgroundService : Service() {
                     webSocket.close(1000, null)
                     return
                 }
-                reconnectAttempt.set(0)
+                // The backoff resets only once the socket proves stable: on a
+                // weak signal a socket that opens and drops at once otherwise
+                // reconnected, with a full sync, about every second.
+                socketOpenedAt = SystemClock.elapsedRealtime()
                 CallRuntime.wakeChannelLive = true
                 setConnection("Live updates connected")
             }
@@ -479,6 +488,9 @@ class HostBackgroundService : Service() {
 
     private fun scheduleReconnectWithBackoff() {
         if (!isOptedInAndPaired()) return
+        val openedAt = socketOpenedAt
+        socketOpenedAt = 0L
+        if (openedAt != 0L && SystemClock.elapsedRealtime() - openedAt >= STABLE_SOCKET_MS) reconnectAttempt.set(0)
         val attempt = reconnectAttempt.getAndIncrement()
         val delay = HostBackgroundPolicy.backoffDelay(attempt, Random.nextDouble(0.75, 1.25))
         scheduleWebSocketReconnect(delay)
@@ -708,6 +720,7 @@ class HostBackgroundService : Service() {
         internal const val CHANNEL_INBOUND = HostNotificationChannels.INBOUND_SMS
         private const val WAKE_LOCK_TIMEOUT_MS = 60_000L
         private const val FALLBACK_SYNC_MS = 30_000L
+        private const val STABLE_SOCKET_MS = 60_000L
         private const val NOTIFICATION_WINDOW_MS = 12_000L
         private const val MAX_COALESCED_IDS = 99
         private const val MAX_SEEN_NOTIFICATION_IDS = 2_048

@@ -37,6 +37,9 @@ class NodeSetupFailure(message: String) : IOException(message)
  * registry itself holds no secrets.
  */
 object HostNodes {
+    private const val INSTALL_ID_WAIT_MS = 45_000L
+    private const val INSTALL_ID_POLL_MS = 3_000L
+
     const val MESH_EXTENSION = "mesh"
     private const val PREFS = "host-nodes"
     private const val KEY_REGISTRY = "registry_v1"
@@ -86,7 +89,13 @@ object HostNodes {
      * mesh extension and report the same old phone (install ID), so data of
      * two different gateways can never be merged. Follow with [catchUpSilently].
      */
-    fun add(context: Context, serverUrl: String, pairingCode: String, deviceName: String): HostNode {
+    fun add(
+        context: Context,
+        serverUrl: String,
+        pairingCode: String,
+        deviceName: String,
+        onWaiting: () -> Unit = {}
+    ): HostNode {
         val app = context.applicationContext
         val activeStore = SessionStore(app)
         val active = activeStore.read() ?: throw NodeSetupFailure("请先完成当前服务器的配对")
@@ -99,8 +108,8 @@ object HostNodes {
         if (!supportsMesh(ApiClient(active.apiBaseUrl, activeStore))) {
             throw NodeSetupFailure("当前服务器版本不支持多节点，请先升级服务器")
         }
-        val installId = ApiClient(active.apiBaseUrl, activeStore).listGateways().firstOrNull()?.installId
-            ?: throw NodeSetupFailure("旧手机还没有向当前服务器报告身份。请升级并打开旧手机应用后再试")
+        val installId = awaitInstallId(installIds(ApiClient(active.apiBaseUrl, activeStore)), expected = null, onWaiting)
+            ?: throw NodeSetupFailure("旧手机还没有向当前服务器报告身份。请确认旧手机应用已打开并联网后再试")
         if (existing.installId != null && existing.installId != installId) {
             throw NodeSetupFailure("当前服务器上的旧手机与节点列表记录的不是同一台")
         }
@@ -110,9 +119,12 @@ object HostNodes {
         nodeStore.clear()
         val paired = ApiClient(serverUrl, nodeStore).pair(pairingCode, deviceName)
         try {
-            val sameGateway = ApiClient(paired.apiBaseUrl, nodeStore).listGateways().any { it.installId == installId }
-            if (!sameGateway) {
-                throw NodeSetupFailure("该服务器上没有同一台旧手机。请先在旧手机的“其他节点”里添加这个服务器")
+            val seen = awaitInstallId(installIds(ApiClient(paired.apiBaseUrl, nodeStore)), expected = installId, onWaiting)
+            if (seen == null) {
+                throw NodeSetupFailure("旧手机还没有加入这个服务器。请先让旧手机扫码或在“其他节点”里添加它，再重试")
+            }
+            if (seen != installId) {
+                throw NodeSetupFailure("这个服务器上是另一台旧手机，不能加入同一个节点列表")
             }
         } catch (failure: Exception) {
             runCatching { ApiClient(paired.apiBaseUrl, nodeStore).revoke() }
@@ -128,6 +140,35 @@ object HostNodes {
             throw failure
         }
         return node
+    }
+
+    /**
+     * The old phone's install ID on a server, waiting a bounded time for it:
+     * a gateway that just joined reports it with its next heartbeat, so the
+     * main phone scanning the same code a moment later must not give up at
+     * once. Returns [expected] as soon as it appears, another phone's ID when
+     * only that one is there, or null when none is reported in time.
+     */
+    private fun installIds(client: ApiClient): () -> List<String> = { client.listGateways().mapNotNull { it.installId } }
+
+    internal fun awaitInstallId(
+        fetch: () -> List<String>,
+        expected: String?,
+        onWaiting: () -> Unit,
+        timeoutMs: Long = INSTALL_ID_WAIT_MS,
+        pauseMs: Long = INSTALL_ID_POLL_MS,
+        sleep: (Long) -> Unit = Thread::sleep
+    ): String? {
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000
+        var waited = false
+        while (true) {
+            val ids = fetch()
+            val found = if (expected != null) ids.firstOrNull { it == expected } else ids.firstOrNull()
+            if (found != null) return found
+            if (System.nanoTime() >= deadline) return ids.firstOrNull()
+            if (!waited) { waited = true; onWaiting() }
+            sleep(pauseMs)
+        }
     }
 
     /**

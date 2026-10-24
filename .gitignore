@@ -9,3 +9,6 @@ local.properties
 /artifacts/
 __pycache__/
 *.pyc
+
+# Firebase app config: written by release CI from a secret
+/app/google-services.json

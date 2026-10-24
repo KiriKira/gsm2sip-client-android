@@ -8,7 +8,7 @@ val releaseStorePassword = System.getenv("GSM_RELEASE_STORE_PASSWORD")?.takeIf {
 val releaseKeyAlias = System.getenv("GSM_RELEASE_KEY_ALIAS")?.takeIf { it.isNotEmpty() }
 val releaseKeyPassword = System.getenv("GSM_RELEASE_KEY_PASSWORD")?.takeIf { it.isNotEmpty() }
 val releaseVersionCodeText = System.getenv("GSM_RELEASE_VERSION_CODE")?.takeIf { it.isNotBlank() }
-val releaseVersionName = System.getenv("GSM_RELEASE_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.4.0"
+val releaseVersionName = System.getenv("GSM_RELEASE_VERSION_NAME")?.takeIf { it.isNotBlank() } ?: "0.4.1"
 val appVersionCode = releaseVersionCodeText?.toIntOrNull()?.also {
     if (it !in 1..2_100_000_000) {
         throw GradleException("GSM_RELEASE_VERSION_CODE must be between 1 and 2100000000.")
@@ -17,6 +17,14 @@ val appVersionCode = releaseVersionCodeText?.toIntOrNull()?.also {
     4
 } else {
     throw GradleException("GSM_RELEASE_VERSION_CODE must be a positive integer.")
+}
+
+// The Kyubey relay that turns this build's FCM token into a push endpoint;
+// empty disables push. Release CI sets it from the PUSH_RELAY_URL variable.
+val pushRelayUrl = (System.getenv("MAHOGSM_PUSH_RELAY_URL") ?: providers.gradleProperty("pushRelayUrl").orNull ?: "").trim().also {
+    if (it.isNotEmpty() && (!it.startsWith("https://") || it.any { c -> c == '"' || c == '\\' || c.isWhitespace() })) {
+        throw GradleException("MAHOGSM_PUSH_RELAY_URL must be an https:// URL.")
+    }
 }
 
 fun releasePackagingRequested(taskNames: Iterable<String>): Boolean = taskNames.any { name ->
@@ -41,6 +49,11 @@ android {
         ndk { abiFilters += "arm64-v8a" }
 
         testInstrumentationRunner = providers.gradleProperty("rtcLabRunner").orElse("androidx.test.runner.AndroidJUnitRunner").get()
+        buildConfigField("String", "PUSH_RELAY_URL", "\"$pushRelayUrl\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     compileOptions {
@@ -96,8 +109,14 @@ gradle.taskGraph.whenReady {
     }
 }
 
+// FCM wake-ups need the Firebase app config, which release CI writes from the
+// GOOGLE_SERVICES_JSON_BASE64 secret. Without it the app builds without
+// Firebase configured and keeps its own wake channel only.
+if (file("google-services.json").isFile) apply(plugin = "com.google.gms.google-services")
+
 dependencies {
     implementation(project(":rtcmedia"))
+    implementation("com.google.firebase:firebase-messaging:26.0.1")
     implementation(files(rootProject.project(":rtcmedia").layout.buildDirectory.file("webrtc-sdk/external-playout.aar"))
         .builtBy(":rtcmedia:prepareWebRtcSdk"))
     implementation("com.squareup.okhttp3:okhttp:4.12.0")

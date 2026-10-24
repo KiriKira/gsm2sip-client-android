@@ -22,6 +22,7 @@ object HostNotificationChannels {
     const val INBOUND_SMS = "host-inbound-sms-content"
     const val INCOMING_CALLS = "incoming-calls-ringing"
     const val ONGOING_CALLS = "ongoing-calls"
+    const val CALL_ALERTS = "call-alerts"
     const val GROUP_INBOUND_SMS = "com.callagent.host.INBOUND_SMS"
 
     private val RETIRED = listOf("host-background-service", "call_signaling", "host-inbound-sms", "remote_calls")
@@ -72,6 +73,11 @@ object HostNotificationChannels {
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0L, 1000L, 1000L)
                 setShowBadge(false)
+            },
+            NotificationChannel(CALL_ALERTS, "来电提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "有来电但暂时连不上服务器、无法接听时提醒。"
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setShowBadge(true)
             },
             NotificationChannel(ONGOING_CALLS, "通话中", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "正在进行的远程 SIM 通话和挂断按钮。"

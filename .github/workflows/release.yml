@@ -21,6 +21,9 @@ jobs:
   build:
     name: Build and verify signed APK
     runs-on: ubuntu-latest
+    env:
+      # The Kyubey relay this build registers its FCM token with; empty builds have no push.
+      MAHOGSM_PUSH_RELAY_URL: ${{ vars.PUSH_RELAY_URL }}
     permissions:
       contents: read
     outputs:
@@ -69,7 +72,7 @@ jobs:
             exit 1
           fi
           build_tag="build-${GITHUB_RUN_NUMBER}-${sha7}"
-          build_version_name="0.4.0-${build_tag}"
+          build_version_name="0.4.1-${build_tag}"
           sign_release=true
           publish_enabled=false
           prerelease=false
@@ -176,6 +179,33 @@ jobs:
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as github_env:
               github_env.write(f"GSM_RELEASE_STORE_FILE={key_path}\n")
           print("Decoded the configured release keystore into the runner temporary directory.")
+          PY
+
+      - name: Write the Firebase app config for FCM wake-ups
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GOOGLE_SERVICES_JSON_BASE64:-}" ]]; then
+            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 is not set; this build has no push wake-ups."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import base64, json, os, pathlib, sys
+          try:
+              config = json.loads(base64.b64decode("".join(os.environ["GOOGLE_SERVICES_JSON_BASE64"].split()), validate=True))
+          except Exception as exc:
+              print(f"::error::GOOGLE_SERVICES_JSON_BASE64 is not base64 of a JSON document: {type(exc).__name__}")
+              sys.exit(1)
+          packages = {c.get("client_info", {}).get("android_client_info", {}).get("package_name") for c in config.get("client", [])}
+          if "com.callagent.host" not in packages:
+              print("::error::The Firebase config has no Android app for com.callagent.host.")
+              sys.exit(1)
+          path = pathlib.Path("app/google-services.json")
+          path.write_text(json.dumps(config))
+          path.chmod(0o600)
+          print("Wrote the Firebase app config for project " + config.get("project_info", {}).get("project_id", "?"))
           PY
 
       - name: Assemble, unit test, and lint debug variant
@@ -289,6 +319,9 @@ jobs:
     name: Permanent-key signed debug APK
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/webrtc-sip-debug-20261017'
     runs-on: ubuntu-latest
+    env:
+      # The Kyubey relay this build registers its FCM token with; empty builds have no push.
+      MAHOGSM_PUSH_RELAY_URL: ${{ vars.PUSH_RELAY_URL }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -310,8 +343,35 @@ jobs:
           set -euo pipefail
           {
             echo 'GSM_RELEASE_VERSION_CODE=1000000000'
-            echo "GSM_RELEASE_VERSION_NAME=0.4.0-debug-build-${GITHUB_RUN_NUMBER}"
+            echo "GSM_RELEASE_VERSION_NAME=0.4.1-debug-build-${GITHUB_RUN_NUMBER}"
           } >> "$GITHUB_ENV"
+      - name: Write the Firebase app config for FCM wake-ups
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GOOGLE_SERVICES_JSON_BASE64:-}" ]]; then
+            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 is not set; this build has no push wake-ups."
+            exit 0
+          fi
+          python3 - <<'PY'
+          import base64, json, os, pathlib, sys
+          try:
+              config = json.loads(base64.b64decode("".join(os.environ["GOOGLE_SERVICES_JSON_BASE64"].split()), validate=True))
+          except Exception as exc:
+              print(f"::error::GOOGLE_SERVICES_JSON_BASE64 is not base64 of a JSON document: {type(exc).__name__}")
+              sys.exit(1)
+          packages = {c.get("client_info", {}).get("android_client_info", {}).get("package_name") for c in config.get("client", [])}
+          if "com.callagent.host" not in packages:
+              print("::error::The Firebase config has no Android app for com.callagent.host.")
+              sys.exit(1)
+          path = pathlib.Path("app/google-services.json")
+          path.write_text(json.dumps(config))
+          path.chmod(0o600)
+          print("Wrote the Firebase app config for project " + config.get("project_info", {}).get("project_id", "?"))
+          PY
+
       - name: Test and build debuggable ARM64 APK
         run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --max-workers=2
       - name: Decode permanent signing key and check its certificate pin
