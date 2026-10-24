@@ -7,7 +7,9 @@ import com.callagent.host.BuildConfig
 import com.callagent.host.data.ApiClient
 import com.callagent.host.data.ApiFailure
 import com.callagent.host.data.HostSession
+import com.callagent.host.data.ServerPushSignal
 import com.callagent.host.data.SessionStore
+import com.callagent.host.data.normalizeApiBaseUrl
 import com.callagent.host.mesh.HostNodes
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
@@ -39,6 +41,8 @@ object PushRegistration {
     @Volatile private var lastPassAt = 0L
     private val executor = Executors.newSingleThreadExecutor { Thread(it, "push-registration") }
     private val tokenRequested = AtomicBoolean()
+    /** Nodes already asked again in this process because their server started advertising push. */
+    private val rechecked = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     fun available(context: Context): Boolean = BuildConfig.PUSH_RELAY_URL.isNotEmpty() &&
         runCatching { FirebaseApp.getApps(context.applicationContext).isNotEmpty() }.getOrDefault(false)
@@ -52,14 +56,16 @@ object PushRegistration {
     /**
      * Registers where due. Background syncs call this often, so without
      * [force] (a new token, pairing or node) a pass runs at most every ten
-     * minutes, and even then only nodes that are due are contacted.
+     * minutes, and even then only nodes that are due are contacted. A server
+     * newly seen advertising push skips that wait.
      */
     fun sync(context: Context, force: Boolean = false) {
         val app = context.applicationContext
         val withdraw = !available(app)
         if (withdraw && prefs(app).all.isEmpty()) return
         val now = SystemClock.elapsedRealtime()
-        if (!force && lastPassAt != 0L && now - lastPassAt < PASS_INTERVAL_MS) return
+        val newlyAdvertised = ServerPushSignal.consumeChange()
+        if (!force && !newlyAdvertised && lastPassAt != 0L && now - lastPassAt < PASS_INTERVAL_MS) return
         lastPassAt = now
         executor.execute {
             runCatching { if (withdraw) runWithdraw(app) else runSync(app) }
@@ -104,7 +110,10 @@ object PushRegistration {
             live += key
             val state = PushRegistrationPolicy.NodeState.decode(prefs.getString(key, null))
             val now = System.currentTimeMillis()
-            if (!PushRegistrationPolicy.shouldAttempt(state, endpointHash, now)) continue
+            // A node marked without push before its server was upgraded: ask once now, not in a day.
+            val upgraded = !state.registered && ServerPushSignal.advertises(normalizeApiBaseUrl(session.apiBaseUrl)) &&
+                rechecked.add(key)
+            if (!upgraded && !PushRegistrationPolicy.shouldAttempt(state, endpointHash, now)) continue
             var endpointRejected = false
             val outcome = try {
                 val api = ApiClient(session.apiBaseUrl, store)
