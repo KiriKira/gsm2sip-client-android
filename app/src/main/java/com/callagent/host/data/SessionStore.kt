@@ -42,23 +42,7 @@ class SessionStore @JvmOverloads constructor(context: Context, private val prefs
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, Base64.decode(ivText, Base64.NO_WRAP)))
             val clear = cipher.doFinal(Base64.decode(ciphertextText, Base64.NO_WRAP))
-            val json = JSONObject(String(clear, Charsets.UTF_8))
-            HostSession(
-                sessionInstanceId = json.getString("session_instance_id"),
-                apiBaseUrl = json.getString("api_base_url"),
-                ownerId = json.getString("owner_id"),
-                deviceId = json.getString("device_id"),
-                role = json.getString("role"),
-                accessToken = json.getString("access_token"),
-                accessExpiresAt = json.getString("access_expires_at"),
-                refreshToken = json.getString("refresh_token"),
-                refreshExpiresAt = json.getString("refresh_expires_at"),
-                pendingRefreshKey = json.optString("pending_refresh_key")
-                    .takeIf { it.isNotBlank() && it != "null" },
-                profileId = json.optString("profile_id").takeIf { it.isNotBlank() && it != "null" },
-                profileDatabase = json.optString("profile_database").takeIf { it.isNotBlank() && it != "null" },
-                nodeScope = json.optString("node_scope", "")
-            ).also { remember(ivText, ciphertextText, it) }
+            decode(JSONObject(String(clear, Charsets.UTF_8))).also { remember(ivText, ciphertextText, it) }
         } catch (_: Exception) {
             clearLocked()
             null
@@ -121,20 +105,7 @@ class SessionStore @JvmOverloads constructor(context: Context, private val prefs
     internal fun clear() = synchronized(processLock) { clearLocked() }
 
     private fun writeLocked(session: HostSession) {
-        val json = JSONObject()
-            .put("session_instance_id", session.sessionInstanceId)
-            .put("api_base_url", session.apiBaseUrl)
-            .put("owner_id", session.ownerId)
-            .put("device_id", session.deviceId)
-            .put("role", session.role)
-            .put("access_token", session.accessToken)
-            .put("access_expires_at", session.accessExpiresAt)
-            .put("refresh_token", session.refreshToken)
-            .put("refresh_expires_at", session.refreshExpiresAt)
-        session.pendingRefreshKey?.let { json.put("pending_refresh_key", it) }
-        session.profileId?.let { json.put("profile_id", it) }
-        session.profileDatabase?.let { json.put("profile_database", it) }
-        if (session.nodeScope.isNotEmpty()) json.put("node_scope", session.nodeScope)
+        val json = encode(session)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val ciphertext = cipher.doFinal(json.toString().toByteArray(Charsets.UTF_8))
@@ -178,6 +149,40 @@ class SessionStore @JvmOverloads constructor(context: Context, private val prefs
 
     companion object {
         const val ACTIVE_PREFS = "host-session"
+
+        /** The plaintext form of a session, as stored encrypted and as carried by a full backup. */
+        internal fun encode(session: HostSession): JSONObject = JSONObject()
+            .put("session_instance_id", session.sessionInstanceId)
+            .put("api_base_url", session.apiBaseUrl)
+            .put("owner_id", session.ownerId)
+            .put("device_id", session.deviceId)
+            .put("role", session.role)
+            .put("access_token", session.accessToken)
+            .put("access_expires_at", session.accessExpiresAt)
+            .put("refresh_token", session.refreshToken)
+            .put("refresh_expires_at", session.refreshExpiresAt)
+            .apply {
+                session.pendingRefreshKey?.let { put("pending_refresh_key", it) }
+                session.profileId?.let { put("profile_id", it) }
+                session.profileDatabase?.let { put("profile_database", it) }
+                if (session.nodeScope.isNotEmpty()) put("node_scope", session.nodeScope)
+            }
+
+        internal fun decode(json: JSONObject): HostSession = HostSession(
+            sessionInstanceId = json.getString("session_instance_id"),
+            apiBaseUrl = json.getString("api_base_url"),
+            ownerId = json.getString("owner_id"),
+            deviceId = json.getString("device_id"),
+            role = json.getString("role"),
+            accessToken = json.getString("access_token"),
+            accessExpiresAt = json.getString("access_expires_at"),
+            refreshToken = json.getString("refresh_token"),
+            refreshExpiresAt = json.getString("refresh_expires_at"),
+            pendingRefreshKey = json.optString("pending_refresh_key").takeIf { it.isNotBlank() && it != "null" },
+            profileId = json.optString("profile_id").takeIf { it.isNotBlank() && it != "null" },
+            profileDatabase = json.optString("profile_database").takeIf { it.isNotBlank() && it != "null" },
+            nodeScope = json.optString("node_scope", "")
+        )
         private val processLock = Any()
         private data class CachedSession(val iv: String, val ciphertext: String, val session: HostSession)
         // Process memory only; all access is covered by processLock.

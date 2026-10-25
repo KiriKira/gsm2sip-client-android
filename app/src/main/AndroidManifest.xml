@@ -63,6 +63,9 @@
             android:name=".backup.HostSmsBackupActivity"
             android:exported="false" />
         <activity
+            android:name=".backup.HostFullBackupActivity"
+            android:exported="false" />
+        <activity
             android:name=".calls.CallActionActivity"
             android:excludeFromRecents="true"
             android:exported="false"

@@ -1177,6 +1177,13 @@ class MainActivity : AppCompatActivity() {
         }
         content.addView(HostUi.groupHeader(this, "通知与权限"))
         addPermissionSettings(content)
+        content.addView(HostUi.groupHeader(this, "备份"))
+        content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "全量备份与恢复",
+            summary = "设置、所有节点的配对和本机数据，加密导出到一个文件；可恢复到本机或新手机",
+            icon = R.drawable.ic_ui_archive,
+            trailing = HostUi.chevron(this),
+            onClick = { startActivity(Intent(this, com.callagent.host.backup.HostFullBackupActivity::class.java)) }
+        ).apply { id = R.id.full_backup_entry })
         content.addView(HostUi.groupHeader(this, "短信备份与归档"))
         content.addView(smsArchiveEntryButton())
         settingsMessage = null

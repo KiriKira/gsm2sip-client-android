@@ -16,6 +16,7 @@
     <item name="sms_recipient" type="id" />
     <item name="sms_body" type="id" />
     <item name="sms_backup_archive_entry" type="id" />
+    <item name="full_backup_entry" type="id" />
     <item name="call_destination" type="id" />
     <item name="main_bottom_navigation" type="id" />
     <item name="tab_phone" type="id" />

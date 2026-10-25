@@ -43,7 +43,7 @@ object HostNodes {
     const val MESH_EXTENSION = "mesh"
     private const val PREFS = "host-nodes"
     private const val KEY_REGISTRY = "registry_v1"
-    private const val NODE_PREFS_PREFIX = "host-node-"
+    internal const val NODE_PREFS_PREFIX = "host-node-"
     private val registryLock = Any()
 
     internal data class Registry(
