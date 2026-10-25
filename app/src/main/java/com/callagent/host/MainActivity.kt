@@ -2829,7 +2829,10 @@ class MainActivity : AppCompatActivity() {
                 val remoteCallPage = runCatching { api.listCallHistoryPage(cursor = null, limit = 100) }.getOrNull()
                 val mergedCallSnapshot = remoteCallPage?.let { page ->
                     val prior = expectedDatabase.syncStateValue(SYNC_KEY_CALL_HISTORY)?.let(CallHistoryCache::parse)
-                    CallHistoryCache.merge(prior?.first.orEmpty(), page.first).let { merged -> merged to page.second }
+                    val merged = CallHistoryCache.merge(prior?.first.orEmpty(), page.first)
+                    val stale = CallHistoryCache.staleLiveCalls(merged, page.first.map { it.callId }.toSet(), System.currentTimeMillis())
+                    val refreshed = if (stale.isEmpty()) emptyList() else CallHistoryCache.refreshStale(stale, callLookups(api))
+                    CallHistoryCache.merge(merged, refreshed) to page.second
                 }
                 if (mergedCallSnapshot != null && sessionStore.read()?.sameSessionInstance(expectedSession) == true) {
                     expectedDatabase.saveSyncStateValue(SYNC_KEY_CALL_HISTORY, CallHistoryCache.encode(mergedCallSnapshot.first, mergedCallSnapshot.second))
@@ -3149,6 +3152,16 @@ class MainActivity : AppCompatActivity() {
                 .put("is_self", host.isSelf))
         }
     }.toString()
+
+    /** Reads one call from the active node, then from every other paired node. */
+    private fun callLookups(active: ApiClient): List<(String) -> RemoteCall?> {
+        val app = applicationContext
+        val activeSession = sessionStore.read()?.sessionInstanceId
+        val others = HostNodes.nodes(app).filter { it.sessionInstanceId != activeSession }.mapNotNull { node ->
+            HostNodes.sessionFor(app, node)?.let { session -> ApiClient(session.apiBaseUrl, HostNodes.storeFor(app, node)) }
+        }
+        return (listOf(active) + others).map { client -> { callId: String -> client.getCall(callId) } }
+    }
 
     private fun loadCallHistoryFromCache() {
         val raw = database.syncStateValue(SYNC_KEY_CALL_HISTORY) ?: run {
