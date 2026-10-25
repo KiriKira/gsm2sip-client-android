@@ -1343,6 +1343,16 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
+        val autoFill = com.callagent.host.notify.OtpAutoFillService.enabled(this)
+        content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "自动填入验证码",
+            summary = if (autoFill) "已开启 · 收到验证码后填入正在输入的验证码框"
+                else "在系统无障碍设置中开启“Madoka 验证码自动填入”后可用",
+            icon = R.drawable.ic_ui_copy,
+            trailing = HostUi.chevron(this),
+            onClick = {
+                runCatching { startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            }).apply { id = R.id.settings_otp_autofill })
+
         content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "电池优化",
             summary = if (status?.batteryExempt == true) "已豁免 · 后台同步不受限制" else "建议豁免，避免后台收不到短信和来电",
             icon = R.drawable.ic_ui_battery,
