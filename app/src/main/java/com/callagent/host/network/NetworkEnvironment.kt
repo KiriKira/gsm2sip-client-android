@@ -13,7 +13,6 @@ import android.os.SystemClock
 /** Process-local path observations. No SSID, BSSID, IP or route is exported or persisted. */
 internal object NetworkEnvironment {
     private val window = StableNetworkWindow()
-    private val paths = mutableMapOf<Network, String>()
     private val capabilities = mutableMapOf<Network, String>()
     private val links = mutableMapOf<Network, String>()
     private val main = Handler(Looper.getMainLooper())
@@ -36,7 +35,6 @@ internal object NetworkEnvironment {
             runCatching { old.first.unregisterNetworkCallback(old.second) }
             runCatching { old.first.unregisterNetworkCallback(old.third) }
         }
-        paths.clear()
         capabilities.clear()
         links.clear()
         defaultNetwork = null
@@ -55,15 +53,21 @@ internal object NetworkEnvironment {
                 if (defaultAvailable) defaultNetwork = network
                 if (defaultLost && defaultNetwork == network) defaultNetwork = null
                 if (lost) {
-                    paths.remove(network)
                     capabilities.remove(network)
                     links.remove(network)
                 } else {
                     if (capability != null) capabilities[network] = capability
                     if (link != null) links[network] = link
-                    paths[network] = "${capabilities[network].orEmpty()}|${links[network].orEmpty()}"
                 }
-                val fingerprint = "default=$defaultNetwork|" + paths.entries.sortedBy { it.key.toString() }.joinToString { "${it.key}:${it.value}" }
+                // The default path counts with its interface, DNS and routes. Other
+                // paths (a VPN's underlying Wi-Fi or mobile, or mobile kept up beside
+                // Wi-Fi) count only by identity and transport: their addresses and
+                // routes churn, IPv6 privacy addresses rotate, without moving this
+                // phone's connections, and each change here restarts the WebSocket.
+                val others = capabilities.entries.filter { it.key != defaultNetwork }
+                    .sortedBy { it.key.toString() }.joinToString { "${it.key}:${it.value}" }
+                val fingerprint = "default=$defaultNetwork:${capabilities[defaultNetwork].orEmpty()}:" +
+                    "${links[defaultNetwork].orEmpty()}|$others"
                 if (!window.changed(fingerprint, SystemClock.elapsedRealtime())) return
                 generation++
             }
@@ -83,8 +87,8 @@ internal object NetworkEnvironment {
                 update(network, capability = signature)
             }
             override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
-                update(network, link = listOf(properties.interfaceName.orEmpty(), properties.mtu.toString(),
-                    properties.linkAddresses.map { it.toString() }.sorted().toString(),
+                // Addresses are left out: a rotated address leaves the route, and open sockets, as they were.
+                update(network, link = listOf(properties.interfaceName.orEmpty(),
                     properties.dnsServers.map { it.hostAddress }.sortedBy { it }.toString(),
                     properties.routes.map { it.toString() }.sorted().toString()).joinToString("|"))
             }

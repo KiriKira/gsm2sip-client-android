@@ -129,7 +129,15 @@ object NodeMonitor {
         val pairs = com.callagent.host.push.PushRegistration.pairings(app)
         val liveIds = pairs.map { it.first.sessionInstanceId }.toSet()
         advertised.keys.retainAll(liveIds)
+        // A node the last probe could not reach (a home LAN node seen from mobile
+        // data) cannot take the capability either; asking it every 30 s only wakes
+        // the radio into a timeout. The next probe, or a network change, brings it back.
+        val health = HostNodes.health(app)
+        val unreachable = HostNodes.nodes(app)
+            .filter { node -> health[node.key]?.let { it.checkedAt > 0L && !it.healthy } == true }
+            .map { it.sessionInstanceId }.toSet()
         for ((session, store) in pairs) {
+            if (session.sessionInstanceId in unreachable) continue
             if (!maintenancePending.add(session.sessionInstanceId)) continue
             maintenanceWorkers.execute {
                 try {

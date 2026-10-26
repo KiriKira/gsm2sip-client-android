@@ -31,7 +31,12 @@ class NetworkEnvironmentTest {
             NetworkCapabilities().apply { shadowOf(this).addTransportType(NetworkCapabilities.TRANSPORT_VPN) }) }
         val onVpn = NetworkEnvironment.token
         assertNotEquals(onWifi, onVpn)
-        callbacks.forEach { it.onLinkPropertiesChanged(wifi, LinkProperties().apply { interfaceName = "wlan1" }) }
-        assertNotEquals("underlying Wi-Fi changes matter while VPN stays present", onVpn, NetworkEnvironment.token)
+        callbacks.forEach { it.onLinkPropertiesChanged(wifi, LinkProperties().apply { interfaceName = "wlan0" }) }
+        assertEquals("link details of a path that is not the default do not restart the window", onVpn, NetworkEnvironment.token)
+        val mobile = org.robolectric.shadows.ShadowNetwork.newInstance(103)
+        callbacks.forEach { it.onLost(wifi) }
+        callbacks.forEach { it.onAvailable(mobile); it.onCapabilitiesChanged(mobile,
+            NetworkCapabilities().apply { shadowOf(this).addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR) }) }
+        assertNotEquals("the VPN moving from Wi-Fi to mobile matters", onVpn, NetworkEnvironment.token)
     }
 }

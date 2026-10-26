@@ -1183,7 +1183,7 @@ class MainActivity : AppCompatActivity() {
             icon = R.drawable.ic_ui_refresh,
             onClick = {
                 val report = com.callagent.host.data.StandbyDiagnostics.export(this)
-                android.app.AlertDialog.Builder(this).setTitle("待机统计")
+                MaterialAlertDialogBuilder(this).setTitle("待机统计")
                     .setMessage(com.callagent.host.data.StandbyDiagnostics.summary()).setPositiveButton("关闭", null)
                     .setNeutralButton("分享统计") { _, _ ->
                         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {

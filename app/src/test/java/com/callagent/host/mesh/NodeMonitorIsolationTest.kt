@@ -99,7 +99,11 @@ class NodeMonitorIsolationTest {
         }.use { primary ->
             StubServer { exchange ->
                 when (exchange.path) {
-                    "/v1/rtc/control/capability" -> { leaseRequests.incrementAndGet(); exchange.reply(200, "{}") }
+                    "/v1/rtc/control/capability" -> {
+                        // Capability maintenance may withdraw (enabled=false) at any time; only an enable counts.
+                        if (org.json.JSONObject(exchange.body).optBoolean("enabled")) leaseRequests.incrementAndGet()
+                        exchange.reply(200, "{}")
+                    }
                     "/v1/capabilities" -> { capabilitiesRequests.incrementAndGet(); exchange.reply(200, """{"rtc_call_control":true,"extensions":["mesh"]}""") }
                     "/v1/gateways" -> {
                         exchange.reply(200, """{"items":[{"gateway_id":"backup-gateway","online":true,"rtc_call_control_ready":true,"install_id":"install-test"}]}""")
@@ -165,8 +169,8 @@ class NodeMonitorIsolationTest {
                             if (line.isEmpty()) break
                             if (line.startsWith("Content-Length:", ignoreCase = true)) length = line.substringAfter(':').trim().toInt()
                         }
-                        repeat(length) { check(reader.read() >= 0) }
-                        handler(Request(path, socket))
+                        val body = buildString { repeat(length) { val c = reader.read(); check(c >= 0); append(c.toChar()) } }
+                        handler(Request(path, socket, body))
                     }
                 }
             }
@@ -180,7 +184,7 @@ class NodeMonitorIsolationTest {
         }
     }
 
-    private class Request(val path: String, private val socket: Socket) {
+    private class Request(val path: String, private val socket: Socket, val body: String = "") {
         fun reply(status: Int, body: String) {
             val bytes = body.toByteArray(Charsets.UTF_8)
             socket.getOutputStream().apply {
