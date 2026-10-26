@@ -101,6 +101,7 @@ internal class RtcCallEngine(
                 store(id,snapshot);report(id)
             }
         }catch(_:Throwable){
+            com.callagent.host.network.NetworkEnvironment.failed()
             com.callagent.host.mesh.NodeMonitor.requestFailover(context)
             // Idle polls are seconds apart, so time alone would fail on one miss.
             if(++failedPolls>=3 && System.nanoTime()-lastControl>15_000_000_000L){

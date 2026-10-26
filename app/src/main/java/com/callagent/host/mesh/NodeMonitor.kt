@@ -52,7 +52,7 @@ object NodeMonitor {
         if (!evaluating.compareAndSet(false, true)) return null
         try {
             val now = SystemClock.elapsedRealtime()
-            if (!force && now - lastProbeAt < (if (background) com.callagent.host.BuildConfig.STANDBY_NODE_HEALTH_MS else PROBE_INTERVAL_MS)) return null
+            if (!force && now - lastProbeAt < (if (background) backgroundProbeInterval() else PROBE_INTERVAL_MS)) return null
             lastProbeAt = now
             HostNodes.recoverActive(app)?.let { recovered ->
                 announce(app, recovered)
@@ -156,6 +156,20 @@ object NodeMonitor {
             }
         }
         refreshHistory(app, HostNodes.nodes(app), HostNodes.health(app))
+    }
+
+    private fun backgroundProbeInterval(): Long {
+        val normal = com.callagent.host.BuildConfig.STANDBY_NODE_HEALTH_MS
+        return if (com.callagent.host.network.NetworkEnvironment.stable) maxOf(normal, 300_000L) else normal
+    }
+
+    fun environmentChanged(context: Context) {
+        synchronized(maintenanceClock) {
+            lastFailover = -15_000L
+            lastMaintenance = -30_000L
+        }
+        maintain(context, force = true)
+        requestFailover(context)
     }
 
     fun requestFailover(context: Context) {

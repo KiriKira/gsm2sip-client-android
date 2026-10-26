@@ -42,7 +42,7 @@ object StandbyDiagnostics {
             socketStart?.let { socketMillis += now - it }
             socketStart = null
         }
-        if (kind in setOf("wss_open", "wss_closed")) events.computeIfAbsent(kind) { AtomicLong() }.incrementAndGet()
+        if (kind in setOf("wss_open", "wss_closed", "network_changed")) events.computeIfAbsent(kind) { AtomicLong() }.incrementAndGet()
     }
 
     fun pushReceived(actual: Int, original: Int) {
@@ -141,7 +141,8 @@ object StandbyDiagnostics {
             .put("history_note", "Cache may be cleared. Earlier segments end at last checkpoint; abrupt endings are incomplete.")
             .put("node_count", com.callagent.host.mesh.HostNodes.nodes(context).size.coerceAtLeast(1))
             .put("listening_requested", com.callagent.host.calls.CallRuntime.isListeningRequested)
-            .put("wss_live", com.callagent.host.calls.CallRuntime.wakeChannelLive).toString(2)
+            .put("wss_live", com.callagent.host.calls.CallRuntime.wakeChannelLive)
+            .put("stable_network", com.callagent.host.network.NetworkEnvironment.stable).toString(2)
     }
 
     fun <T> withCause(reason: String, block: () -> T): T {

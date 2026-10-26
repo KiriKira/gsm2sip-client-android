@@ -10,6 +10,7 @@ class HostApp : Application() {
         // A restored full backup replaces data before anything opens it.
         runCatching { com.callagent.backup.FullBackup.applyPending(this, com.callagent.host.backup.HostFullBackupProfile) }
             .onFailure { android.util.Log.e("HostApp", "Full backup restore failed: ${it.javaClass.simpleName}") }
+        com.callagent.host.network.NetworkEnvironment.start(this)
         DynamicColors.applyToActivitiesIfAvailable(this)
         runCatching { HostNotificationChannels.ensure(this) }
     }

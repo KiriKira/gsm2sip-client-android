@@ -160,7 +160,7 @@ class HostBackgroundService : Service() {
     private fun schedulePeriodicSync() {
         if (scheduler.isShutdown) return
         val delay = HostBackgroundPolicy.syncDelay(socketLive, syncFailures,
-            com.callagent.host.BuildConfig.STANDBY_EXPERIMENTS)
+            com.callagent.host.BuildConfig.STANDBY_EXPERIMENTS, com.callagent.host.network.NetworkEnvironment.stable)
         scheduler.schedule({
             try {
                 if (isOptedInAndPaired()) {
@@ -264,6 +264,7 @@ class HostBackgroundService : Service() {
             }
             if (!isCurrent(bound, expectedGeneration)) return
             syncFailures = 0
+            com.callagent.host.network.NetworkEnvironment.succeeded()
             RuntimeState.update(this, connection = if (socketLive) "Live updates connected" else "Periodic HTTPS sync", lastSyncAt = System.currentTimeMillis(), issue = null)
             // A reachable node is the moment to register FCM where due; this is throttled.
             PushRegistration.sync(this)
@@ -289,6 +290,7 @@ class HostBackgroundService : Service() {
                 stopForInvalidSession("The paired account changed. Open the app to resume background sync for this account.", expectedGeneration, bound)
             }
         } catch (_: Exception) {
+            com.callagent.host.network.NetworkEnvironment.failed()
             forceNodeProbe.set(true)
             syncFailures = (syncFailures + 1).coerceAtMost(5)
             if (isCurrent(bound, expectedGeneration)) {
@@ -501,6 +503,7 @@ class HostBackgroundService : Service() {
 
     private fun clearSocket(candidate: WebSocket) = synchronized(webSocketLock) {
         if (socket === candidate) {
+            com.callagent.host.network.NetworkEnvironment.failed()
             com.callagent.host.data.StandbyDiagnostics.event("wss_closed")
             socket = null
             socketLive = false
@@ -763,6 +766,16 @@ class HostBackgroundService : Service() {
         @Volatile internal var isRunning: Boolean = false
             private set
         @Volatile private var liveService: HostBackgroundService? = null
+
+        internal fun onNetworkEnvironmentChanged() {
+            liveService?.takeIf { isRunning }?.let { service ->
+                service.syncFailures = 0
+                service.forceNodeProbe.set(true)
+                service.closeWebSocket()
+                service.enqueueSync("network")
+                service.scheduleWebSocketReconnect(500L)
+            }
+        }
 
         internal fun requestSync(context: Context) {
             liveService?.takeIf { isRunning }?.enqueueSync("push")

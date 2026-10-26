@@ -27,6 +27,8 @@ class CoalescedSyncRequestsTest {
     @Test fun fallbackUsesSocketHealthAndBacksOffWithoutDependingOnPush() {
         assertEquals(300_000L, HostBackgroundPolicy.syncDelay(true, 5, false))
         assertEquals(120_000L, HostBackgroundPolicy.syncDelay(true, 0, false))
+        assertEquals(300_000L, HostBackgroundPolicy.syncDelay(true, 0, false, stableNetwork = true))
+        assertEquals(30_000L, HostBackgroundPolicy.syncDelay(false, 0, false, stableNetwork = true))
         assertEquals(120_000L, HostBackgroundPolicy.syncDelay(true, 0, true))
         assertEquals(30_000L, HostBackgroundPolicy.syncDelay(false, 0, true))
         assertEquals(60_000L, HostBackgroundPolicy.syncDelay(false, 1, true))
