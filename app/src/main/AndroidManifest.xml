@@ -63,6 +63,9 @@
             android:name=".backup.HostSmsBackupActivity"
             android:exported="false" />
         <activity
+            android:name=".backup.HostFullBackupActivity"
+            android:exported="false" />
+        <activity
             android:name=".calls.CallActionActivity"
             android:excludeFromRecents="true"
             android:exported="false"
@@ -113,6 +116,19 @@
         <service android:name=".push.PushRecoveryJob"
             android:permission="android.permission.BIND_JOB_SERVICE"
             android:exported="false" />
+        <!-- Types a just-received verification code; off until enabled in accessibility settings. -->
+        <service
+            android:name=".notify.OtpAutoFillService"
+            android:exported="false"
+            android:label="@string/otp_autofill_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/otp_autofill_service" />
+        </service>
         <!-- FCM wake-ups; inert when the build has no Firebase config. -->
         <service
             android:name=".push.MadokaMessagingService"

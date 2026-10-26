@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="otp_autofill_label">Madoka 验证码自动填入</string>
+    <string name="otp_autofill_description">收到验证码短信后两分钟内，把验证码填入当前聚焦的空白验证码输入框。只在有新验证码时查看当前输入框，不记录、不上传任何屏幕内容。</string>
+</resources>

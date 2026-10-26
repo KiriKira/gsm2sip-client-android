@@ -143,11 +143,14 @@ object InboundSmsNotifications {
         return posts + Post(summaryId, summary)
     }
 
-    /** Copies the newest code in [records] when the user enabled automatic copying. */
+    /**
+     * Copies the newest code in [records] when the user enabled automatic
+     * copying, and offers it for typing when the auto-fill service is on.
+     */
     fun autoCopy(context: Context, records: List<SmsRecord>) {
-        if (!autoCopyCodes(context)) return
         val code = records.maxByOrNull { epochMillis(it.createdAt) }?.let { VerificationCode.extract(it.text) } ?: return
-        copy(context, code)
+        if (OtpAutoFillService.enabled(context)) OtpAutoFillService.offer(code)
+        if (autoCopyCodes(context)) copy(context, code)
     }
 
     fun copy(context: Context, code: String) {

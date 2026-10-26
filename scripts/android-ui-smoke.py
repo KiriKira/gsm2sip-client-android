@@ -887,6 +887,13 @@ class Smoke:
                     else "SMS backup entry is missing or outside the viewport")
         if not backup_ok:
             raise RuntimeError("SMS backup entry is not reachable from Settings")
+        # The pairing form checks that follow start from the top of Settings.
+        for attempt in range(8):
+            if self.find_node(root, "pairing_server") is not None:
+                break
+            self._scroll_content(root, None, "earlier", f"scroll_back_to_pairing_{attempt}")
+            self.wait(1)
+            root = self.capture(f"scroll_back_to_pairing_{attempt}")
 
     def open_settings_if_needed(self, root: ET.Element) -> ET.Element:
         server_id, _, trigger = self.app_specific_fields()

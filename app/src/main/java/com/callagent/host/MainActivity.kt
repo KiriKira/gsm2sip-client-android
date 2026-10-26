@@ -1177,6 +1177,13 @@ class MainActivity : AppCompatActivity() {
         }
         content.addView(HostUi.groupHeader(this, "通知与权限"))
         addPermissionSettings(content)
+        content.addView(HostUi.groupHeader(this, "备份"))
+        content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "全量备份与恢复",
+            summary = "设置、所有节点的配对和本机数据，加密导出到一个文件；可恢复到本机或新手机",
+            icon = R.drawable.ic_ui_archive,
+            trailing = HostUi.chevron(this),
+            onClick = { startActivity(Intent(this, com.callagent.host.backup.HostFullBackupActivity::class.java)) }
+        ).apply { id = R.id.full_backup_entry })
         content.addView(HostUi.groupHeader(this, "短信备份与归档"))
         content.addView(smsArchiveEntryButton())
         settingsMessage = null
@@ -1342,6 +1349,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+
+        val autoFill = com.callagent.host.notify.OtpAutoFillService.enabled(this)
+        content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "自动填入验证码",
+            summary = if (autoFill) "已开启 · 收到验证码后填入正在输入的验证码框"
+                else "在系统无障碍设置中开启“Madoka 验证码自动填入”后可用",
+            icon = R.drawable.ic_ui_copy,
+            trailing = HostUi.chevron(this),
+            onClick = {
+                runCatching { startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+            }).apply { id = R.id.settings_otp_autofill })
 
         content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "电池优化",
             summary = if (status?.batteryExempt == true) "已豁免 · 后台同步不受限制" else "建议豁免，避免后台收不到短信和来电",
