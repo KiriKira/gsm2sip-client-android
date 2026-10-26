@@ -9,6 +9,7 @@ import com.callagent.host.data.profileKey
  * account) and never restored by BOOT_COMPLETED.
  */
 internal class CallPreferences(context: Context) {
+    private val contextForMaintenance = context.applicationContext
     private val preferences = context.applicationContext.getSharedPreferences("host-call-settings", Context.MODE_PRIVATE)
 
     fun enabledFor(session: HostSession?): Boolean {
@@ -27,7 +28,9 @@ internal class CallPreferences(context: Context) {
         } else if (preferences.getString(KEY_SESSION, null) == session.profileKey) {
             editor.putBoolean(KEY_ENABLED, false).remove(KEY_SESSION)
         }
-        return editor.commit()
+        return editor.commit().also { saved ->
+            if (saved) com.callagent.host.mesh.NodeMonitor.maintain(contextForMaintenance, force = true)
+        }
     }
 
     fun ensureEnabledFor(session: HostSession?): Boolean {
@@ -43,7 +46,9 @@ internal class CallPreferences(context: Context) {
         get() = preferences.getString(KEY_LAST_DIAL_SIM, null)
         set(value) { preferences.edit().putString(KEY_LAST_DIAL_SIM, value).apply() }
 
-    fun clear() = preferences.edit().clear().commit()
+    fun clear() = preferences.edit().clear().commit().also { saved ->
+        if (saved) com.callagent.host.mesh.NodeMonitor.maintain(contextForMaintenance, force = true)
+    }
 
     private companion object {
         // Stored name kept from the SIP releases so the setting survives updates and rollbacks.

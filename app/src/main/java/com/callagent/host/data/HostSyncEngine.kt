@@ -62,8 +62,11 @@ class HostSyncEngine(
     private fun refreshMetadata(deadline: Long) {
         val now = System.currentTimeMillis()
         val last = database.syncCheckpoint(boundSession.sessionInstanceId, "metadata_at")?.toLongOrNull() ?: 0L
-        val interval = if (com.callagent.host.BuildConfig.STANDBY_EXPERIMENTS) 300_000L else 30_000L
-        if (database.loadGateway() != null && last > 0L && now >= last && now - last < interval) return
+        val environment = com.callagent.host.network.NetworkEnvironment.token
+        val networkUnchanged = database.syncCheckpoint(boundSession.sessionInstanceId, "metadata_network") == environment
+        val normal = com.callagent.host.BuildConfig.STANDBY_METADATA_MS
+        val interval = if (com.callagent.host.network.NetworkEnvironment.stable) maxOf(normal, 600_000L) else normal
+        if (networkUnchanged && database.loadGateway() != null && last > 0L && now >= last && now - last < interval) return
         ensureBudget(deadline)
         val gateway = api.listGateways().firstOrNull() ?: throw IOException("No paired gateway")
         ensureCurrent()
@@ -73,6 +76,7 @@ class HostSyncEngine(
         if (database.loadGateway() != gateway) database.saveGateway(gateway)
         if (database.loadSims() != sims) database.replaceSims(sims)
         database.saveSyncCheckpoint(boundSession.sessionInstanceId, "metadata_at", now.toString())
+        database.saveSyncCheckpoint(boundSession.sessionInstanceId, "metadata_network", environment)
     }
 
     /**
