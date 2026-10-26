@@ -64,7 +64,7 @@ class HostBackgroundService : Service() {
             .followSslRedirects(false)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
-            .pingInterval(if (com.callagent.host.BuildConfig.STANDBY_EXPERIMENTS) 0 else 25, TimeUnit.SECONDS)
+            .pingInterval(if (com.callagent.host.BuildConfig.STANDBY_SERVER_PING_ONLY) 0 else 25, TimeUnit.SECONDS)
             .build()
     }
     @Volatile private var socket: WebSocket? = null
@@ -160,7 +160,7 @@ class HostBackgroundService : Service() {
     private fun schedulePeriodicSync() {
         if (scheduler.isShutdown) return
         val delay = HostBackgroundPolicy.syncDelay(socketLive, syncFailures,
-            com.callagent.host.BuildConfig.STANDBY_EXPERIMENTS)
+            com.callagent.host.BuildConfig.STANDBY_EXPERIMENTS, com.callagent.host.network.NetworkEnvironment.stable)
         scheduler.schedule({
             try {
                 if (isOptedInAndPaired()) {
@@ -232,9 +232,11 @@ class HostBackgroundService : Service() {
     private fun runSync(expectedGeneration: Long) {
         // Absence of a default network is different from an unvalidated LAN/VPN network.
         if (connectivityManager.activeNetwork == null) return
+        NodeMonitor.maintain(this)
+        com.callagent.host.data.StandbyDiagnostics.checkpoint(this)
         // Pick the best server node first; a switch rebinds this service and
         // queues a fresh sync on the new node.
-        if (runCatching { NodeMonitor.evaluate(this, force = forceNodeProbe.getAndSet(false)) }.getOrNull() != null) return
+        if (runCatching { NodeMonitor.evaluate(this, force = forceNodeProbe.getAndSet(false), background = true) }.getOrNull() != null) return
         val bound = sessionStore.read()
         if (bound == null || bound.role != "client") {
             stopForInvalidSession(expectedGeneration = expectedGeneration)
@@ -246,8 +248,10 @@ class HostBackgroundService : Service() {
         ).apply { setReferenceCounted(false) }
         val startedAt = android.os.SystemClock.elapsedRealtime()
         val deadline = startedAt + WAKE_LOCK_TIMEOUT_MS
+        var wakeToken: Long? = null
         try {
             wakeLock.acquire(WAKE_LOCK_TIMEOUT_MS)
+            wakeToken = com.callagent.host.data.StandbyDiagnostics.wakeAcquired("host-sync", WAKE_LOCK_TIMEOUT_MS)
             val expectedRunGeneration = expectedGeneration
             val scopedCoalescer = notificationCoalescer(bound, expectedRunGeneration)
             HostSyncEngine(
@@ -260,6 +264,7 @@ class HostBackgroundService : Service() {
             }
             if (!isCurrent(bound, expectedGeneration)) return
             syncFailures = 0
+            com.callagent.host.network.NetworkEnvironment.succeeded()
             RuntimeState.update(this, connection = if (socketLive) "Live updates connected" else "Periodic HTTPS sync", lastSyncAt = System.currentTimeMillis(), issue = null)
             // A reachable node is the moment to register FCM where due; this is throttled.
             PushRegistration.sync(this)
@@ -285,12 +290,15 @@ class HostBackgroundService : Service() {
                 stopForInvalidSession("The paired account changed. Open the app to resume background sync for this account.", expectedGeneration, bound)
             }
         } catch (_: Exception) {
+            com.callagent.host.network.NetworkEnvironment.failed()
+            forceNodeProbe.set(true)
             syncFailures = (syncFailures + 1).coerceAtMost(5)
             if (isCurrent(bound, expectedGeneration)) {
                 RuntimeState.update(this, connection = "Periodic HTTPS sync", issue = "Server unavailable; retrying over HTTPS.")
             }
         } finally {
             if (wakeLock.isHeld) wakeLock.release()
+            wakeToken?.let { com.callagent.host.data.StandbyDiagnostics.wakeReleased(it) }
             val currentSession = runCatching { sessionStore.read() }.getOrNull()
             val stillEnabled = RuntimeState.preferences(this).getBoolean(RuntimeState.KEY_ENABLED, false)
             // Ordinary service recreation preserves alerts for the same pairing. Only an
@@ -430,6 +438,7 @@ class HostBackgroundService : Service() {
                 // The backoff resets only once the socket proves stable: on a
                 // weak signal a socket that opens and drops at once otherwise
                 // reconnected, with a full sync, about every second.
+                com.callagent.host.data.StandbyDiagnostics.event("wss_open")
                 socketOpenedAt = SystemClock.elapsedRealtime()
                 socketLive = true
                 CallRuntime.wakeChannelLive = true
@@ -494,6 +503,8 @@ class HostBackgroundService : Service() {
 
     private fun clearSocket(candidate: WebSocket) = synchronized(webSocketLock) {
         if (socket === candidate) {
+            com.callagent.host.network.NetworkEnvironment.failed()
+            com.callagent.host.data.StandbyDiagnostics.event("wss_closed")
             socket = null
             socketLive = false
             CallRuntime.wakeChannelLive = false
@@ -507,6 +518,7 @@ class HostBackgroundService : Service() {
         }
         socketLive = false
         CallRuntime.wakeChannelLive = false
+        if (old != null) com.callagent.host.data.StandbyDiagnostics.event("wss_closed")
         old?.cancel()
     }
 
@@ -754,6 +766,16 @@ class HostBackgroundService : Service() {
         @Volatile internal var isRunning: Boolean = false
             private set
         @Volatile private var liveService: HostBackgroundService? = null
+
+        internal fun onNetworkEnvironmentChanged() {
+            liveService?.takeIf { isRunning }?.let { service ->
+                service.syncFailures = 0
+                service.forceNodeProbe.set(true)
+                service.closeWebSocket()
+                service.enqueueSync("network")
+                service.scheduleWebSocketReconnect(500L)
+            }
+        }
 
         internal fun requestSync(context: Context) {
             liveService?.takeIf { isRunning }?.enqueueSync("push")

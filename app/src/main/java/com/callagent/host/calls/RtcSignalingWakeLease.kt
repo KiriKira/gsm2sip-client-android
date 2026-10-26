@@ -13,19 +13,34 @@ internal class RtcSignalingWakeLease(context: Context) : AutoCloseable {
         .apply { setReferenceCounted(false) }
     private var renewAt = 0L
     private var closed = false
+    private var diagnosticToken: Long? = null
 
     @Synchronized fun renew() {
         if (closed) return
         val now = SystemClock.elapsedRealtime()
         if (!lock.isHeld || now >= renewAt) {
+            if (!lock.isHeld) {
+                diagnosticToken?.let { com.callagent.host.data.StandbyDiagnostics.wakeReleased(it) }
+                diagnosticToken = null
+            }
             lock.acquire(LEASE_MILLIS)
+            val token = diagnosticToken
+            if (token == null) diagnosticToken = com.callagent.host.data.StandbyDiagnostics.wakeAcquired("rtc-signaling", LEASE_MILLIS)
+            else com.callagent.host.data.StandbyDiagnostics.wakeRenewed(token, LEASE_MILLIS)
             renewAt = now + RENEW_MILLIS
         }
     }
 
+    @Synchronized fun pause() {
+        if (lock.isHeld) lock.release()
+        diagnosticToken?.let { com.callagent.host.data.StandbyDiagnostics.wakeReleased(it) }
+        diagnosticToken = null
+        renewAt = 0L
+    }
+
     @Synchronized override fun close() {
         closed = true
-        if (lock.isHeld) lock.release()
+        pause()
     }
 
     companion object {

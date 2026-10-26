@@ -29,6 +29,19 @@ class RtcSignalingWakeLeaseTest {
         assertFalse(lock.isHeld)
     }
 
+    @Test fun losingNetworkPausesLeaseAndRecoveryCanRenewUntilClosed() {
+        val lease = RtcSignalingWakeLease(context)
+        val lock = ShadowPowerManager.getLatestWakeLock()
+        lease.renew()
+        lease.pause()
+        assertFalse(lock.isHeld)
+        lease.renew()
+        assertTrue(lock.isHeld)
+        lease.close()
+        lease.renew()
+        assertFalse(lock.isHeld)
+    }
+
     @Test fun replacingNodeEngineDoesNotReleaseTheNewEngineLease() {
         val old = RtcSignalingWakeLease(context)
         val oldLock = ShadowPowerManager.getLatestWakeLock()

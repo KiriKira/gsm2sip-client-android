@@ -16,6 +16,7 @@ import com.callagent.host.data.databaseName
 internal object CrossNodeStatus {
     private val FINAL = setOf(SmsStatus.DELIVERED, SmsStatus.FAILED, SmsStatus.EXPIRED)
     private const val MAX_PER_ROUND = 30
+    private val retry = mutableMapOf<String, Pair<Int, Long>>()
 
     /** Returns how many local records changed. Blocking. */
     fun refresh(context: Context, nodes: List<HostNode>, health: Map<String, NodeHealth>): Int {
@@ -32,14 +33,24 @@ internal object CrossNodeStatus {
             val pending = database.loadOutboundTasks()
                 .filter { it.serverId != null && it.status !in FINAL && it.gatewayId in nodeByGateway }
                 .takeLast(MAX_PER_ROUND)
+            val liveIds = pending.map { it.serverId!! }.toSet()
+            retry.keys.retainAll(liveIds)
             var changed = 0
             pending.groupBy { it.gatewayId!! }.forEach { (gatewayId, records) ->
                 val node = nodeByGateway.getValue(gatewayId)
                 val api = ApiClient(node.apiBaseUrl, HostNodes.storeFor(context, node), 4_000, 6_000)
                 for (record in records) {
-                    val remote = runCatching { api.getMessage(record.serverId!!) }.getOrNull() ?: continue
+                    val id = record.serverId!!
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    val previous = retry[id]
+                    if (previous != null && now < previous.second) continue
+                    val remote = runCatching { api.getMessage(id) }.getOrNull()
+                    val attempts = ((previous?.first ?: 0) + 1).coerceAtMost(4)
+                    retry[id] = attempts to (now + (30_000L shl (attempts - 1)).coerceAtMost(300_000L))
+                    if (remote == null) continue
                     if (remote.status != record.status || remote.parts != record.parts || remote.partCount != record.partCount) {
                         database.upsertRemoteMessage(remote)
+                        retry.remove(id)
                         changed++
                     }
                 }

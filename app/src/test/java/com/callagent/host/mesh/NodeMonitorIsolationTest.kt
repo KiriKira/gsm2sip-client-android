@@ -90,6 +90,7 @@ class NodeMonitorIsolationTest {
         val releasePrimary = CountDownLatch(1)
         val backupProbed = CountDownLatch(1)
         val capabilitiesRequests = AtomicInteger()
+        val leaseRequests = AtomicInteger()
         val callers = Executors.newFixedThreadPool(2)
         StubServer { exchange ->
             primaryStarted.countDown()
@@ -98,6 +99,7 @@ class NodeMonitorIsolationTest {
         }.use { primary ->
             StubServer { exchange ->
                 when (exchange.path) {
+                    "/v1/rtc/control/capability" -> { leaseRequests.incrementAndGet(); exchange.reply(200, "{}") }
                     "/v1/capabilities" -> { capabilitiesRequests.incrementAndGet(); exchange.reply(200, """{"rtc_call_control":true,"extensions":["mesh"]}""") }
                     "/v1/gateways" -> {
                         exchange.reply(200, """{"items":[{"gateway_id":"backup-gateway","online":true,"rtc_call_control_ready":true,"install_id":"install-test"}]}""")
@@ -120,6 +122,7 @@ class NodeMonitorIsolationTest {
                     assertEquals(backupSession.sessionInstanceId, evaluating.get(5, TimeUnit.SECONDS)?.sessionInstanceId)
                     assertEquals("backup-test", HostNodes.activeNode(app)?.key)
                     assertEquals("only one capabilities HTTP request per healthy probe", 1, capabilitiesRequests.get())
+                    assertEquals("health probes must not silently enable incoming calls", 0, leaseRequests.get())
                     val health = HostNodes.health(app).getValue("backup-test")
                     assertTrue(health.healthy)
                     assertTrue(health.callReady)

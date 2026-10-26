@@ -1,5 +1,7 @@
 # Madoka 后台待机耗电优化方案
 
+> 下一版本的实施范围以 [2026-10-26 待机优化计划](standby-optimization-plan-20261026.md) 为准，包含无 FCM 场景且不依赖 mesh。本文保留前一轮研究与实施背景；跨端推送休眠属于远期范围。
+
 日期：2026-10-24。修订：v2，已核对近期 Linphone、Signal 源码与 Android/FCM 官方资料。状态：第一批客户端优化已实现，扩展调度作为默认关闭的实验；跨端推送休眠待实施。尚无 Madoka 真机耗电改善数据。
 
 审查基线：Madoka `a0f414a7bb099a45635d62026940e87cf7cd5fab`；服务端 `60eeaedfc92230fa22da9a2182d794b414aa3dbc`。
