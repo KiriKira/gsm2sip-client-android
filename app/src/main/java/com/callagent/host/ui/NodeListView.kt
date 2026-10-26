@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.callagent.host.mesh.HostNode
 import com.callagent.host.mesh.NodeHealth
+import com.callagent.host.push.NodePushStatus
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
@@ -33,7 +34,12 @@ data class NodeRow(
 )
 
 object NodeRowPresenter {
-    fun rows(nodes: List<HostNode>, health: Map<String, NodeHealth>, activeKey: String?): List<NodeRow> =
+    fun rows(
+        nodes: List<HostNode>,
+        health: Map<String, NodeHealth>,
+        activeKey: String?,
+        push: Map<String, NodePushStatus> = emptyMap()
+    ): List<NodeRow> =
         nodes.mapIndexed { index, node ->
             val state = health[node.key]
             val active = node.key == activeKey
@@ -50,17 +56,68 @@ object NodeRowPresenter {
                 active = active,
                 healthy = state?.takeIf { it.checkedAt > 0L }?.healthy,
                 removable = !active,
-                quality = state?.let(::quality)
+                quality = listOfNotNull(state?.let(::quality), push[node.key]?.let(::pushShort))
+                    .joinToString(" · ").ifEmpty { null }
             )
         }
 
     private fun quality(state: NodeHealth): String? =
         if (state.checkedAt == 0L) null else if (state.callReady) "可通话" else "仅短信"
 
+    /** The push state in a few characters for a node row. */
+    fun pushShort(status: NodePushStatus): String = when (status.kind) {
+        NodePushStatus.Kind.UNAVAILABLE -> "无推送"
+        NodePushStatus.Kind.NO_ENDPOINT, NodePushStatus.Kind.PENDING -> "推送等待登记"
+        NodePushStatus.Kind.RELAY_RETRYING -> "推送中继不可达"
+        NodePushStatus.Kind.REGISTERED -> "推送已登记"
+        NodePushStatus.Kind.UNSUPPORTED -> "节点不支持推送"
+        NodePushStatus.Kind.REFUSED -> "推送被拒绝"
+        NodePushStatus.Kind.RETRYING -> if (status.stillRegistered) "推送已登记（复查失败）" else "推送登记失败"
+    }
+
+    /** The push state with its timing, for the node detail dialog and the single-node tile. */
+    fun pushDetail(status: NodePushStatus, now: Long): String {
+        fun checked(verb: String) = status.checkedAt.takeIf { it > 0L }?.let { "（${ago(now - it)}$verb）" }.orEmpty()
+        val next = status.nextAttemptAt.takeIf { it > now }?.let { "，${later(it - now)}再试" } ?: "，稍后再试"
+        return when (status.kind) {
+            NodePushStatus.Kind.UNAVAILABLE -> "此版本未启用推送唤醒"
+            NodePushStatus.Kind.NO_ENDPOINT -> "正在向 FCM 和推送中继取得推送地址"
+            NodePushStatus.Kind.RELAY_RETRYING -> "暂时连不上推送中继（连续 ${status.failures} 次）$next"
+            NodePushStatus.Kind.PENDING -> "等待向该节点登记"
+            NodePushStatus.Kind.REGISTERED -> "已登记，该节点可在后台唤醒此手机${checked("确认")}"
+            NodePushStatus.Kind.UNSUPPORTED -> "该节点的服务器不支持推送，请升级 SoulGem${checked("检查")}"
+            NodePushStatus.Kind.REFUSED -> "该节点拒绝了登记${checked("检查")}，一天后再试"
+            NodePushStatus.Kind.RETRYING -> (if (status.stillRegistered) "已登记，但最近一次复查失败" else "登记失败") +
+                "（连续 ${status.failures} 次，可能是节点或其到推送中继的网络问题）$next"
+        }
+    }
+
+    private fun ago(millis: Long): String {
+        val minutes = (millis / 60_000L).coerceAtLeast(0)
+        return when {
+            minutes < 1 -> "刚刚"
+            minutes < 60 -> "$minutes 分钟前"
+            minutes < 48 * 60 -> "${minutes / 60} 小时前"
+            else -> "${minutes / (24 * 60)} 天前"
+        }
+    }
+
+    private fun later(millis: Long): String {
+        val minutes = (millis + 59_999L) / 60_000L
+        return if (minutes < 60) "约 $minutes 分钟后" else "约 ${(minutes + 59) / 60} 小时后"
+    }
+
     /** Label/value pairs for the node detail dialog. */
-    fun details(node: HostNode, state: NodeHealth?, active: Boolean, now: Long): List<Pair<String, String>> = buildList {
+    fun details(
+        node: HostNode,
+        state: NodeHealth?,
+        active: Boolean,
+        now: Long,
+        push: NodePushStatus? = null
+    ): List<Pair<String, String>> = buildList {
         add("地址" to node.apiBaseUrl)
         add("角色" to if (active) "正在使用" else "备用")
+        push?.let { add("推送" to pushDetail(it, now)) }
         if (state == null || state.checkedAt == 0L) {
             add("状态" to "尚未检测")
             return@buildList

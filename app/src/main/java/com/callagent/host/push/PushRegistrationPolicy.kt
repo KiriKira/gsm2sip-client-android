@@ -17,19 +17,25 @@ internal object PushRegistrationPolicy {
         val tokenHash: String? = null,
         val registered: Boolean = false,
         val failures: Int = 0,
-        val nextAttemptAt: Long = 0L
+        val nextAttemptAt: Long = 0L,
+        /** The last answer, for showing; null before the first attempt or in state saved by 0.4.4 and earlier. */
+        val outcome: Outcome? = null,
+        val checkedAt: Long = 0L
     ) {
-        fun encode(): String = listOf(tokenHash.orEmpty(), registered, failures, nextAttemptAt).joinToString("|")
+        fun encode(): String =
+            listOf(tokenHash.orEmpty(), registered, failures, nextAttemptAt, outcome?.name.orEmpty(), checkedAt).joinToString("|")
 
         companion object {
             fun decode(raw: String?): NodeState {
                 val parts = raw?.split('|') ?: return NodeState()
-                if (parts.size != 4) return NodeState()
+                if (parts.size != 4 && parts.size != 6) return NodeState()
                 return NodeState(
                     tokenHash = parts[0].ifEmpty { null },
                     registered = parts[1].toBoolean(),
                     failures = parts[2].toIntOrNull() ?: 0,
-                    nextAttemptAt = parts[3].toLongOrNull() ?: 0L
+                    nextAttemptAt = parts[3].toLongOrNull() ?: 0L,
+                    outcome = parts.getOrNull(4)?.let { name -> Outcome.entries.firstOrNull { it.name == name } },
+                    checkedAt = parts.getOrNull(5)?.toLongOrNull() ?: 0L
                 )
             }
         }
@@ -42,12 +48,12 @@ internal object PushRegistrationPolicy {
     fun after(outcome: Outcome, state: NodeState, tokenHash: String, now: Long): NodeState = when (outcome) {
         // Registered tokens are confirmed daily, so a server that lost or
         // stopped sending to it is noticed.
-        Outcome.REGISTERED -> NodeState(tokenHash, true, 0, now + RECHECK_MS)
-        Outcome.UNSUPPORTED, Outcome.REFUSED -> NodeState(tokenHash, false, 0, now + RECHECK_MS)
+        Outcome.REGISTERED -> NodeState(tokenHash, true, 0, now + RECHECK_MS, outcome, now)
+        Outcome.UNSUPPORTED, Outcome.REFUSED -> NodeState(tokenHash, false, 0, now + RECHECK_MS, outcome, now)
         Outcome.RETRY -> {
             val failures = state.failures + 1
             val delay = (FIRST_RETRY_MS shl minOf(failures - 1, 16)).coerceAtMost(MAX_RETRY_MS)
-            NodeState(tokenHash, state.registered && state.tokenHash == tokenHash, failures, now + delay)
+            NodeState(tokenHash, state.registered && state.tokenHash == tokenHash, failures, now + delay, outcome, now)
         }
     }
 

@@ -1,6 +1,7 @@
 package com.callagent.host.push
 
 import android.content.Context
+import android.content.Intent
 import android.os.SystemClock
 import android.util.Log
 import com.callagent.host.BuildConfig
@@ -11,11 +12,45 @@ import com.callagent.host.data.ServerPushSignal
 import com.callagent.host.data.SessionStore
 import com.callagent.host.data.normalizeApiBaseUrl
 import com.callagent.host.mesh.HostNodes
+import com.callagent.host.mesh.NodeMonitor
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+
+/**
+ * What this phone last learned about push wake-ups from one node. It is read
+ * from local state only: showing it never contacts the node or the relay.
+ */
+data class NodePushStatus(
+    val kind: Kind,
+    /** Consecutive transient failures, for [Kind.RETRYING]. */
+    val failures: Int = 0,
+    /** When the node last answered, or 0 if unknown. */
+    val checkedAt: Long = 0L,
+    /** When the phone next asks on its own, or 0 if unknown. */
+    val nextAttemptAt: Long = 0L,
+    /** For [Kind.RETRYING]: an earlier registration still stands. */
+    val stillRegistered: Boolean = false
+) {
+    enum class Kind {
+        /** This build has no relay or no Firebase. */
+        UNAVAILABLE,
+        /** No FCM token or relay endpoint yet. */
+        NO_ENDPOINT,
+        /** The relay could not be reached; the phone asks it again later. */
+        RELAY_RETRYING,
+        /** Not asked yet with the current endpoint. */
+        PENDING,
+        REGISTERED,
+        /** The server does not send push wake-ups. */
+        UNSUPPORTED,
+        REFUSED,
+        /** The node or its route to the relay failed; the phone asks again later. */
+        RETRYING
+    }
+}
 
 /**
  * Keeps this phone's push endpoint registered on every paired node that
@@ -82,6 +117,58 @@ object PushRegistration {
             PushRegistrationPolicy.NodeState.decode(prefs.getString(NODE_PREFIX + sessionInstanceId, null)), hash(endpoint))
     }
 
+    /** The push state of the node whose pairing is [sessionInstanceId], from local state only. */
+    fun status(context: Context, sessionInstanceId: String): NodePushStatus {
+        if (!available(context)) return NodePushStatus(NodePushStatus.Kind.UNAVAILABLE)
+        val prefs = prefs(context)
+        val endpoint = currentEndpoint(prefs)
+        if (endpoint == null) {
+            val relay = PushRegistrationPolicy.NodeState.decode(prefs.getString(KEY_RELAY, null))
+            return if (relay.failures > 0) {
+                NodePushStatus(NodePushStatus.Kind.RELAY_RETRYING, relay.failures, relay.checkedAt, relay.nextAttemptAt)
+            } else {
+                NodePushStatus(NodePushStatus.Kind.NO_ENDPOINT)
+            }
+        }
+        val state = PushRegistrationPolicy.NodeState.decode(prefs.getString(NODE_PREFIX + sessionInstanceId, null))
+        if (state.tokenHash != hash(endpoint)) return NodePushStatus(NodePushStatus.Kind.PENDING)
+        // State saved before outcomes were recorded: a registration was confirmed a day before its recheck.
+        val checkedAt = state.checkedAt.takeIf { it > 0L }
+            ?: (state.nextAttemptAt - PushRegistrationPolicy.RECHECK_MS).takeIf { state.registered && it > 0L } ?: 0L
+        val kind = when {
+            state.outcome == PushRegistrationPolicy.Outcome.RETRY || (!state.registered && state.failures > 0) -> NodePushStatus.Kind.RETRYING
+            state.registered -> NodePushStatus.Kind.REGISTERED
+            state.outcome == PushRegistrationPolicy.Outcome.UNSUPPORTED -> NodePushStatus.Kind.UNSUPPORTED
+            state.outcome == PushRegistrationPolicy.Outcome.REFUSED -> NodePushStatus.Kind.REFUSED
+            else -> NodePushStatus.Kind.PENDING
+        }
+        return NodePushStatus(kind, state.failures, checkedAt, state.nextAttemptAt, stillRegistered = state.registered)
+    }
+
+    /**
+     * The user asked to check now: nodes and a relay that are not registered
+     * are asked at once instead of at their backoff time. Registered nodes
+     * keep their daily recheck.
+     */
+    fun retryNow(context: Context) {
+        val app = context.applicationContext
+        if (!available(app)) return
+        val prefs = prefs(app)
+        val due = prefs.all.filter { (key, value) ->
+            (key.startsWith(NODE_PREFIX) || key == KEY_RELAY) && value is String &&
+                !PushRegistrationPolicy.NodeState.decode(value).registered
+        }
+        if (due.isNotEmpty()) {
+            prefs.edit().apply {
+                due.forEach { (key, value) ->
+                    putString(key, PushRegistrationPolicy.NodeState.decode(value as String).copy(nextAttemptAt = 0L).encode())
+                }
+            }.apply()
+        }
+        if (prefs.getString(KEY_TOKEN, null) == null) tokenRequested.set(false)
+        sync(app, force = true)
+    }
+
     /** Every pairing this phone holds, with the store its session lives in. */
     internal fun pairings(context: Context): List<Pair<HostSession, SessionStore>> {
         val app = context.applicationContext
@@ -105,6 +192,7 @@ object PushRegistration {
         val endpoint = endpointFor(app, token) ?: return
         val endpointHash = hash(endpoint)
         val live = mutableSetOf<String>()
+        var contacted = false
         for ((session, store) in pairings(app)) {
             val key = NODE_PREFIX + session.sessionInstanceId
             live += key
@@ -114,6 +202,7 @@ object PushRegistration {
             val upgraded = !state.registered && ServerPushSignal.advertises(normalizeApiBaseUrl(session.apiBaseUrl)) &&
                 rechecked.add(key)
             if (!upgraded && !PushRegistrationPolicy.shouldAttempt(state, endpointHash, now)) continue
+            contacted = true
             var endpointRejected = false
             val outcome = try {
                 val api = ApiClient(session.apiBaseUrl, store)
@@ -137,9 +226,11 @@ object PushRegistration {
                 val relay = PushRegistrationPolicy.NodeState.decode(prefs.getString(KEY_RELAY, null))
                 prefs.edit().remove(KEY_ENDPOINT).putString(KEY_RELAY,
                     PushRegistrationPolicy.after(PushRegistrationPolicy.Outcome.REFUSED, relay, relayKey(token), now).encode()).apply()
+                announce(app)
                 return
             }
         }
+        if (contacted) announce(app)
         // Forget nodes this phone no longer pairs with.
         prefs.all.keys.filter { it.startsWith(NODE_PREFIX) && it !in live }.takeIf { it.isNotEmpty() }?.let { stale ->
             prefs.edit().apply { stale.forEach(::remove) }.apply()
@@ -181,6 +272,11 @@ object PushRegistration {
         }
         // Nodes no longer paired revoked this phone's session, and its endpoint with it.
         if (live.isEmpty()) prefs.edit().clear().apply()
+    }
+
+    /** Lets a visible node list show the new push state. */
+    private fun announce(app: Context) {
+        runCatching { app.sendBroadcast(Intent(NodeMonitor.ACTION_NODE_CHANGED).setPackage(app.packageName)) }
     }
 
     /** The cached endpoint, if it came from the relay this build uses. */
