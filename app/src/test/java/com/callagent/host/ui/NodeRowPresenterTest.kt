@@ -2,6 +2,8 @@ package com.callagent.host.ui
 
 import com.callagent.host.mesh.HostNode
 import com.callagent.host.mesh.NodeHealth
+import com.callagent.host.push.NodePushStatus
+import com.callagent.host.push.NodePushStatus.Kind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -47,5 +49,30 @@ class NodeRowPresenterTest {
         assertNull(details["最近结果"])
         assertTrue(details.getValue("通话").startsWith("可通话"))
         assertEquals("尚未检测", NodeRowPresenter.details(nodes[0], null, false, 0).toMap()["状态"])
+    }
+
+    @Test
+    fun pushStateJoinsTheQualityLineAndTheDetails() {
+        val hour = 60 * 60 * 1000L
+        val now = 100 * hour
+        val health = NodeHealth(consecutiveSuccesses = 3, checkedAt = now, callReady = true)
+        val rows = NodeRowPresenter.rows(nodes, mapOf("a" to health), activeKey = "a", push = mapOf(
+            "a" to NodePushStatus(Kind.REGISTERED, checkedAt = now - 3 * hour),
+            "b" to NodePushStatus(Kind.RETRYING, failures = 2, nextAttemptAt = now + 2 * 60_000L)
+        ))
+        assertEquals("可通话 · 推送已登记", rows[0].quality)
+        assertEquals("a node never probed still shows push", "推送登记失败", rows[1].quality)
+        assertNull(rows[2].quality)
+
+        assertEquals("已登记，该节点可在后台唤醒此手机（3 小时前确认）",
+            NodeRowPresenter.pushDetail(NodePushStatus(Kind.REGISTERED, checkedAt = now - 3 * hour), now))
+        assertEquals("登记失败（连续 2 次，可能是节点或其到推送中继的网络问题），约 2 分钟后再试",
+            NodeRowPresenter.pushDetail(NodePushStatus(Kind.RETRYING, failures = 2, nextAttemptAt = now + 2 * 60_000L), now))
+        assertEquals("推送已登记（复查失败）",
+            NodeRowPresenter.pushShort(NodePushStatus(Kind.RETRYING, failures = 1, stillRegistered = true)))
+        val details = NodeRowPresenter.details(nodes[0], null, false, now,
+            NodePushStatus(Kind.UNSUPPORTED, checkedAt = now - 30 * 60_000L)).toMap()
+        assertEquals("该节点的服务器不支持推送，请升级 SoulGem（30 分钟前检查）", details["推送"])
+        assertEquals("push shows even before a probe", "尚未检测", details["状态"])
     }
 }

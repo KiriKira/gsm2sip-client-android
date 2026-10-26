@@ -46,7 +46,14 @@ class PushPolicyTest {
         assertFalse("another token is not registered", PushRegistrationPolicy.ready(state, "t2"))
         assertTrue(PushRegistrationPolicy.shouldAttempt(state, "t2", 1))
         assertEquals(state, NodeState.decode(state.encode()))
+        assertEquals(Outcome.REGISTERED, state.outcome)
         assertEquals(NodeState(), NodeState.decode("garbage"))
+        // State saved by 0.4.4 and earlier keeps working, without an outcome.
+        assertEquals(NodeState("t1", true, 0, day), NodeState.decode("t1|true|0|$day"))
+        val retry = PushRegistrationPolicy.after(Outcome.RETRY, state, "t1", 5L)
+        assertEquals(Outcome.RETRY, retry.outcome)
+        assertEquals(5L, retry.checkedAt)
+        assertTrue("a failed recheck keeps the registration", retry.registered)
     }
 
     @Test

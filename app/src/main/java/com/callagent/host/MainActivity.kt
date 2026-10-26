@@ -1202,9 +1202,17 @@ class MainActivity : AppCompatActivity() {
         val nodes = HostNodes.nodes(this)
         if (nodes.size < 2) {
             content.addView(body("可再添加一台服务器作为备用节点（例如家里的局域网服务器和外网 VPS）。当前节点不通或延迟过高时自动切换，恢复后切回优先级更高的节点。"))
+            session?.sessionInstanceId?.let { instance ->
+                val push = com.callagent.host.push.PushRegistration.status(this, instance)
+                content.addView(HostUi.tile(this, HostUi.Position.FIRST, "推送唤醒",
+                    summary = NodeRowPresenter.pushDetail(push, System.currentTimeMillis()),
+                    icon = R.drawable.ic_ui_refresh,
+                    onClick = { retryPush() }).apply { id = R.id.settings_node_push })
+            }
         } else {
             content.addView(body("按住 ≡ 拖动调整优先级。正在使用的节点不可用时切换到下一个可用节点，优先级更高的节点稳定恢复后切回。"))
-            val rows = NodeRowPresenter.rows(nodes, HostNodes.health(this), HostNodes.activeNode(this)?.key)
+            val push = nodes.associate { it.key to com.callagent.host.push.PushRegistration.status(this, it.sessionInstanceId) }
+            val rows = NodeRowPresenter.rows(nodes, HostNodes.health(this), HostNodes.activeNode(this)?.key, push)
             content.addView(NodeListView(this, rows,
                 onReorder = { order ->
                     if (HostNodes.reorder(this, order)) probeNodes(force = true)
@@ -1215,22 +1223,40 @@ class MainActivity : AppCompatActivity() {
                 onSelect = { row -> showNodeDetails(row.key) }
             ).apply { id = R.id.settings_node_list; layoutParams = fullWidthParams(top = 4, bottom = 4) })
             content.addView(HostUi.tile(this, HostUi.Position.FIRST, "立即检测节点", icon = R.drawable.ic_ui_refresh,
-                onClick = { probeNodes(force = true); showToast("正在检测各节点…") }).apply { id = R.id.settings_nodes_probe })
+                onClick = {
+                    probeNodes(force = true)
+                    com.callagent.host.push.PushRegistration.retryNow(this)
+                    showToast("正在检测各节点…")
+                }).apply { id = R.id.settings_nodes_probe })
         }
-        content.addView(HostUi.tile(this, if (nodes.size < 2) HostUi.Position.SINGLE else HostUi.Position.LAST, "添加服务器节点",
+        val addPosition = when {
+            nodes.size >= 2 || session?.sessionInstanceId != null -> HostUi.Position.LAST
+            else -> HostUi.Position.SINGLE
+        }
+        content.addView(HostUi.tile(this, addPosition, "添加服务器节点",
             icon = R.drawable.ic_ui_add, onClick = { showAddNodeDialog() }).apply { id = R.id.settings_nodes_add })
     }
 
     private fun showNodeDetails(key: String) {
         val node = HostNodes.nodes(this).firstOrNull { it.key == key } ?: return
         val details = NodeRowPresenter.details(node, HostNodes.health(this)[key],
-            HostNodes.activeNode(this)?.key == key, System.currentTimeMillis())
+            HostNodes.activeNode(this)?.key == key, System.currentTimeMillis(),
+            com.callagent.host.push.PushRegistration.status(this, node.sessionInstanceId))
         MaterialAlertDialogBuilder(this)
             .setTitle(node.label)
             .setMessage(details.joinToString("\n") { (label, value) -> "$label：$value" })
             .setPositiveButton("关闭", null)
-            .setNeutralButton("立即检测") { _, _ -> probeNodes(force = true) }
+            .setNeutralButton("立即检测") { _, _ ->
+                probeNodes(force = true)
+                com.callagent.host.push.PushRegistration.retryNow(this)
+            }
             .show()
+    }
+
+    /** Asks nodes without a push registration again now; the list refreshes when they answer. */
+    private fun retryPush() {
+        com.callagent.host.push.PushRegistration.retryNow(this)
+        showToast("正在重新登记推送…")
     }
 
     private fun showAddNodeDialog() {
