@@ -1177,6 +1177,21 @@ class MainActivity : AppCompatActivity() {
         }
         content.addView(HostUi.groupHeader(this, "通知与权限"))
         addPermissionSettings(content)
+        content.addView(HostUi.groupHeader(this, "待机诊断"))
+        content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "查看与导出待机统计",
+            summary = "查看信令锁、同步请求及最近收到的推送；统计不含短信或号码",
+            icon = R.drawable.ic_ui_refresh,
+            onClick = {
+                val report = com.callagent.host.data.StandbyDiagnostics.export(this)
+                android.app.AlertDialog.Builder(this).setTitle("待机统计")
+                    .setMessage(com.callagent.host.data.StandbyDiagnostics.summary()).setPositiveButton("关闭", null)
+                    .setNeutralButton("分享统计") { _, _ ->
+                        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, report)
+                        }, "导出待机统计"))
+                    }.show()
+            }))
         content.addView(HostUi.groupHeader(this, "备份"))
         content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "全量备份与恢复",
             summary = "设置、所有节点的配对和本机数据，加密导出到一个文件；可恢复到本机或新手机",

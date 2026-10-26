@@ -51,6 +51,12 @@ android {
         testInstrumentationRunner = providers.gradleProperty("rtcLabRunner").orElse("androidx.test.runner.AndroidJUnitRunner").get()
         // Experimental timing changes stay opt-in until physical-device acceptance.
         buildConfigField("boolean", "STANDBY_EXPERIMENTS", providers.gradleProperty("standbyExperiments").orElse("false").get().toBoolean().toString())
+        buildConfigField("long", "STANDBY_METADATA_MS", "${providers.gradleProperty("standbyMetadataMs").orElse("300000").get().toLong().coerceAtLeast(30000)}L")
+        buildConfigField("long", "STANDBY_SMS_LIVE_MS", "${providers.gradleProperty("standbySmsLiveMs").orElse("120000").get().toLong().coerceAtLeast(30000)}L")
+        buildConfigField("long", "STANDBY_NODE_HEALTH_MS", "${providers.gradleProperty("standbyNodeHealthMs").orElse("120000").get().toLong().coerceAtLeast(15000)}L")
+        buildConfigField("boolean", "STANDBY_FAILURE_BACKOFF", providers.gradleProperty("standbyFailureBackoff").orElse("true").get().toBoolean().toString())
+        buildConfigField("boolean", "STANDBY_SLOW_RTC", providers.gradleProperty("standbySlowRtc").orElse("false").get().toBoolean().toString())
+        buildConfigField("boolean", "STANDBY_SERVER_PING_ONLY", providers.gradleProperty("standbyServerPingOnly").orElse("false").get().toBoolean().toString())
         buildConfigField("String", "PUSH_RELAY_URL", "\"$pushRelayUrl\"")
     }
 

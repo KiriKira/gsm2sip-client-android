@@ -13,7 +13,7 @@ internal object RtcCapabilityRefresh {
         SessionWorkLocks.withLock("capability:$sessionId") {
             val now = SystemClock.elapsedRealtime()
             val previous = synchronized(recent) { recent[sessionId] }
-            if (enabled && previous != null && now >= previous.first && now - previous.first < 15_000L) {
+            if (enabled && previous != null && now >= previous.first && now - previous.first < 30_000L) {
                 return@withLock JSONObject(previous.second.toString())
             }
             val response = send()

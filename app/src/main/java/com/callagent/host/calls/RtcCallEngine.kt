@@ -24,6 +24,17 @@ internal class RtcCallEngine(
     private val closed = AtomicBoolean()
     private val started = AtomicBoolean()
     private val wakeLease = RtcSignalingWakeLease(context)
+    private val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
+    private fun hasNetwork() = connectivity.activeNetwork != null
+    private fun hasLiveCall() = media.isNotEmpty() || delivered.values.any { it !in TERMINAL }
+    private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: android.net.Network) { wake() }
+        override fun onLost(network: android.net.Network) {
+            if (!hasNetwork() && !hasLiveCall()) wakeLease.pause()
+            wake()
+        }
+    }
+    private var networkRegistered = false
     private val media = ConcurrentHashMap<String,RtcAudioSession>()
     private val snapshots = ConcurrentHashMap<String,JSONObject>()
     private val delivered = ConcurrentHashMap<String,EngineCallState>()
@@ -36,7 +47,8 @@ internal class RtcCallEngine(
 
     override fun connect() {
         if (!started.compareAndSet(false,true)) return
-        wakeLease.renew()
+        networkRegistered = runCatching { connectivity.registerDefaultNetworkCallback(networkCallback); true }.getOrDefault(false)
+        if (hasNetwork()) wakeLease.renew()
         schedulePoll(0)
     }
     @Volatile private var wakeRequested=false
@@ -61,16 +73,22 @@ internal class RtcCallEngine(
      * 750 ms kept the radio busy and the phone hot, worst on a weak signal.
      */
     private fun nextPollDelay():Long=idlePollDelay(
-        live = media.isNotEmpty() || delivered.values.any{it !in TERMINAL},
+        live = hasLiveCall(),
         wakeChannelLive = CallRuntime.wakeChannelLive,
         pushReady = runCatching(pushReady).getOrDefault(false),
         failedPolls = failedPolls)
     private fun poll() {
         if(closed.get())return
+        if (!hasNetwork() && !hasLiveCall() && networkRegistered) {
+            wakeLease.pause()
+            lastCapability = 0L
+            return
+        }
+        com.callagent.host.mesh.NodeMonitor.maintain(context)
         try {
             wakeLease.renew()
             val now=System.nanoTime()
-            if(now-lastCapability>15_000_000_000L){control.capability(true);lastCapability=now}
+            if(now-lastCapability>30_000_000_000L){control.capability(true);lastCapability=now}
             val all=control.calls();lastControl=System.nanoTime();failedPolls=0
             lastPollSucceededAt=android.os.SystemClock.elapsedRealtime()
             if(!ready){ready=true;listener.onConnectionState(EngineConnectionState.READY)}
@@ -83,6 +101,7 @@ internal class RtcCallEngine(
                 store(id,snapshot);report(id)
             }
         }catch(_:Throwable){
+            com.callagent.host.mesh.NodeMonitor.requestFailover(context)
             // Idle polls are seconds apart, so time alone would fail on one miss.
             if(++failedPolls>=3 && System.nanoTime()-lastControl>15_000_000_000L){
                 media.values.forEach{it.enableAudio(false)}
@@ -215,8 +234,8 @@ internal class RtcCallEngine(
         internal fun idlePollDelay(live: Boolean, wakeChannelLive: Boolean, pushReady: Boolean, failedPolls: Int = 0): Long {
             if (live) return LIVE_POLL_MS
             val base = when {
-                wakeChannelLive -> if (pushReady) IDLE_POLL_WITH_PUSH_MS else IDLE_POLL_MS
-                else -> if (pushReady) IDLE_POLL_WITH_PUSH_WITHOUT_WAKE_MS else IDLE_POLL_WITHOUT_WAKE_MS
+                wakeChannelLive -> if (pushReady) IDLE_POLL_WITH_PUSH_MS else if (com.callagent.host.BuildConfig.STANDBY_SLOW_RTC) 12_000L else IDLE_POLL_MS
+                else -> if (pushReady) IDLE_POLL_WITH_PUSH_WITHOUT_WAKE_MS else if (com.callagent.host.BuildConfig.STANDBY_SLOW_RTC) 5_000L else IDLE_POLL_WITHOUT_WAKE_MS
             }
             if (failedPolls <= 0) return base
             return (base shl failedPolls.coerceAtMost(5)).coerceAtMost(maxOf(base, FAILED_POLL_MAX_MS))
@@ -225,6 +244,8 @@ internal class RtcCallEngine(
     override fun close(){
         if(!closed.compareAndSet(false,true))return
         wakeLease.close()
+        com.callagent.host.mesh.NodeMonitor.maintain(context, force = true)
+        if (networkRegistered) runCatching { connectivity.unregisterNetworkCallback(networkCallback) }
         worker.shutdownNow();media.values.forEach{it.close()};media.clear()
     }
 }

@@ -33,7 +33,7 @@ object NodeMonitor {
     private val probeWorkers = workers(4, "NodeProbe")
     private val statusWorker = workers(1, "NodeStatus")
     private val refreshingStatus = AtomicBoolean()
-    @Volatile private var lastProbeAt = 0L
+    @Volatile private var lastProbeAt = -120_000L
     private val inFlightSubmissions = AtomicInteger()
 
     /** Mark an SMS submission in flight; no switch happens until it returns. */
@@ -46,13 +46,13 @@ object NodeMonitor {
      * Probe and maybe switch. Returns the new active session after a switch,
      * otherwise null. [force] skips the rate limit (network changed).
      */
-    fun evaluate(context: Context, force: Boolean = false): HostSession? {
+    fun evaluate(context: Context, force: Boolean = false, background: Boolean = false): HostSession? {
         val app = context.applicationContext
         if (!HostNodes.isMultiNode(app)) return null
         if (!evaluating.compareAndSet(false, true)) return null
         try {
             val now = SystemClock.elapsedRealtime()
-            if (!force && now - lastProbeAt < PROBE_INTERVAL_MS) return null
+            if (!force && now - lastProbeAt < (if (background) com.callagent.host.BuildConfig.STANDBY_NODE_HEALTH_MS else PROBE_INTERVAL_MS)) return null
             lastProbeAt = now
             HostNodes.recoverActive(app)?.let { recovered ->
                 announce(app, recovered)
@@ -89,21 +89,95 @@ object NodeMonitor {
                 announce(app, switched)
                 return switched
             }
-            // Historical SMS status must not delay a required node switch.
-            // A switching round refreshes it on the following probe instead.
-            if (refreshingStatus.compareAndSet(false, true)) {
-                statusWorker.execute {
-                    try {
-                        val refreshed = runCatching { CrossNodeStatus.refresh(app, nodes, updates) }.getOrDefault(0)
-                        if (refreshed > 0) {
-                            app.sendBroadcast(Intent(HostBackgroundRuntime.BACKGROUND_SYNCED).setPackage(app.packageName))
-                        }
-                    } finally { refreshingStatus.set(false) }
-                }
-            }
+            refreshHistory(app, nodes, updates)
             return null
         } finally {
             evaluating.set(false)
+        }
+    }
+
+    private val maintenanceCoordinator = workers(1, "NodeMaintenance")
+    private val maintenanceWorkers = workers(4, "NodeLease")
+    private val maintenancePending = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val advertised = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private val maintenanceClock = Any()
+    private var lastMaintenance = -30_000L
+    private var lastHistory = -30_000L
+    private var lastFailover = -15_000L
+    private val failoverWorker = workers(1, "NodeFailover")
+
+    /** Independent of slow health probes. No worker can queue a second renewal for a pairing. */
+    fun maintain(context: Context, force: Boolean = false) {
+        val app = context.applicationContext
+        val now = SystemClock.elapsedRealtime()
+        synchronized(maintenanceClock) {
+            if (!force && now - lastMaintenance < 30_000L) return
+            lastMaintenance = now
+        }
+        maintenanceCoordinator.execute {
+            runCatching {
+                if (force) advertised.entries.removeIf { !it.value }
+                maintainOwned(app)
+            }
+        }
+    }
+
+    private fun maintainOwned(app: Context) {
+        val manager = app.getSystemService(android.net.ConnectivityManager::class.java)
+        if (manager.activeNetwork == null) return
+        com.callagent.host.data.StandbyDiagnostics.checkpoint(app)
+        val pairs = com.callagent.host.push.PushRegistration.pairings(app)
+        val liveIds = pairs.map { it.first.sessionInstanceId }.toSet()
+        advertised.keys.retainAll(liveIds)
+        for ((session, store) in pairs) {
+            if (!maintenancePending.add(session.sessionInstanceId)) continue
+            maintenanceWorkers.execute {
+                try {
+                    val prefs = com.callagent.host.calls.CallPreferences(app)
+                    // The active engine owns the capability of an outgoing call even with listening off.
+                    val active = com.callagent.host.data.SessionStore(app).read()
+                    if (callInProgress() && active?.sessionInstanceId == session.sessionInstanceId) return@execute
+                    val enabled = prefs.enabledFor(session)
+                    if (!enabled && advertised[session.sessionInstanceId] == false) return@execute
+                    if (store.read()?.sessionInstanceId != session.sessionInstanceId) return@execute
+                    val api = ApiClient(session.apiBaseUrl, store, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
+                    fun send(value: Boolean) = com.callagent.host.data.StandbyDiagnostics.withCause("rtc") {
+                        api.rtcRequest("POST", "/rtc/control/capability", org.json.JSONObject().put("version", 1).put("enabled", value))
+                    }
+                    send(enabled)
+                    advertised[session.sessionInstanceId] = enabled
+                    // A user stop racing an HTTP request must win over its late enable.
+                    if (enabled && !prefs.enabledFor(session) && !callInProgress()) {
+                        send(false)
+                        advertised[session.sessionInstanceId] = false
+                    }
+                } catch (_: Exception) { /* Retry next maintenance round, independently per node. */ }
+                finally { maintenancePending.remove(session.sessionInstanceId) }
+            }
+        }
+        refreshHistory(app, HostNodes.nodes(app), HostNodes.health(app))
+    }
+
+    fun requestFailover(context: Context) {
+        val now = SystemClock.elapsedRealtime()
+        synchronized(maintenanceClock) {
+            if (now - lastFailover < 15_000L) return
+            lastFailover = now
+        }
+        failoverWorker.execute { runCatching { evaluate(context.applicationContext, force = true) } }
+    }
+
+    private fun refreshHistory(app: Context, nodes: List<HostNode>, health: Map<String, NodeHealth>) {
+        synchronized(maintenanceClock) {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastHistory < 30_000L || !refreshingStatus.compareAndSet(false, true)) return
+            lastHistory = now
+        }
+        statusWorker.execute {
+            try {
+                if (runCatching { CrossNodeStatus.refresh(app, nodes, health) }.getOrDefault(0) > 0)
+                    app.sendBroadcast(Intent(HostBackgroundRuntime.BACKGROUND_SYNCED).setPackage(app.packageName))
+            } finally { refreshingStatus.set(false) }
         }
     }
 
@@ -118,11 +192,8 @@ object NodeMonitor {
         return try {
             val started = SystemClock.elapsedRealtime()
             val api = ApiClient(node.apiBaseUrl, store, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
-            // Every enrolled node learns that this phone takes calls, even while
-            // another node owns its active foreground call engine.
             val capabilities = api.serverCapabilities()
             val supportsControl = capabilities.rtcCallControl
-            if (supportsControl) com.callagent.rtcmedia.RtcCallControl(com.callagent.rtcmedia.MediaApi { method, path, body -> api.rtcRequest(method, path, body) }).capability(true)
             val rtt = SystemClock.elapsedRealtime() - started
             val gateway = api.listGateways().firstOrNull { installId != null && it.installId == installId }
             NodeObservation(

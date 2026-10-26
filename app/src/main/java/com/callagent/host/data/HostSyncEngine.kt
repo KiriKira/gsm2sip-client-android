@@ -62,7 +62,7 @@ class HostSyncEngine(
     private fun refreshMetadata(deadline: Long) {
         val now = System.currentTimeMillis()
         val last = database.syncCheckpoint(boundSession.sessionInstanceId, "metadata_at")?.toLongOrNull() ?: 0L
-        val interval = if (com.callagent.host.BuildConfig.STANDBY_EXPERIMENTS) 300_000L else 30_000L
+        val interval = com.callagent.host.BuildConfig.STANDBY_METADATA_MS
         if (database.loadGateway() != null && last > 0L && now >= last && now - last < interval) return
         ensureBudget(deadline)
         val gateway = api.listGateways().firstOrNull() ?: throw IOException("No paired gateway")

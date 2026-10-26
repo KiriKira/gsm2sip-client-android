@@ -341,6 +341,8 @@ class ApiClient(
     ): JSONObject {
         val requestStarted = System.nanoTime()
         var requestSucceeded = false
+        var sentBytes = 0L
+        var receivedBytes = 0L
         val connection = (URL(apiRoot + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = connectTimeoutMillis
@@ -357,12 +359,15 @@ class ApiClient(
         }
         try {
             if (body != null || rawBody != null) connection.outputStream.use { output ->
-                output.write((rawBody ?: body!!.toString()).toByteArray(Charsets.UTF_8))
+                val bytes = (rawBody ?: body!!.toString()).toByteArray(Charsets.UTF_8)
+                output.write(bytes)
+                sentBytes = bytes.size.toLong()
             }
             val status = connection.responseCode
             if (status in 300..399) throw IOException("Server endpoint redirected; check the configured server URL")
             if (status !in 200..299) {
                 val errorBody = runCatching { connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } }.getOrNull()
+                receivedBytes = errorBody?.toByteArray(Charsets.UTF_8)?.size?.toLong() ?: 0L
                 val code = runCatching {
                     JSONObject(errorBody ?: "{}").optJSONObject("error")?.optString("code").orEmpty()
                 }.getOrDefault("")
@@ -374,9 +379,10 @@ class ApiClient(
             requestSucceeded = true
             if (!expectBody || status == HttpURLConnection.HTTP_NO_CONTENT) return JSONObject()
             val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            receivedBytes = text.toByteArray(Charsets.UTF_8).size.toLong()
             return if (text.isBlank()) JSONObject() else JSONObject(text)
         } finally {
-            StandbyDiagnostics.record(method, path, requestSucceeded, System.nanoTime() - requestStarted)
+            StandbyDiagnostics.record(method, path, requestSucceeded, System.nanoTime() - requestStarted, sentBytes, receivedBytes, apiRoot)
             connection.disconnect()
         }
     }
