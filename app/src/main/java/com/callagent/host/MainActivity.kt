@@ -62,6 +62,7 @@ import com.callagent.host.data.GatewaySnapshot
 import com.callagent.host.data.HostSession
 import com.callagent.host.data.PairedHost
 import com.callagent.host.data.RemoteCall
+import com.callagent.host.data.inUse
 import com.callagent.host.data.pairingStateLabel
 import com.callagent.host.data.OutboundTask
 import com.callagent.host.data.RetryEnvelope
@@ -1142,10 +1143,10 @@ class MainActivity : AppCompatActivity() {
             addPairingForm(form)
             content.addView(form)
         } else {
-            content.addView(HostUi.groupHeader(this, "服务器与设备"))
+            content.addView(HostUi.groupHeader(this, "服务器"))
             content.addView(HostUi.tile(this, HostUi.Position.SINGLE,
                 title = session?.apiBaseUrl.orEmpty(),
-                summary = "已配对此手机 · 账号 ${shortId(session?.ownerId.orEmpty())}",
+                summary = "账号 ${shortId(session?.ownerId.orEmpty())}",
                 icon = R.drawable.ic_ui_server))
             addServerNodes(content)
             content.addView(HostUi.groupHeader(this, "已配对设备"))
@@ -1156,19 +1157,26 @@ class MainActivity : AppCompatActivity() {
             when {
                 pairedHostsAvailable == false -> devices.addView(HostUi.tile(this, HostUi.Position.SINGLE, "当前服务器不提供设备列表。", icon = R.drawable.ic_ui_device))
                 pairedHosts.isEmpty() -> devices.addView(HostUi.tile(this, HostUi.Position.SINGLE, pairedHostsRefreshIssue ?: "暂无设备记录。", icon = R.drawable.ic_ui_device))
-                else -> pairedHosts.forEachIndexed { index, host ->
-                    devices.addView(HostUi.tile(this, HostUi.position(index, pairedHosts.size),
-                        title = host.name,
-                        summary = listOfNotNull(if (host.isSelf) "此手机" else null, host.pairingStateLabel()).joinToString(" · "),
-                        icon = R.drawable.ic_ui_device))
+                else -> {
+                    // A re-paired phone leaves its old pairing behind on the node:
+                    // list only pairings that still sign in, this phone first.
+                    val now = System.currentTimeMillis()
+                    val shown = pairedHosts.filter { it.inUse(now) }.sortedByDescending { it.isSelf }
+                    shown.forEachIndexed { index, host ->
+                        devices.addView(HostUi.tile(this, HostUi.position(index, shown.size),
+                            title = host.name,
+                            summary = if (host.isSelf) "此手机" else host.pairingStateLabel(),
+                            icon = R.drawable.ic_ui_device))
+                    }
+                    (pairedHosts.size - shown.size).takeIf { it > 0 }?.let { hidden ->
+                        devices.addView(caption("另有 $hidden 条不再使用的配对未显示"))
+                    }
                 }
             }
             content.addView(devices)
-            pairedHostsRefreshIssue?.takeIf { pairedHosts.isNotEmpty() }?.let { content.addView(body(it)) }
             content.addView(HostUi.groupHeader(this, "旧手机与 SIM 卡"))
             content.addView(gatewayStatusCard(compact = false))
             content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "解除此手机配对",
-                summary = "删除此手机上的配对凭据和本机缓存",
                 icon = R.drawable.ic_ui_link_off,
                 onClick = { confirmUnpair() }).apply {
                 id = R.id.settings_unpair
@@ -1177,11 +1185,10 @@ class MainActivity : AppCompatActivity() {
         }
         content.addView(HostUi.groupHeader(this, "通知与权限"))
         addPermissionSettings(content)
-        content.addView(HostUi.groupHeader(this, "待机诊断"))
+        content.addView(HostUi.groupHeader(this, "待机与省电"))
         val sleepy = com.callagent.host.calls.StandbyPowerPolicy.sleepyListening(this)
-        content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "省电接听",
-            summary = if (sleepy) "已开启：空闲时不持续持锁，每分钟短暂唤醒续期；来电由 WebSocket 或推送即时唤醒"
-                else "已关闭：兼容接听，监听来电期间一直持有唤醒锁",
+        content.addView(HostUi.tile(this, HostUi.Position.FIRST, "省电接听",
+            summary = if (sleepy) "已开启" else "已关闭 · 兼容接听",
             icon = R.drawable.ic_ui_battery,
             onClick = {
                 MaterialAlertDialogBuilder(this).setTitle("省电接听")
@@ -1195,9 +1202,8 @@ class MainActivity : AppCompatActivity() {
                         renderCurrentScreen()
                     }.setNegativeButton("取消", null).show()
             }).apply { id = R.id.settings_sleepy_listening })
-        content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "故障退避省电（试验）",
-            summary = if (com.callagent.host.calls.StandbyPowerPolicy.releaseDuringFailure(this))
-                "已启用：连接连续失败时释放空闲锁，恢复后最迟约 15 分钟重连" else "已关闭：保留兼容接听策略",
+        content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "故障退避省电（试验）",
+            summary = if (com.callagent.host.calls.StandbyPowerPolicy.releaseDuringFailure(this)) "已开启" else "已关闭",
             icon = R.drawable.ic_ui_refresh,
             onClick = {
                 val enabled = com.callagent.host.calls.StandbyPowerPolicy.releaseDuringFailure(this)
@@ -1208,8 +1214,7 @@ class MainActivity : AppCompatActivity() {
                         renderCurrentScreen()
                     }.setNegativeButton("取消", null).show()
             }))
-        content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "查看与导出待机统计",
-            summary = "查看信令锁、同步请求及最近收到的推送；统计不含短信或号码",
+        content.addView(HostUi.tile(this, HostUi.Position.LAST, "待机统计",
             icon = R.drawable.ic_ui_refresh,
             onClick = {
                 val report = com.callagent.host.data.StandbyDiagnostics.export(this)
@@ -1223,13 +1228,11 @@ class MainActivity : AppCompatActivity() {
                     }.show()
             }))
         content.addView(HostUi.groupHeader(this, "备份"))
-        content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "全量备份与恢复",
-            summary = "设置、所有节点的配对和本机数据，加密导出到一个文件；可恢复到本机或新手机",
+        content.addView(HostUi.tile(this, HostUi.Position.FIRST, "全量备份与恢复",
             icon = R.drawable.ic_ui_archive,
             trailing = HostUi.chevron(this),
             onClick = { startActivity(Intent(this, com.callagent.host.backup.HostFullBackupActivity::class.java)) }
         ).apply { id = R.id.full_backup_entry })
-        content.addView(HostUi.groupHeader(this, "短信备份与归档"))
         content.addView(smsArchiveEntryButton())
         settingsMessage = null
     }
@@ -1244,20 +1247,22 @@ class MainActivity : AppCompatActivity() {
     /** Server nodes in priority order; the phone uses the first healthy one. */
     private fun addServerNodes(content: LinearLayout) {
         content.addView(HostUi.groupHeader(this, "服务器节点").apply { id = R.id.settings_nodes_section })
+        com.callagent.host.push.PushProbe.refreshIfStale(this)
         val nodes = HostNodes.nodes(this)
         if (nodes.size < 2) {
-            content.addView(body("可再添加一台服务器作为备用节点（例如家里的局域网服务器和外网 VPS）。当前节点不通或延迟过高时自动切换，恢复后切回优先级更高的节点。"))
             session?.sessionInstanceId?.let { instance ->
                 val push = com.callagent.host.push.PushRegistration.status(this, instance)
-                content.addView(HostUi.tile(this, HostUi.Position.FIRST, "推送唤醒",
-                    summary = NodeRowPresenter.pushDetail(push, System.currentTimeMillis()),
+                val path = com.callagent.host.push.PushProbe.probe(instance)
+                    ?.let { NodeRowPresenter.pushPath(it, android.os.SystemClock.elapsedRealtime()) }
+                content.addView(HostUi.tile(this, HostUi.Position.FIRST, "推送",
+                    summary = listOfNotNull(NodeRowPresenter.pushShort(push), path).joinToString(" · "),
                     icon = R.drawable.ic_ui_refresh,
                     onClick = { retryPush() }).apply { id = R.id.settings_node_push })
             }
         } else {
-            content.addView(body("按住 ≡ 拖动调整优先级。正在使用的节点不可用时切换到下一个可用节点，优先级更高的节点稳定恢复后切回。"))
             val push = nodes.associate { it.key to com.callagent.host.push.PushRegistration.status(this, it.sessionInstanceId) }
-            val rows = NodeRowPresenter.rows(nodes, HostNodes.health(this), HostNodes.activeNode(this)?.key, push)
+            val probes = nodes.mapNotNull { node -> com.callagent.host.push.PushProbe.probe(node.sessionInstanceId)?.let { node.key to it } }.toMap()
+            val rows = NodeRowPresenter.rows(nodes, HostNodes.health(this), HostNodes.activeNode(this)?.key, push, probes)
             content.addView(NodeListView(this, rows,
                 onReorder = { order ->
                     if (HostNodes.reorder(this, order)) probeNodes(force = true)
@@ -1271,6 +1276,7 @@ class MainActivity : AppCompatActivity() {
                 onClick = {
                     probeNodes(force = true)
                     com.callagent.host.push.PushRegistration.retryNow(this)
+                    com.callagent.host.push.PushProbe.checkNow(this)
                     showToast("正在检测各节点…")
                 }).apply { id = R.id.settings_nodes_probe })
         }
@@ -1286,7 +1292,8 @@ class MainActivity : AppCompatActivity() {
         val node = HostNodes.nodes(this).firstOrNull { it.key == key } ?: return
         val details = NodeRowPresenter.details(node, HostNodes.health(this)[key],
             HostNodes.activeNode(this)?.key == key, System.currentTimeMillis(),
-            com.callagent.host.push.PushRegistration.status(this, node.sessionInstanceId))
+            com.callagent.host.push.PushRegistration.status(this, node.sessionInstanceId),
+            com.callagent.host.push.PushProbe.probe(node.sessionInstanceId))
         MaterialAlertDialogBuilder(this)
             .setTitle(node.label)
             .setMessage(details.joinToString("\n") { (label, value) -> "$label：$value" })
@@ -1294,6 +1301,7 @@ class MainActivity : AppCompatActivity() {
             .setNeutralButton("立即检测") { _, _ ->
                 probeNodes(force = true)
                 com.callagent.host.push.PushRegistration.retryNow(this)
+                com.callagent.host.push.PushProbe.checkNow(this)
             }
             .show()
     }
@@ -1301,6 +1309,7 @@ class MainActivity : AppCompatActivity() {
     /** Asks nodes without a push registration again now; the list refreshes when they answer. */
     private fun retryPush() {
         com.callagent.host.push.PushRegistration.retryNow(this)
+        com.callagent.host.push.PushProbe.checkNow(this)
         showToast("正在重新登记推送…")
     }
 
@@ -1381,7 +1390,7 @@ class MainActivity : AppCompatActivity() {
     private fun addPermissionSettings(content: LinearLayout) {
         val status = runCatching { HostBackgroundRuntime.snapshot(this) }.getOrNull()
         content.addView(HostUi.tile(this, HostUi.Position.FIRST, "通知",
-            summary = if (status?.notificationsEnabled == true) "已允许 · 来电弹窗、短信内容和后台同步" else "未允许 · 来电和短信将无法提醒",
+            summary = if (status?.notificationsEnabled == true) "已允许" else "未允许 · 来电和短信无法提醒",
             icon = R.drawable.ic_ui_notifications,
             trailing = HostUi.chevron(this),
             onClick = {
@@ -1403,7 +1412,6 @@ class MainActivity : AppCompatActivity() {
             isFocusable = false
         }
         content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "自动复制验证码",
-            summary = "收到验证码短信时直接复制到剪贴板；通知上也有“复制验证码”按钮",
             icon = R.drawable.ic_ui_copy,
             trailing = autoCopy,
             onClick = {
@@ -1423,8 +1431,7 @@ class MainActivity : AppCompatActivity() {
 
         val autoFill = com.callagent.host.notify.OtpAutoFillService.enabled(this)
         content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "自动填入验证码",
-            summary = if (autoFill) "已开启 · 收到验证码后填入正在输入的验证码框"
-                else "在系统无障碍设置中开启“Madoka 验证码自动填入”后可用",
+            summary = if (autoFill) "已开启" else "未开启 · 在无障碍设置中开启",
             icon = R.drawable.ic_ui_copy,
             trailing = HostUi.chevron(this),
             onClick = {
@@ -1432,14 +1439,14 @@ class MainActivity : AppCompatActivity() {
             }).apply { id = R.id.settings_otp_autofill })
 
         content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "电池优化",
-            summary = if (status?.batteryExempt == true) "已豁免 · 后台同步不受限制" else "建议豁免，避免后台收不到短信和来电",
+            summary = if (status?.batteryExempt == true) "已豁免" else "建议豁免",
             icon = R.drawable.ic_ui_battery,
             trailing = HostUi.chevron(this),
             onClick = { HostBackgroundRuntime.openBatterySettings(this@MainActivity) }).apply { id = R.id.settings_battery })
 
         val contactsGranted = checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
         content.addView(HostUi.tile(this, HostUi.Position.LAST, if (contactsGranted) "联系人" else "允许访问联系人",
-            summary = if (contactsGranted) "已允许 · 通话记录、短信和来电显示联系人姓名" else "用本机联系人显示姓名并搜索号码",
+            summary = if (contactsGranted) "已允许" else "用于显示姓名",
             icon = R.drawable.ic_ui_contacts,
             trailing = HostUi.chevron(this),
             onClick = {
@@ -3237,7 +3244,11 @@ class MainActivity : AppCompatActivity() {
                 .put("name", host.name)
                 .put("platform", host.platform)
                 .put("state", host.state)
-                .put("is_self", host.isSelf))
+                .put("is_self", host.isSelf)
+                .apply {
+                    host.live?.let { put("live", it) }
+                    host.lastActiveAt?.let { put("last_active_at", java.time.Instant.ofEpochMilli(it).toString()) }
+                })
         }
     }.toString()
 
@@ -3903,6 +3914,14 @@ class MainActivity : AppCompatActivity() {
         setTextIsSelectable(selectable)
     }
 
+    /** One short muted line under a group, aligned with the tiles' text. */
+    private fun caption(text: String): TextView = MaterialTextView(this).apply {
+        this.text = text
+        setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
+        setTextColor(materialColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+        setPadding(dp(16), dp(6), dp(16), dp(2))
+    }
+
     private fun messageCard(text: String, error: Boolean = false): View = MaterialCardView(this).apply {
         radius = dp(20).toFloat()
         cardElevation = dp(1).toFloat()
@@ -3958,8 +3977,7 @@ class MainActivity : AppCompatActivity() {
         iconTint = android.content.res.ColorStateList.valueOf(materialColor(com.google.android.material.R.attr.colorOnSecondaryContainer))
     }
 
-    private fun smsArchiveEntryButton(): View = HostUi.tile(this, HostUi.Position.SINGLE, "短信备份与归档",
-        summary = "导出加密备份、导入 SMS Backup & Restore 归档",
+    private fun smsArchiveEntryButton(): View = HostUi.tile(this, HostUi.Position.LAST, "短信备份与归档",
         icon = R.drawable.ic_ui_archive,
         trailing = HostUi.chevron(this),
         onClick = { startActivity(Intent(this, com.callagent.host.backup.HostSmsBackupActivity::class.java)) }

@@ -29,7 +29,7 @@ internal class RtcCallEngine(
     private val budgetGuard = Any()
     private val activeBudgets = mutableSetOf<com.callagent.host.data.RequestBudget>()
     private val connectivity = context.getSystemService(android.net.ConnectivityManager::class.java)
-    private fun hasNetwork() = connectivity.activeNetwork != null
+    private fun hasNetwork() = com.callagent.host.network.NetworkEnvironment.online(context)
     private fun hasLiveCall() = media.isNotEmpty() || delivered.values.any { it !in TERMINAL }
     private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
         @Volatile private var validated: Boolean? = null

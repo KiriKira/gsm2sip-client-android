@@ -626,7 +626,8 @@ class PairedUiFixture(SMOKE_MODULE.Smoke):
         )
         root = self.capture("paired_settings")
         settings_title = self.find_text_node(root, "设置")
-        paired_label = self.find_text_containing(root, "已配对此手机")
+        # The device list marks this phone; the server row shows only its account.
+        paired_label = self.find_text_containing(root, "此手机")
         settings_ok = settings_title is not None and self.node_is_on_screen(settings_title) and paired_label is not None
         self.record_fixture_stage("fixture_settings", "paired_settings", root,
                                   ("设置",),

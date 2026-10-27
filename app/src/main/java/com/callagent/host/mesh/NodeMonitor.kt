@@ -143,8 +143,7 @@ object NodeMonitor {
     }
 
     private fun maintainOwned(app: Context) {
-        val manager = app.getSystemService(android.net.ConnectivityManager::class.java)
-        if (manager.activeNetwork == null) return
+        if (!com.callagent.host.network.NetworkEnvironment.online(app)) return
         com.callagent.host.data.StandbyDiagnostics.checkpoint(app)
         val pairs = com.callagent.host.push.PushRegistration.pairings(app)
         val liveIds = pairs.map { it.first.sessionInstanceId }.toSet()
@@ -226,6 +225,8 @@ object NodeMonitor {
     }
 
     fun requestFailover(context: Context) {
+        // With no network under a VPN every node fails alike; probing them only waits out timeouts.
+        if (!com.callagent.host.network.NetworkEnvironment.online(context)) return
         val now = SystemClock.elapsedRealtime()
         synchronized(maintenanceClock) {
             if (now - lastFailover < 15_000L) return
@@ -278,6 +279,11 @@ object NodeMonitor {
 
     private fun callInProgress(): Boolean =
         CallRuntime.currentSession?.phase?.let { it != CallPhase.IDLE && it != CallPhase.ENDED && it != CallPhase.FAILED } == true
+
+    /** Lets a visible node list show new per-node state; switches nothing. */
+    fun announceNodeState(context: Context) {
+        runCatching { context.sendBroadcast(Intent(ACTION_NODE_CHANGED).setPackage(context.packageName)) }
+    }
 
     private fun announce(context: Context, session: HostSession) {
         runCatching { HostBackgroundService.onActiveNodeChanged() }

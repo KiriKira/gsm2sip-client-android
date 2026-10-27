@@ -65,8 +65,16 @@ data class PairedHost(
     val name: String,
     val platform: String,
     val state: String,
-    val isSelf: Boolean
+    val isSelf: Boolean,
+    /** Still holds a session that can sign in; null from a node that does not say. */
+    val live: Boolean? = null,
+    /** Last sign-in or refresh, epoch milliseconds; null when unknown or never. */
+    val lastActiveAt: Long? = null
 )
+
+/** A pairing worth listing: this phone, or another that still signs in and was used in the last week. */
+fun PairedHost.inUse(now: Long): Boolean = isSelf || state == "active" && live != false &&
+    (lastActiveAt == null || now - lastActiveAt < 7L * 24 * 60 * 60 * 1000)
 
 fun PairedHost.pairingStateLabel(): String = when (state) {
     "active" -> "已配对"
