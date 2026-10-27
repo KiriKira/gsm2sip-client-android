@@ -1178,6 +1178,19 @@ class MainActivity : AppCompatActivity() {
         content.addView(HostUi.groupHeader(this, "通知与权限"))
         addPermissionSettings(content)
         content.addView(HostUi.groupHeader(this, "待机诊断"))
+        content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "故障退避省电（试验）",
+            summary = if (com.callagent.host.calls.StandbyPowerPolicy.releaseDuringFailure(this))
+                "已启用：连接连续失败时释放空闲锁，恢复接听可能延迟" else "已关闭：保留兼容接听策略",
+            icon = R.drawable.ic_ui_refresh,
+            onClick = {
+                val enabled = com.callagent.host.calls.StandbyPowerPolicy.releaseDuringFailure(this)
+                MaterialAlertDialogBuilder(this).setTitle("故障退避省电")
+                    .setMessage("连续连接失败且无通话时释放空闲信令锁。相同网络内服务器恢复后，手机深睡可能延迟重连；网络变化、打开应用或系统恢复执行时会重试。正常在线接听仍保留兼容锁。")
+                    .setPositiveButton(if (enabled) "关闭试验" else "启用试验") { _, _ ->
+                        com.callagent.host.calls.StandbyPowerPolicy.setReleaseDuringFailure(this, !enabled)
+                        renderCurrentScreen()
+                    }.setNegativeButton("取消", null).show()
+            }))
         content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "查看与导出待机统计",
             summary = "查看信令锁、同步请求及最近收到的推送；统计不含短信或号码",
             icon = R.drawable.ic_ui_refresh,

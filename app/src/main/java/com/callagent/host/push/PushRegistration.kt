@@ -76,6 +76,7 @@ object PushRegistration {
     @Volatile private var lastPassAt = 0L
     private val executor = Executors.newSingleThreadExecutor { Thread(it, "push-registration") }
     private val tokenRequested = AtomicBoolean()
+    private val requests = com.callagent.host.background.CoalescedSyncRequests()
     /** Nodes already asked again in this process because their server started advertising push. */
     private val rechecked = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
@@ -102,9 +103,18 @@ object PushRegistration {
         val newlyAdvertised = ServerPushSignal.consumeChange()
         if (!force && !newlyAdvertised && lastPassAt != 0L && now - lastPassAt < PASS_INTERVAL_MS) return
         lastPassAt = now
+        if (!requests.offer()) return
         executor.execute {
-            runCatching { if (withdraw) runWithdraw(app) else runSync(app) }
-                .onFailure { Log.w(TAG, "registration pass failed: ${it.javaClass.simpleName}") }
+            do {
+                val phase = com.callagent.host.data.StandbyDiagnostics.phaseStarted("push-registration", 60_000L)
+                try {
+                    com.callagent.host.data.RequestBudget.until(SystemClock.elapsedRealtime() + 60_000L).use { budget -> budget.run {
+                        if (!available(app)) runWithdraw(app) else runSync(app)
+                    } }
+                } catch (error: Exception) {
+                    Log.w(TAG, "registration pass failed: ${error.javaClass.simpleName}")
+                } finally { com.callagent.host.data.StandbyDiagnostics.phaseEnded(phase) }
+            } while (requests.complete())
         }
     }
 
@@ -194,6 +204,7 @@ object PushRegistration {
         val live = mutableSetOf<String>()
         var contacted = false
         for ((session, store) in pairings(app)) {
+            com.callagent.host.data.RequestBudget.current?.remainingMillis()
             val key = NODE_PREFIX + session.sessionInstanceId
             live += key
             val state = PushRegistrationPolicy.NodeState.decode(prefs.getString(key, null))
@@ -246,6 +257,7 @@ object PushRegistration {
         val prefs = prefs(app)
         val live = mutableSetOf<String>()
         for ((session, store) in pairings(app)) {
+            com.callagent.host.data.RequestBudget.current?.remainingMillis()
             val key = NODE_PREFIX + session.sessionInstanceId
             if (!prefs.contains(key)) continue
             live += key

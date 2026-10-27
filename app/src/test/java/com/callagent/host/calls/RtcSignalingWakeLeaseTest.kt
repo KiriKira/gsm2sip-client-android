@@ -70,4 +70,29 @@ class RtcSignalingWakeLeaseTest {
         assertFalse("a stalled polling worker must not hold power forever", lock.isHeld)
         lease.close()
     }
+    @Test fun completingSyncCannotReleaseLiveCallAndClosedEngineFencesLateOwners() {
+        val lease = RtcSignalingWakeLease(context)
+        val lock = ShadowPowerManager.getLatestWakeLock()
+        val work = lease.acquire(RtcSignalingWakeLease.Reason.CONTROL_WORK)
+        lease.renew(RtcSignalingWakeLease.Reason.LIVE_CALL)
+        lease.release(work)
+        assertTrue(lock.isHeld)
+        lease.close()
+        assertNull(lease.acquire(RtcSignalingWakeLease.Reason.CONTROL_WORK))
+        lease.release(work)
+        assertFalse(lock.isHeld)
+    }
+
+    @Test fun idleReleaseKeepsInFlightWorkUntilItsOwnerCompletes() {
+        val lease = RtcSignalingWakeLease(context)
+        val lock = ShadowPowerManager.getLatestWakeLock()
+        lease.renew()
+        val work = lease.acquire(RtcSignalingWakeLease.Reason.CONTROL_WORK)
+        lease.releaseContinuous()
+        assertTrue(lock.isHeld)
+        lease.release(work)
+        assertFalse(lock.isHeld)
+        lease.close()
+    }
+
 }

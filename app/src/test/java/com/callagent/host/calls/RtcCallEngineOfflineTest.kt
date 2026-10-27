@@ -56,4 +56,35 @@ class RtcCallEngineOfflineTest {
         } finally { engine.close() }
         assertFalse(lock.isHeld)
     }
+    @Test fun optedInFailureBackoffReleasesIdlePowerAndSuccessRestoresReception() {
+        val app: Context = RuntimeEnvironment.getApplication()
+        val network = shadowOf(app.getSystemService(ConnectivityManager::class.java))
+        network.setActiveNetworkInfo(ShadowNetworkInfo.newInstance(NetworkInfo.DetailedState.CONNECTED,
+            ConnectivityManager.TYPE_WIFI, 0, true, true))
+        network.setDefaultNetworkActive(true)
+        StandbyPowerPolicy.setReleaseDuringFailure(app, true)
+        var failing = true
+        val engine = RtcCallEngine(app, MediaApi { _, path, _ ->
+            if (failing) throw java.io.IOException("node unreachable")
+            if (path.endsWith("/calls")) JSONObject("{\"calls\":[]}") else JSONObject()
+        }, object : CallEngine.Listener {
+            override fun onConnectionState(state: EngineConnectionState, statusCode: Int?, reason: String?) = Unit
+            override fun onCallState(snapshot: EngineCallSnapshot) = Unit
+            override fun onEngineError(error: Throwable) = Unit
+        }, pushReady = { false })
+        val lock = ShadowPowerManager.getLatestWakeLock()
+        val poll = RtcCallEngine::class.java.getDeclaredMethod("poll").apply { isAccessible = true }
+        try {
+            repeat(3) { poll.invoke(engine) }
+            assertFalse("failed idle attempts must release work and compatibility owners", lock.isHeld)
+            failing = false
+            poll.invoke(engine)
+            assertTrue("a successful fetch restores compatibility listening", lock.isHeld)
+        } finally {
+            engine.close()
+            StandbyPowerPolicy.setReleaseDuringFailure(app, false)
+        }
+        assertFalse(lock.isHeld)
+    }
+
 }

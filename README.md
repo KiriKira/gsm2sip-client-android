@@ -17,7 +17,7 @@ Several hosts can pair to the same owner and gateway, using separate one-time co
 
 ## 多服务器节点
 
-下一版本规划：[Madoka 待机耗电优化（含无 FCM 场景）](docs/standby-optimization-plan-20261026.md)。该计划独立于远期 mesh 改造，使用现有服务端协议。
+当前修复计划：[持续待机唤醒锁修复（2026-10-27）](docs/idle-wakelock-fix-plan-20261027.md)，包括无 FCM 优化及独立的最小推送休眠协议改造，不依赖远期 mesh。上一轮 [待机优化计划](docs/standby-optimization-plan-20261026.md) 和 [实施记录](docs/standby-optimization-implementation-20261026.md) 保留供对照。
 
 设置里可以添加多个独立服务器节点并拖动排序：当前节点不通、旧手机不在线或延迟过高时自动切到下一个，
 更高优先级节点稳定恢复后切回。同一条短信经过多个节点只存一份、只提醒一次；发出的短信由主手机铸造全局
