@@ -56,6 +56,21 @@ class RtcCallEngineStandbyTest {
         } finally { engine.close() }
     }
 
+    @Test fun anIdlePollWithReceptionOffKeepsADialInFlight() {
+        val engine = RtcCallEngine(app, MediaApi { _, _, _ -> JSONObject() }, listener, listeningEnabled = { false })
+        val lock = ShadowPowerManager.getLatestWakeLock()
+        try {
+            val lease = RtcCallEngine::class.java.getDeclaredField("wakeLease").apply { isAccessible = true }
+                .get(engine) as RtcSignalingWakeLease
+            // An outgoing dial on another thread owns bounded control work.
+            val dial = lease.acquire(RtcSignalingWakeLease.Reason.CONTROL_WORK)
+            method("poll").invoke(engine)
+            assertTrue("the idle branch must not drop another thread's work owner", lock.isHeld)
+            lease.release(dial)
+            assertFalse(lock.isHeld)
+        } finally { engine.close() }
+    }
+
     @Test fun retiredSessionCannotAdvertiseCapabilityOrFetchCalls() {
         var requests = 0
         val engine = RtcCallEngine(app, MediaApi { _, _, _ -> requests++; JSONObject() }, listener,

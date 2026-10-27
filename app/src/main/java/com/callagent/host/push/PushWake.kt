@@ -44,10 +44,15 @@ internal object PushWake {
         val from = pairings.firstOrNull { it.first.deviceId == deviceId }?.first ?: return false
         if (actualPriority != null && originalPriority != null)
             com.callagent.host.data.StandbyDiagnostics.pushReceived(actualPriority, originalPriority, from.apiBaseUrl)
+        val active = runCatching { SessionStore(app).read() }.getOrNull()
+        // The call engine and the sync service work for the active pairing, so a
+        // hint from another node is handed to the active pairing's consumers;
+        // keyed to its own node, nothing would consume it before the timeout.
+        val consumer = active?.sessionInstanceId ?: from.sessionInstanceId
         // v1 call hints may also cover SMS: keep both fetches, with call control first.
         fun dispatch(channel: PushWakeHandoff.Channel, permitted: Boolean, start: () -> Boolean) {
             if (!permitted) { runCatching(start); return }
-            val ticket = runCatching { PushWakeHandoff.begin(app, from.sessionInstanceId, channel) }.getOrNull()
+            val ticket = runCatching { PushWakeHandoff.begin(app, consumer, channel) }.getOrNull()
             val accepted = runCatching(start).getOrDefault(false)
             if (!accepted && ticket != null) PushWakeHandoff.rejected(ticket)
         }
@@ -57,7 +62,6 @@ internal object PushWake {
         dispatch(PushWakeHandoff.Channel.SYNC, allowServiceStart || com.callagent.host.background.HostBackgroundService.isRunning) {
             HostBackgroundRuntime.wakeFromPush(app, allowServiceStart)
         }
-        val active = runCatching { SessionStore(app).read() }.getOrNull()
         if (pairings.size > 1 && active?.sessionInstanceId != from.sessionInstanceId) {
             // The event reached another node: re-check which one is usable now.
             if (nodeRequests.offer()) nodeWorker.execute {

@@ -34,7 +34,7 @@ internal class RtcCallEngine(
     private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: android.net.Network) { wake() }
         override fun onLost(network: android.net.Network) {
-            if (!hasNetwork() && !hasLiveCall()) wakeLease.pause()
+            if (!hasNetwork() && !hasLiveCall()) wakeLease.releaseContinuous()
             wake()
         }
     }
@@ -83,13 +83,15 @@ internal class RtcCallEngine(
     private fun poll() {
         if(closed.get())return
         if (!sessionIsCurrent()) { close(); return }
+        // Only the idle owner goes: a dial or answer in flight on another thread
+        // keeps its own bounded work owner until it finishes.
         if (!listeningEnabled() && !hasLiveCall()) {
-            wakeLease.pause()
+            wakeLease.releaseContinuous()
             sessionInstanceId?.let { com.callagent.host.push.PushWakeHandoff.consumed(it, com.callagent.host.push.PushWakeHandoff.Channel.CALL) }
             return
         }
         if (!hasNetwork() && !hasLiveCall() && networkRegistered) {
-            wakeLease.pause()
+            wakeLease.releaseContinuous()
             lastCapability = 0L
             sessionInstanceId?.let { com.callagent.host.push.PushWakeHandoff.consumed(it, com.callagent.host.push.PushWakeHandoff.Channel.CALL) }
             return
