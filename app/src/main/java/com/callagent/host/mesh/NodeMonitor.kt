@@ -29,6 +29,26 @@ object NodeMonitor {
     private const val CONNECT_TIMEOUT_MS = 4_000
     private const val READ_TIMEOUT_MS = 6_000
 
+    private data class ControlEvidence(val at: Long, val rtt: Long, val environment: String)
+    private val controlEvidence = object : LinkedHashMap<String, ControlEvidence>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ControlEvidence>?): Boolean = size > 128
+    }
+
+    /** Reachability only: a client control fetch does not prove a gateway online. */
+    internal fun controlSucceeded(sessionId: String, rtt: Long, environment: String) {
+        if (environment != com.callagent.host.network.NetworkEnvironment.token) return
+        synchronized(controlEvidence) {
+            controlEvidence[sessionId] = ControlEvidence(SystemClock.elapsedRealtime(), rtt, environment)
+        }
+    }
+
+    private fun recentControl(sessionId: String): ControlEvidence? = synchronized(controlEvidence) {
+        controlEvidence[sessionId]?.takeIf {
+            val age = SystemClock.elapsedRealtime() - it.at
+            age in 0L..15_000L && it.environment == com.callagent.host.network.NetworkEnvironment.token
+        }
+    }
+
     private val evaluating = AtomicBoolean()
     private val probeWorkers = workers(4, "NodeProbe")
     private val statusWorker = workers(1, "NodeStatus")
@@ -214,9 +234,10 @@ object NodeMonitor {
         return try {
             val started = SystemClock.elapsedRealtime()
             val api = ApiClient(node.apiBaseUrl, store, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
-            val capabilities = api.serverCapabilities()
-            val supportsControl = capabilities.rtcCallControl
-            val rtt = SystemClock.elapsedRealtime() - started
+            val session = store.read()
+            val evidence = session?.let { recentControl(it.sessionInstanceId) }
+            val supportsControl = evidence != null || api.serverCapabilities().rtcCallControl
+            val rtt = evidence?.rtt ?: (SystemClock.elapsedRealtime() - started)
             val gateway = api.listGateways().firstOrNull { installId != null && it.installId == installId }
             NodeObservation(
                 reachable = true,

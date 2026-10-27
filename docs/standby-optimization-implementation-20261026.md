@@ -1,5 +1,7 @@
 # Madoka 下一版本耗电优化实施记录
 
+后续：[2026-10-27 持续待机唤醒锁修复计划](idle-wakelock-fix-plan-20261027.md)。下文记录的请求/断网优化没有移除正常在线监听的连续锁；不应视为真实待机耗电已验收。
+
 日期：2026-10-26。分支：`feat/madoka-standby-power`。最新主线基线：`19e75e1`；同时保留已提交的 [独立客户端计划](standby-optimization-plan-20261026.md)。本次只修改 Madoka，使用现有 SoulGem/Homura 协议。
 
 ## 已实施

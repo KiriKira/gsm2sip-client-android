@@ -249,18 +249,30 @@ class HostBackgroundService : Service() {
         val startedAt = android.os.SystemClock.elapsedRealtime()
         val deadline = startedAt + WAKE_LOCK_TIMEOUT_MS
         var wakeToken: Long? = null
+        fun releaseSyncPower() {
+            if (wakeLock.isHeld) wakeLock.release()
+            wakeToken?.let { com.callagent.host.data.StandbyDiagnostics.wakeReleased(it) }
+            wakeToken = null
+        }
         try {
             wakeLock.acquire(WAKE_LOCK_TIMEOUT_MS)
             wakeToken = com.callagent.host.data.StandbyDiagnostics.wakeAcquired("host-sync", WAKE_LOCK_TIMEOUT_MS)
+            com.callagent.host.push.PushWakeHandoff.consumed(bound.sessionInstanceId, com.callagent.host.push.PushWakeHandoff.Channel.SYNC)
             val expectedRunGeneration = expectedGeneration
             val scopedCoalescer = notificationCoalescer(bound, expectedRunGeneration)
-            HostSyncEngine(
+            val syncPhase = com.callagent.host.data.StandbyDiagnostics.phaseStarted("host-sync-data", WAKE_LOCK_TIMEOUT_MS)
+            try { HostSyncEngine(
                 context = this,
                 boundSession = bound,
                 sessionIsCurrent = { expected -> isCurrent(expected, expectedGeneration) },
                 persistInboundNotificationIds = scopedCoalescer::record
             ).use { engine ->
                 engine.sync(deadline)
+            } } finally {
+                com.callagent.host.data.StandbyDiagnostics.phaseEnded(syncPhase)
+                // Registration has its own opportunistic cadence; it must not
+                // extend the data-sync wake lock after notifications are saved.
+                releaseSyncPower()
             }
             if (!isCurrent(bound, expectedGeneration)) return
             syncFailures = 0
@@ -297,8 +309,7 @@ class HostBackgroundService : Service() {
                 RuntimeState.update(this, connection = "Periodic HTTPS sync", issue = "Server unavailable; retrying over HTTPS.")
             }
         } finally {
-            if (wakeLock.isHeld) wakeLock.release()
-            wakeToken?.let { com.callagent.host.data.StandbyDiagnostics.wakeReleased(it) }
+            releaseSyncPower()
             val currentSession = runCatching { sessionStore.read() }.getOrNull()
             val stillEnabled = RuntimeState.preferences(this).getBoolean(RuntimeState.KEY_ENABLED, false)
             // Ordinary service recreation preserves alerts for the same pairing. Only an
