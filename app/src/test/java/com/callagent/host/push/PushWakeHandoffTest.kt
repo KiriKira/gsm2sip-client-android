@@ -6,7 +6,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowPowerManager
 import org.robolectric.shadows.ShadowSystemClock
 import java.time.Duration
 
@@ -16,7 +15,9 @@ class PushWakeHandoffTest {
     @Test fun consumersAreSessionScopedAndOldRejectionCannotReleaseANewerPush() {
         val app = RuntimeEnvironment.getApplication()
         val first = PushWakeHandoff.begin(app, "handoff-a", PushWakeHandoff.Channel.CALL)
-        val lock = ShadowPowerManager.getLatestWakeLock()
+        // The bridge keeps one lock for the process.
+        val lock = PushWakeHandoff::class.java.getDeclaredField("lock").apply { isAccessible = true }
+            .get(null) as android.os.PowerManager.WakeLock
         val duplicate = PushWakeHandoff.begin(app, "handoff-a", PushWakeHandoff.Channel.CALL)
         assertEquals(first, duplicate)
         PushWakeHandoff.begin(app, "handoff-b", PushWakeHandoff.Channel.SYNC)
@@ -26,15 +27,16 @@ class PushWakeHandoffTest {
             PushWakeHandoff.consumed("handoff-b", PushWakeHandoff.Channel.SYNC)
             assertFalse(lock.isHeld)
             val next = PushWakeHandoff.begin(app, "handoff-a", PushWakeHandoff.Channel.CALL)
-            val nextLock = ShadowPowerManager.getLatestWakeLock()
             PushWakeHandoff.rejected(first)
-            assertTrue("a rejected old start must not cancel the new hint", nextLock.isHeld)
+            assertTrue("a rejected old start must not cancel the new hint", lock.isHeld)
             ShadowSystemClock.advanceBy(Duration.ofSeconds(16))
-            assertFalse("a consumer that never starts cannot hold power indefinitely", nextLock.isHeld)
+            assertFalse("a consumer that never starts cannot hold power indefinitely", lock.isHeld)
             PushWakeHandoff.rejected(next)
         } finally {
-            PushWakeHandoff.retire("handoff-a")
-            PushWakeHandoff.retire("handoff-b")
+            PushWakeHandoff.Channel.values().forEach { channel ->
+                PushWakeHandoff.consumed("handoff-a", channel)
+                PushWakeHandoff.consumed("handoff-b", channel)
+            }
         }
     }
 }

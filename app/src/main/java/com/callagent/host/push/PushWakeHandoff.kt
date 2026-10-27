@@ -27,8 +27,8 @@ internal object PushWakeHandoff {
         if (existing != null) return Ticket(session, channel, existing.id)
         // Bound memory as well as power, including bursts from many old pairings.
         if (pending.size >= 64) pending.keys.firstOrNull()?.let { remove(it) }
-        if (pending.isEmpty()) reconcile()
-        if (lock == null || pending.isEmpty()) lock = context.applicationContext.getSystemService(PowerManager::class.java)
+        // One non-counted lock for the process; reconcile sets its timeout to the latest deadline.
+        if (lock == null) lock = context.applicationContext.getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "host:push-handoff").apply { setReferenceCounted(false) }
         val record = Pending(++sequence, SystemClock.elapsedRealtime() + TIMEOUT_MS,
             StandbyDiagnostics.phaseStarted("push-${channel.name.lowercase()}-handoff", TIMEOUT_MS))
@@ -47,11 +47,6 @@ internal object PushWakeHandoff {
     @Synchronized fun rejected(ticket: Ticket) {
         val key = Key(ticket.session, ticket.channel)
         if (pending[key]?.id == ticket.id) remove(key)
-        reconcile()
-    }
-
-    @Synchronized fun retire(session: String) {
-        Channel.values().forEach { remove(Key(session, it)) }
         reconcile()
     }
 
