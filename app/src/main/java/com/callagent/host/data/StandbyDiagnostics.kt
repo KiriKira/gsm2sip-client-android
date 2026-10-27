@@ -61,7 +61,7 @@ object StandbyDiagnostics {
             socketStart?.let { socketMillis += now - it }
             socketStart = null
         }
-        if (kind in setOf("wss_open", "wss_closed", "network_changed", "rtc_poll_idle", "rtc_poll_live", "rtc_capability", "rtc_poll_succeeded", "rtc_poll_failed")) events.computeIfAbsent(kind) { AtomicLong() }.incrementAndGet()
+        if (kind in setOf("wss_open", "wss_closed", "network_changed", "rtc_poll_idle", "rtc_poll_live", "rtc_capability", "rtc_poll_succeeded", "rtc_poll_failed", "rtc_poll_sleepy", "sleepy_beat_late")) events.computeIfAbsent(kind) { AtomicLong() }.incrementAndGet()
     }
 
     @Synchronized fun pushReceived(actual: Int, original: Int, source: String = "") {

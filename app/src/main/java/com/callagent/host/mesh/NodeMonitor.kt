@@ -156,35 +156,60 @@ object NodeMonitor {
         val unreachable = HostNodes.nodes(app)
             .filter { node -> health[node.key]?.let { it.checkedAt > 0L && !it.healthy } == true }
             .map { it.sessionInstanceId }.toSet()
-        for ((session, store) in pairs) {
-            if (session.sessionInstanceId in unreachable) continue
-            if (!maintenancePending.add(session.sessionInstanceId)) continue
-            maintenanceWorkers.execute {
-                try {
-                    val prefs = com.callagent.host.calls.CallPreferences(app)
-                    // The active engine owns the capability of an outgoing call even with listening off.
-                    val active = com.callagent.host.data.SessionStore(app).read()
-                    if (callInProgress() && active?.sessionInstanceId == session.sessionInstanceId) return@execute
-                    val enabled = prefs.enabledFor(session)
-                    if (!enabled && advertised[session.sessionInstanceId] == false) return@execute
-                    if (store.read()?.sessionInstanceId != session.sessionInstanceId) return@execute
-                    val api = ApiClient(session.apiBaseUrl, store, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
-                    fun send(value: Boolean) = com.callagent.host.data.StandbyDiagnostics.withCause("rtc") {
-                        api.rtcRequest("POST", "/rtc/control/capability", org.json.JSONObject().put("version", 1).put("enabled", value))
-                    }
-                    send(enabled)
-                    advertised[session.sessionInstanceId] = enabled
-                    // A user stop racing an HTTP request must win over its late enable.
-                    if (enabled && !prefs.enabledFor(session) && !callInProgress()) {
-                        send(false)
-                        advertised[session.sessionInstanceId] = false
-                    }
-                } catch (_: Exception) { /* Retry next maintenance round, independently per node. */ }
-                finally { maintenancePending.remove(session.sessionInstanceId) }
+        // Idle reception lets the CPU sleep between beats, so the renewals hold
+        // their own bounded lock instead of finishing at the next wake, too late
+        // for the 90 s capability window.
+        val power = maintenanceLock(app)
+        power.acquire(MAINTAIN_LOCK_MS)
+        val diagnostic = com.callagent.host.data.StandbyDiagnostics.wakeAcquired("node-maintain", MAINTAIN_LOCK_MS)
+        val renewals = mutableListOf<java.util.concurrent.Future<*>>()
+        try {
+            for ((session, store) in pairs) {
+                if (session.sessionInstanceId in unreachable) continue
+                if (!maintenancePending.add(session.sessionInstanceId)) continue
+                renewals += maintenanceWorkers.submit(Runnable {
+                    try {
+                        val prefs = com.callagent.host.calls.CallPreferences(app)
+                        // The active engine owns the capability of an outgoing call even with listening off.
+                        val active = com.callagent.host.data.SessionStore(app).read()
+                        if (callInProgress() && active?.sessionInstanceId == session.sessionInstanceId) return@Runnable
+                        val enabled = prefs.enabledFor(session)
+                        if (!enabled && advertised[session.sessionInstanceId] == false) return@Runnable
+                        if (store.read()?.sessionInstanceId != session.sessionInstanceId) return@Runnable
+                        val api = ApiClient(session.apiBaseUrl, store, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
+                        fun send(value: Boolean) = com.callagent.host.data.StandbyDiagnostics.withCause("rtc") {
+                            api.rtcRequest("POST", "/rtc/control/capability", org.json.JSONObject().put("version", 1).put("enabled", value))
+                        }
+                        send(enabled)
+                        advertised[session.sessionInstanceId] = enabled
+                        // A user stop racing an HTTP request must win over its late enable.
+                        if (enabled && !prefs.enabledFor(session) && !callInProgress()) {
+                            send(false)
+                            advertised[session.sessionInstanceId] = false
+                        }
+                    } catch (_: Exception) { /* Retry next maintenance round, independently per node. */ }
+                    finally { maintenancePending.remove(session.sessionInstanceId) }
+                })
             }
+            val deadline = SystemClock.elapsedRealtime() + MAINTAIN_LOCK_MS
+            renewals.forEach { renewal ->
+                runCatching { renewal.get((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0), TimeUnit.MILLISECONDS) }
+            }
+        } finally {
+            if (power.isHeld) power.release()
+            com.callagent.host.data.StandbyDiagnostics.wakeReleased(diagnostic)
         }
         refreshHistory(app, HostNodes.nodes(app), HostNodes.health(app))
     }
+
+    @Volatile private var maintenanceWakeLock: android.os.PowerManager.WakeLock? = null
+    private fun maintenanceLock(app: Context): android.os.PowerManager.WakeLock =
+        maintenanceWakeLock ?: synchronized(maintenanceClock) {
+            maintenanceWakeLock ?: app.getSystemService(android.os.PowerManager::class.java)
+                .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "host:node-maintain")
+                .apply { setReferenceCounted(false) }.also { maintenanceWakeLock = it }
+        }
+    private const val MAINTAIN_LOCK_MS = 15_000L
 
     private fun backgroundProbeInterval(): Long {
         val normal = com.callagent.host.BuildConfig.STANDBY_NODE_HEALTH_MS
