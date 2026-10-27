@@ -257,6 +257,7 @@ class HostBackgroundService : Service() {
         try {
             wakeLock.acquire(WAKE_LOCK_TIMEOUT_MS)
             wakeToken = com.callagent.host.data.StandbyDiagnostics.wakeAcquired("host-sync", WAKE_LOCK_TIMEOUT_MS)
+            com.callagent.host.push.PushWakeHandoff.consumed(bound.sessionInstanceId, com.callagent.host.push.PushWakeHandoff.Channel.SYNC)
             val expectedRunGeneration = expectedGeneration
             val scopedCoalescer = notificationCoalescer(bound, expectedRunGeneration)
             val syncPhase = com.callagent.host.data.StandbyDiagnostics.phaseStarted("host-sync-data", WAKE_LOCK_TIMEOUT_MS)
@@ -278,10 +279,7 @@ class HostBackgroundService : Service() {
             com.callagent.host.network.NetworkEnvironment.succeeded()
             RuntimeState.update(this, connection = if (socketLive) "Live updates connected" else "Periodic HTTPS sync", lastSyncAt = System.currentTimeMillis(), issue = null)
             // A reachable node is the moment to register FCM where due; this is throttled.
-            val pushPhase = com.callagent.host.data.StandbyDiagnostics.phaseStarted("push-registration")
-            try { PushRegistration.sync(this) } finally {
-                com.callagent.host.data.StandbyDiagnostics.phaseEnded(pushPhase)
-            }
+            PushRegistration.sync(this)
             sendBroadcast(Intent(HostBackgroundRuntime.BACKGROUND_SYNCED).setPackage(packageName))
             val latest = sessionStore.read()
             if (latest != null && latest.sameSessionInstance(bound) && latest.accessToken != bound.accessToken) {

@@ -11,8 +11,12 @@ internal object SessionWorkLocks {
         val entry = synchronized(entries) { entries.getOrPut(key) { Entry() }.also { it.users++ } }
         var acquired = false
         try {
-            entry.lock.lockInterruptibly()
+            val budget = RequestBudget.current
+            if (budget == null) entry.lock.lockInterruptibly()
+            else if (!entry.lock.tryLock(budget.remainingMillis(), java.util.concurrent.TimeUnit.MILLISECONDS))
+                throw java.net.SocketTimeoutException("Work lock budget exhausted")
             acquired = true
+            budget?.remainingMillis()
             return action()
         } finally {
             if (acquired) entry.lock.unlock()

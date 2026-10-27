@@ -85,6 +85,23 @@ class HostCallServiceStartupTest {
         } finally {controller.destroy()}
     }
 
+    @Test fun wakeDuringStartupIsDeliveredWhenTheEngineBecomesAvailable() {
+        StartupTelecomShadow.release = CountDownLatch(0)
+        StartupTelecomShadow.returned = CountDownLatch(1)
+        val controller = Robolectric.buildService(HostCallService::class.java).create()
+        val service = controller.get()
+        try {
+            field("listeningRequested").set(service, true)
+            assertTrue(service.requestCallSyncFromWakeHint())
+            val engine = CountingEngine()
+            field("callEngine").set(service, engine)
+            val drain = HostCallService::class.java.getDeclaredMethod("deliverPendingCallWake").apply { isAccessible = true }
+            drain.invoke(service)
+            drain.invoke(service)
+            assertEquals(1, engine.woken)
+        } finally { controller.destroy() }
+    }
+
     private class CountingEngine:CallEngine {
         var closed=0
         var woken=0

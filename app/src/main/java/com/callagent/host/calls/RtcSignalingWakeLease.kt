@@ -9,7 +9,7 @@ import com.callagent.host.data.StandbyDiagnostics
  * by the latest live owner deadline; closing an engine fences all late owners. */
 internal class RtcSignalingWakeLease(context: Context) : AutoCloseable {
     enum class Reason(val label: String) {
-        COMPAT_IDLE("compat-idle"), LIVE_CALL("live-call"), CONTROL_WORK("control-work")
+        COMPAT_IDLE("compat-idle"), RINGING("ringing"), LIVE_CALL("live-call"), CONTROL_WORK("control-work")
     }
     private data class Owner(val reason: Reason, var deadline: Long, val diagnostic: Long)
     private val lock = context.getSystemService(PowerManager::class.java)

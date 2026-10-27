@@ -31,7 +31,9 @@ class HostSyncEngine(
     )
 
     fun sync(deadlineElapsedRealtime: Long): HostSyncOutcome =
-        SessionWorkLocks.withLock("sync:${boundSession.sessionInstanceId}") { syncLocked(deadlineElapsedRealtime) }
+        RequestBudget.until(minOf(deadlineElapsedRealtime, RequestBudget.current?.deadline ?: Long.MAX_VALUE)).use { budget ->
+            budget.run { SessionWorkLocks.withLock("sync:${boundSession.sessionInstanceId}") { syncLocked(deadlineElapsedRealtime) } }
+        }
 
     private fun syncLocked(deadlineElapsedRealtime: Long): HostSyncOutcome {
         ensureCurrent()

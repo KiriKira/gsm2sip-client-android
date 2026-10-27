@@ -350,12 +350,12 @@ object CallRuntime {
     internal val hasServiceForPush: Boolean get() = service != null
 
     /** An FCM wake-up: start call control if Android stopped it, else poll now. */
-    internal fun wakeFromPush(context: Context) {
+    internal fun wakeFromPush(context: Context): Boolean {
         val app = context.applicationContext
-        service?.let { it.requestCallSyncFromWakeHint(); return }
-        val session = runCatching { SessionStore(app).read() }.getOrNull() ?: return
+        service?.let { if (it.requestCallSyncFromWakeHint()) return true }
+        val session = runCatching { SessionStore(app).read() }.getOrNull() ?: return false
         restoreForegroundPreference(app, session)
-        runCatching { startSignalingIfNeeded(app, session) }
+        return runCatching { startSignalingIfNeeded(app, session) }.getOrDefault(false)
     }
 
     internal fun requestCallSyncFromWakeHint() {

@@ -38,7 +38,8 @@ class HostCallService : android.app.Service() {
     private val ringback = OutboundRingback()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val sessionStore by lazy { SessionStore(this) }
-    private var callEngine: CallEngine? = null
+    @Volatile private var callEngine: CallEngine? = null
+    private val pendingCallWake = java.util.concurrent.atomic.AtomicBoolean()
     private var engineSession: HostSession? = null
     @Volatile private var connectionState = EngineConnectionState.STOPPED
     @Volatile private var listeningRequested = false
@@ -200,13 +201,18 @@ class HostCallService : android.app.Service() {
         }
         executeOnIo {
             if (generation != listeningGeneration.get() || !foregroundListening) return@executeOnIo
+            val startupPower = RtcSignalingWakeLease(this)
+            startupPower.acquire(RtcSignalingWakeLease.Reason.CONTROL_WORK, 15_000L)
             try {
-                val api = apiForCurrentSession()
-                val session = requireClientSession()
-                prepareCallControl(api)
-                if (generation != listeningGeneration.get() || !foregroundListening) return@executeOnIo
-                if (sessionStore.read()?.sessionInstanceId != session.sessionInstanceId) throw SessionChanged()
-                startEngine()
+                com.callagent.host.data.RequestBudget.until(SystemClock.elapsedRealtime() + 15_000L).use { budget -> budget.run {
+                    val api = apiForCurrentSession()
+                    val session = requireClientSession()
+                    com.callagent.host.push.PushWakeHandoff.consumed(session.sessionInstanceId, com.callagent.host.push.PushWakeHandoff.Channel.CALL)
+                    prepareCallControl(api)
+                    if (generation != listeningGeneration.get() || !foregroundListening) return@run
+                    if (sessionStore.read()?.sessionInstanceId != session.sessionInstanceId) throw SessionChanged()
+                    startEngine()
+                } }
             } catch (failure: Exception) {
                 if (generation != listeningGeneration.get()) return@executeOnIo
                 foregroundListening = false
@@ -216,7 +222,7 @@ class HostCallService : android.app.Service() {
                 stopSignalingForeground()
                 closeEngine()
                 stopSelf()
-            }
+            } finally { startupPower.close() }
         }
     }
 
@@ -303,9 +309,19 @@ class HostCallService : android.app.Service() {
     }
 
     /** A websocket is only a wake hint: the engine polls call control at once. */
-    internal fun requestCallSyncFromWakeHint() {
-        // Through the interface, so no engine type can silently drop a wake.
-        callEngine?.wake()
+    internal fun requestCallSyncFromWakeHint(): Boolean {
+        if (destroying) return false
+        if (callEngine == null && !listeningRequested && !foregroundListening &&
+            CallRuntime.currentSessionForService()?.phase?.isInProgress() != true) return false
+        pendingCallWake.set(true)
+        deliverPendingCallWake()
+        // startEngine drains this flag once a pending service startup owns an engine.
+        return true
+    }
+
+    private fun deliverPendingCallWake() {
+        val engine = callEngine ?: return
+        if (pendingCallWake.getAndSet(false)) engine.wake()
     }
 
     internal fun hangupCall(callId: String) {
@@ -749,13 +765,17 @@ class HostCallService : android.app.Service() {
             val pushSession = targetSession.sessionInstanceId
             callEngine = RtcCallEngine(this, com.callagent.rtcmedia.MediaApi { method, path, body -> api.rtcRequest(method, path, body) },
                 listenerFor(generation), CallEngineFactory.pcmForInstrumentation,
-                pushReady = { com.callagent.host.push.PushRegistration.isReady(this, pushSession) })
+                pushReady = { com.callagent.host.push.PushRegistration.isReady(this, pushSession) },
+                sessionInstanceId = pushSession,
+                sessionIsCurrent = { sessionStore.read()?.sameSessionInstance(targetSession) == true },
+                listeningEnabled = { CallPreferences(this).enabledFor(targetSession) })
             engineSession = targetSession
         }
         if (connectionState !in setOf(EngineConnectionState.READY, EngineConnectionState.CONNECTING)) {
             connectionState = EngineConnectionState.CONNECTING
             requireCallEngine().connect()
         }
+        deliverPendingCallWake()
     }
 
     /** An engine is bound to the authenticated node session that started it. */
@@ -1064,6 +1084,7 @@ class HostCallService : android.app.Service() {
         engineGeneration += 1L
         controlRetryPending = false
         val old = callEngine
+        pendingCallWake.set(false)
         callEngine = null
         engineSession = null
         connectionState = EngineConnectionState.STOPPED

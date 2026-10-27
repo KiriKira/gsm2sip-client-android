@@ -37,14 +37,26 @@ internal object PushWake {
         CallRuntime.requestCallSyncFromWakeHint()
     }
 
-    fun handle(context: Context, kind: String?, deviceId: String?, allowServiceStart: Boolean = true) {
+    fun handle(context: Context, kind: String?, deviceId: String?, allowServiceStart: Boolean = true, actualPriority: Int? = null, originalPriority: Int? = null): Boolean {
         val app = context.applicationContext
         val pairings = PushRegistration.pairings(app)
         // Only wake-ups from a pairing this phone still holds are acted on.
-        val from = pairings.firstOrNull { it.first.deviceId == deviceId }?.first ?: return
+        val from = pairings.firstOrNull { it.first.deviceId == deviceId }?.first ?: return false
+        if (actualPriority != null && originalPriority != null)
+            com.callagent.host.data.StandbyDiagnostics.pushReceived(actualPriority, originalPriority, from.apiBaseUrl)
         // v1 call hints may also cover SMS: keep both fetches, with call control first.
-        if (allowServiceStart || CallRuntime.hasServiceForPush) CallRuntime.wakeFromPush(app)
-        HostBackgroundRuntime.wakeFromPush(app, allowServiceStart)
+        fun dispatch(channel: PushWakeHandoff.Channel, permitted: Boolean, start: () -> Boolean) {
+            if (!permitted) { runCatching(start); return }
+            val ticket = runCatching { PushWakeHandoff.begin(app, from.sessionInstanceId, channel) }.getOrNull()
+            val accepted = runCatching(start).getOrDefault(false)
+            if (!accepted && ticket != null) PushWakeHandoff.rejected(ticket)
+        }
+        if (allowServiceStart || CallRuntime.hasServiceForPush) {
+            dispatch(PushWakeHandoff.Channel.CALL, true) { CallRuntime.wakeFromPush(app) }
+        }
+        dispatch(PushWakeHandoff.Channel.SYNC, allowServiceStart || com.callagent.host.background.HostBackgroundService.isRunning) {
+            HostBackgroundRuntime.wakeFromPush(app, allowServiceStart)
+        }
         val active = runCatching { SessionStore(app).read() }.getOrNull()
         if (pairings.size > 1 && active?.sessionInstanceId != from.sessionInstanceId) {
             // The event reached another node: re-check which one is usable now.
@@ -56,11 +68,14 @@ internal object PushWake {
         if (kind == "call" && CallRuntime.isListeningRequested && (allowServiceStart || CallRuntime.hasServiceForPush)) {
             val wokenAt = SystemClock.elapsedRealtime()
             Handler(Looper.getMainLooper()).postDelayed({
-                if (callUnreachable(CallRuntime.currentSession != null, RtcCallEngine.lastPollSucceededAt, wokenAt)) {
+                val stillPaired = PushRegistration.pairings(app).any { it.first.sessionInstanceId == from.sessionInstanceId }
+                if (stillPaired && com.callagent.host.calls.CallPreferences(app).enabledFor(from) &&
+                    callUnreachable(CallRuntime.currentSession != null, RtcCallEngine.lastSuccessfulPoll(from.sessionInstanceId), wokenAt)) {
                     postUnreachableNotice(app)
                 }
             }, CALL_CHECK_MS)
         }
+        return true
     }
 
     /** No call is showing and call control has not answered since the wake-up. */

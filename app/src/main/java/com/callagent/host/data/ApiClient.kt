@@ -9,7 +9,6 @@ import java.net.URL
 import java.time.Instant
 import java.time.OffsetDateTime
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 data class EventPage(
     val messages: List<SmsRecord>,
@@ -41,9 +40,7 @@ class ApiClient(
     // Refreshes of one pairing must share an idempotency/token rotation lock,
     // even when a node switch moves its session between stores. A disconnected
     // node's HTTP refresh must never hold requests to another pairing.
-    private val refreshLock = boundSession?.sessionInstanceId?.let {
-        refreshLocks.computeIfAbsent(it) { Any() }
-    } ?: Any()
+    private val refreshKey = "auth:${boundSession?.sessionInstanceId ?: UUID.randomUUID()}"
 
     fun pair(pairingCode: String, deviceName: String): HostSession {
         val expectedSession = sessionStore.read()
@@ -63,8 +60,8 @@ class ApiClient(
         return result
     }
 
-    fun revoke() = synchronized(refreshLock) {
-        val session = sessionStore.read() ?: return@synchronized
+    fun revoke() = SessionWorkLocks.withLock(refreshKey) {
+        val session = sessionStore.read() ?: return@withLock
         val bound = boundSession ?: throw SessionChanged()
         if (!bound.sameSessionInstance(session) || session.apiBaseUrl != apiRoot) throw SessionChanged()
         publicRequest("POST", "/auth/revoke", JSONObject().put("refresh_token", session.refreshToken), expectBody = false)
@@ -269,6 +266,7 @@ class ApiClient(
         idempotencyKey: String? = null,
         rawBody: String? = null
     ): JSONObject {
+        RequestBudget.current?.remainingMillis()
         refreshIfExpiring()
         val first = currentBoundSession()
         try {
@@ -282,19 +280,21 @@ class ApiClient(
     }
 
     private fun refreshIfExpiring() {
-        synchronized(refreshLock) {
+        SessionWorkLocks.withLock(refreshKey) {
+            RequestBudget.current?.remainingMillis()
             val current = currentBoundSession()
             val expires = parseInstant(current.accessExpiresAt)
-            if (expires != null && expires.isAfter(Instant.now().plusSeconds(45))) return
+            if (expires != null && expires.isAfter(Instant.now().plusSeconds(45))) return@withLock
             refreshSessionLocked(current)
         }
     }
 
     private fun refreshSession(expected: HostSession) {
-        synchronized(refreshLock) {
+        SessionWorkLocks.withLock(refreshKey) {
+            RequestBudget.current?.remainingMillis()
             val current = currentBoundSession()
             if (!current.sameSessionInstance(expected)) throw SessionChanged()
-            if (current.accessToken != expected.accessToken) return
+            if (current.accessToken != expected.accessToken) return@withLock
             refreshSessionLocked(current)
         }
     }
@@ -339,14 +339,16 @@ class ApiClient(
         expectBody: Boolean = true,
         rawBody: String? = null
     ): JSONObject {
+        val budget = RequestBudget.current
+        val remaining = budget?.remainingMillis()?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
         val requestStarted = System.nanoTime()
         var requestSucceeded = false
         var sentBytes = 0L
         var receivedBytes = 0L
         val connection = (URL(apiRoot + path).openConnection() as HttpURLConnection).apply {
             requestMethod = method
-            connectTimeout = connectTimeoutMillis
-            readTimeout = readTimeoutMillis
+            connectTimeout = remaining?.let { minOf(connectTimeoutMillis, it) } ?: connectTimeoutMillis
+            readTimeout = remaining?.let { minOf(readTimeoutMillis, it) } ?: readTimeoutMillis
             instanceFollowRedirects = false
             useCaches = false
             setRequestProperty("Accept", "application/json")
@@ -358,6 +360,7 @@ class ApiClient(
             }
         }
         try {
+            budget?.attach(connection)
             if (body != null || rawBody != null) connection.outputStream.use { output ->
                 val bytes = (rawBody ?: body!!.toString()).toByteArray(Charsets.UTF_8)
                 output.write(bytes)
@@ -376,13 +379,19 @@ class ApiClient(
                 }.getOrDefault(false)
                 throw ApiFailure(status, code, retryable)
             }
-            requestSucceeded = true
-            if (!expectBody || status == HttpURLConnection.HTTP_NO_CONTENT) return JSONObject()
+            budget?.remainingMillis()
+            if (!expectBody || status == HttpURLConnection.HTTP_NO_CONTENT) {
+                requestSucceeded = true
+                return JSONObject()
+            }
             val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             receivedBytes = text.toByteArray(Charsets.UTF_8).size.toLong()
+            budget?.remainingMillis()
+            requestSucceeded = true
             return if (text.isBlank()) JSONObject() else JSONObject(text)
         } finally {
             StandbyDiagnostics.record(method, path, requestSucceeded, System.nanoTime() - requestStarted, sentBytes, receivedBytes, apiRoot)
+            budget?.detach(connection)
             connection.disconnect()
         }
     }
@@ -445,9 +454,6 @@ class ApiClient(
         return current
     }
 
-    companion object {
-        private val refreshLocks = ConcurrentHashMap<String, Any>()
-    }
 }
 
 internal fun normalizeApiBaseUrl(value: String): String {

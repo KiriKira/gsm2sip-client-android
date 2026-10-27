@@ -49,6 +49,7 @@ object StandbyDiagnostics {
     private var socketStart: Long? = null
     private var socketMillis = 0L
     @Volatile private var lastCheckpoint = -300_000L
+    private val pushByNode = mutableMapOf<String, org.json.JSONObject>()
     @Volatile private var lastPushAt = 0L
     @Volatile private var actualPriority = 0
     @Volatile private var originalPriority = 0
@@ -63,10 +64,12 @@ object StandbyDiagnostics {
         if (kind in setOf("wss_open", "wss_closed", "network_changed", "rtc_poll_idle", "rtc_poll_live", "rtc_capability", "rtc_poll_succeeded", "rtc_poll_failed")) events.computeIfAbsent(kind) { AtomicLong() }.incrementAndGet()
     }
 
-    fun pushReceived(actual: Int, original: Int) {
+    @Synchronized fun pushReceived(actual: Int, original: Int, source: String = "") {
         lastPushAt = System.currentTimeMillis()
         actualPriority = actual
         originalPriority = original
+        pushByNode[nodeLabel(source)] = org.json.JSONObject().put("received_at", lastPushAt)
+            .put("actual_priority", actual).put("original_priority", original)
     }
 
     @Synchronized fun wakeAcquired(tag: String, timeout: Long): Long {
@@ -120,6 +123,7 @@ object StandbyDiagnostics {
             .put("events", org.json.JSONObject(events.mapValues { it.value.get() }))
             .put("wss_connected_ms", socketMillis + (socketStart?.let { now - it } ?: 0L))
             .put("last_fcm_received_at", lastPushAt).put("fcm_priority", actualPriority).put("fcm_original_priority", originalPriority)
+            .put("push_by_node", org.json.JSONObject(pushByNode as Map<*, *>))
             .put("scope", "process segment; wake intervals capped at lease expiry; application HTTP only")
     }
 
