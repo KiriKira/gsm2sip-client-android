@@ -17,7 +17,7 @@ Several hosts can pair to the same owner and gateway, using separate one-time co
 
 ## 多服务器节点
 
-下一阶段设计：[Reception v2 精简协议](docs/reception-v2-protocol.md)与[实施 PLAN](docs/reception-v2-PLAN.md)：复用现有事件和接口，解耦电话/短信、按需来电唤醒并支持无 FCM 降级。[与远期 mesh 的整合决定](docs/reception-mesh-decision.md)：先完成接收改造，单跳推送代发可独立交付，完整复制/控制路由暂不排期。当前均为待实施设计。
+下一阶段设计：[Reception v2 精简协议](docs/reception-v2-protocol.md)与[实施 PLAN](docs/reception-v2-PLAN.md)：复用现有事件和接口，解耦电话/短信、按需来电唤醒并支持无 FCM 降级。[与远期 mesh 的整合决定](docs/reception-mesh-decision.md)：先完成接收改造；出口故障先用受信 Kyubey 备用地址，必要时再做单跳代发；完整复制/控制路由暂不排期。当前均为待实施设计。
 
 此前的[持续待机唤醒锁修复计划（2026-10-27）](docs/idle-wakelock-fix-plan-20261027.md)、[待机优化计划](docs/standby-optimization-plan-20261026.md)和[实施记录](docs/standby-optimization-implementation-20261026.md)保留供对照；新接收协议的实施顺序以 Reception v2 PLAN 为准。
 
