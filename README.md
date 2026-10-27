@@ -17,7 +17,9 @@ Several hosts can pair to the same owner and gateway, using separate one-time co
 
 ## 多服务器节点
 
-当前修复计划：[持续待机唤醒锁修复（2026-10-27）](docs/idle-wakelock-fix-plan-20261027.md)，包括无 FCM 优化及独立的最小推送休眠协议改造，不依赖远期 mesh。上一轮 [待机优化计划](docs/standby-optimization-plan-20261026.md) 和 [实施记录](docs/standby-optimization-implementation-20261026.md) 保留供对照。
+下一阶段设计：[Reception v2 精简协议](docs/reception-v2-protocol.md)与[实施 PLAN](docs/reception-v2-PLAN.md)：复用现有事件和接口，解耦电话/短信、按需来电唤醒并支持无 FCM 降级。[与远期 mesh 的整合决定](docs/reception-mesh-decision.md)：先完成接收改造；出口故障先用受信 Kyubey 备用地址，必要时再做单跳代发；完整复制/控制路由暂不排期。当前均为待实施设计。
+
+此前的[持续待机唤醒锁修复计划（2026-10-27）](docs/idle-wakelock-fix-plan-20261027.md)、[待机优化计划](docs/standby-optimization-plan-20261026.md)和[实施记录](docs/standby-optimization-implementation-20261026.md)保留供对照；新接收协议的实施顺序以 Reception v2 PLAN 为准。
 
 设置里可以添加多个独立服务器节点并拖动排序：当前节点不通、旧手机不在线或延迟过高时自动切到下一个，
 更高优先级节点稳定恢复后切回。同一条短信经过多个节点只存一份、只提醒一次；发出的短信由主手机铸造全局
