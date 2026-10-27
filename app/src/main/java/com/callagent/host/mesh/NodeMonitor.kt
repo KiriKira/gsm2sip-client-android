@@ -279,6 +279,11 @@ object NodeMonitor {
     private fun callInProgress(): Boolean =
         CallRuntime.currentSession?.phase?.let { it != CallPhase.IDLE && it != CallPhase.ENDED && it != CallPhase.FAILED } == true
 
+    /** Lets a visible node list show new per-node state; switches nothing. */
+    fun announceNodeState(context: Context) {
+        runCatching { context.sendBroadcast(Intent(ACTION_NODE_CHANGED).setPackage(context.packageName)) }
+    }
+
     private fun announce(context: Context, session: HostSession) {
         runCatching { HostBackgroundService.onActiveNodeChanged() }
         runCatching { CallRuntime.onActiveNodeChanged(context, session) }

@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.callagent.host.mesh.HostNode
 import com.callagent.host.mesh.NodeHealth
 import com.callagent.host.push.NodePushStatus
+import com.callagent.host.push.PushProbe
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
@@ -38,31 +39,53 @@ object NodeRowPresenter {
         nodes: List<HostNode>,
         health: Map<String, NodeHealth>,
         activeKey: String?,
-        push: Map<String, NodePushStatus> = emptyMap()
+        push: Map<String, NodePushStatus> = emptyMap(),
+        probes: Map<String, PushProbe.NodeProbe> = emptyMap(),
+        /** Elapsed realtime for the probes' ages; read from the clock when omitted. */
+        now: Long? = null
     ): List<NodeRow> =
         nodes.mapIndexed { index, node ->
             val state = health[node.key]
             val active = node.key == activeKey
             val role = if (active) "使用中" else "备用"
+            // Line two: role, health, calls, and FCM when this node can wake the phone.
             val status = when {
-                state == null || state.checkedAt == 0L -> "尚未检测"
-                state.healthy -> state.rttMillis?.let { "正常 · 延迟 $it ms" } ?: "正常"
-                else -> state.issue ?: "不可用"
+                state == null || state.checkedAt == 0L -> listOf("尚未检测")
+                state.healthy -> listOfNotNull(state.rttMillis?.let { "$it ms" } ?: "正常", quality(state))
+                else -> listOf(state.issue ?: "不可用")
             }
+            val fcm = push[node.key]?.let { it.kind == NodePushStatus.Kind.REGISTERED ||
+                it.kind == NodePushStatus.Kind.RETRYING && it.stillRegistered } == true
             NodeRow(
                 key = node.key,
                 title = "${index + 1}. ${node.label}",
-                detail = "$role · $status",
+                detail = (listOf(role) + status + listOfNotNull("FCM".takeIf { fcm })).joinToString(" · "),
                 active = active,
                 healthy = state?.takeIf { it.checkedAt > 0L }?.healthy,
                 removable = !active,
-                quality = listOfNotNull(state?.let(::quality), push[node.key]?.let(::pushShort))
-                    .joinToString(" · ").ifEmpty { null }
+                // Line three: only how this node's pushes travel, once known.
+                quality = probes[node.key]?.let { pushPath(it, now ?: android.os.SystemClock.elapsedRealtime()) }
             )
         }
 
-    private fun quality(state: NodeHealth): String? =
-        if (state.checkedAt == 0L) null else if (state.callReady) "可通话" else "仅短信"
+    private fun quality(state: NodeHealth): String = if (state.callReady) "可通话" else "仅短信"
+
+    /** Node to Kyubey, then Kyubey to this phone; null while nothing is known. */
+    fun pushPath(probe: PushProbe.NodeProbe, now: Long): String? {
+        if (!probe.supported) return null
+        val relay = when (probe.relayOk) {
+            true -> "Kyubey 正常"
+            false -> if (probe.relayFailures > 1) "Kyubey 不通（${probe.relayFailures} 次）" else "Kyubey 不通"
+            null -> null
+        }
+        val phone = when {
+            probe.testPending -> "测试推送中"
+            probe.testLost -> "本机未收到测试推送"
+            probe.reachedAt > 0L -> "本机已收到 · ${ago(now - probe.reachedAt)}"
+            else -> null
+        }
+        return listOfNotNull(relay, phone).joinToString(" · ").ifEmpty { null }
+    }
 
     /** The push state in a few characters for a node row. */
     fun pushShort(status: NodePushStatus): String = when (status.kind) {
@@ -113,11 +136,14 @@ object NodeRowPresenter {
         state: NodeHealth?,
         active: Boolean,
         now: Long,
-        push: NodePushStatus? = null
+        push: NodePushStatus? = null,
+        probe: PushProbe.NodeProbe? = null,
+        elapsedNow: Long? = null
     ): List<Pair<String, String>> = buildList {
         add("地址" to node.apiBaseUrl)
         add("角色" to if (active) "正在使用" else "备用")
         push?.let { add("推送" to pushDetail(it, now)) }
+        probe?.let { pushPath(it, elapsedNow ?: android.os.SystemClock.elapsedRealtime()) }?.let { add("推送通道" to it) }
         if (state == null || state.checkedAt == 0L) {
             add("状态" to "尚未检测")
             return@buildList

@@ -41,9 +41,11 @@ internal object NetworkEnvironment {
         window.changed("", SystemClock.elapsedRealtime())
         generation++
         val notify = Runnable {
+            if (manager.activeNetwork == null) return@Runnable
+            // Back online: check, silently, that each node's push still reaches this phone.
+            com.callagent.host.push.PushProbe.onNetworkRecovered(app)
             if (!com.callagent.host.background.HostBackgroundService.isRunning &&
                 !com.callagent.host.calls.CallRuntime.hasServiceForPush) return@Runnable
-            if (manager.activeNetwork == null) return@Runnable
             com.callagent.host.mesh.NodeMonitor.environmentChanged(app)
             com.callagent.host.background.HostBackgroundService.onNetworkEnvironmentChanged()
             com.callagent.host.calls.CallRuntime.requestCallSyncFromWakeHint()
