@@ -17,6 +17,8 @@ Several hosts can pair to the same owner and gateway, using separate one-time co
 
 ## 多服务器节点
 
+最新诊断与具体建议：[三段真机日志的持续持锁分析（2026-10-27）](docs/standby-log-analysis-20261027.md)。已确认兼容待机锁几乎全程持有，文中列出源码位置、修改规则与服务端依赖。
+
 当前修复计划：[持续待机唤醒锁修复（2026-10-27）](docs/idle-wakelock-fix-plan-20261027.md)，包括无 FCM 优化及独立的最小推送休眠协议改造，不依赖远期 mesh。上一轮 [待机优化计划](docs/standby-optimization-plan-20261026.md) 和 [实施记录](docs/standby-optimization-implementation-20261026.md) 保留供对照。
 
 设置里可以添加多个独立服务器节点并拖动排序：当前节点不通、旧手机不在线或延迟过高时自动切到下一个，
