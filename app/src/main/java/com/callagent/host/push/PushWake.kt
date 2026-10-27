@@ -42,6 +42,8 @@ internal object PushWake {
         val pairings = PushRegistration.pairings(app)
         // Only wake-ups from a pairing this phone still holds are acted on.
         val from = pairings.firstOrNull { it.first.deviceId == deviceId }?.first ?: return false
+        // Evidence that this node's wake-ups reach the phone, for push sleep.
+        com.callagent.host.calls.RtcSleep.pushArrived(from.sessionInstanceId)
         if (actualPriority != null && originalPriority != null)
             com.callagent.host.data.StandbyDiagnostics.pushReceived(actualPriority, originalPriority, from.apiBaseUrl)
         val active = runCatching { SessionStore(app).read() }.getOrNull()
