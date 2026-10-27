@@ -11,6 +11,7 @@ class HostApp : Application() {
         runCatching { com.callagent.backup.FullBackup.applyPending(this, com.callagent.host.backup.HostFullBackupProfile) }
             .onFailure { android.util.Log.e("HostApp", "Full backup restore failed: ${it.javaClass.simpleName}") }
         com.callagent.host.network.NetworkEnvironment.start(this)
+        com.callagent.host.calls.RtcSleep.install(this)
         DynamicColors.applyToActivitiesIfAvailable(this)
         runCatching { HostNotificationChannels.ensure(this) }
     }

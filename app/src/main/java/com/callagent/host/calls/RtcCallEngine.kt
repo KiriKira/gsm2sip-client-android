@@ -60,6 +60,7 @@ internal class RtcCallEngine(
     private fun releaseSystemWake() { systemWakeOwner.getAndSet(null)?.let { wakeLease.release(it) } }
     /** Idle reception without the continuous lease: an alarm beat plus WebSocket/FCM wakes. */
     @Volatile private var sleepyActive = false
+    @Volatile private var beatInterval = RtcSleepyListening.INTERVAL_MS
     @Volatile private var lastSleepyPollAt = 0L
     private var lateBeats = 0
     @Volatile private var sleepyBlockedUntil = 0L
@@ -113,7 +114,10 @@ internal class RtcCallEngine(
         if (sleepy) {
             sleepyActive = true
             lastSleepyPollAt = android.os.SystemClock.elapsedRealtime()
-            RtcSleepyListening.schedule(context)
+            // Push sleep only when every node that could offer a call wakes the phone by push.
+            beatInterval = RtcSleepyListening.intervalFor(RtcSleep.phoneMaySleep(context))
+            if (beatInterval > RtcSleepyListening.INTERVAL_MS) com.callagent.host.data.StandbyDiagnostics.event("push_sleep_beat")
+            RtcSleepyListening.schedule(context, beatInterval)
         } else if (sleepyActive) {
             sleepyActive = false
             lastSleepyPollAt = 0L
@@ -128,7 +132,7 @@ internal class RtcCallEngine(
         val now = android.os.SystemClock.elapsedRealtime()
         val previous = lastSleepyPollAt
         if (previous == 0L) return
-        lateBeats = if (now - previous > RtcSleepyListening.LATE_MS) lateBeats + 1 else 0
+        lateBeats = if (now - previous > RtcSleepyListening.lateAfter(beatInterval)) lateBeats + 1 else 0
         if (lateBeats >= 2) {
             lateBeats = 0
             lastSleepyPollAt = 0L
@@ -142,7 +146,7 @@ internal class RtcCallEngine(
      * server routes calls to it for 90 s) and backs up a lost hint; HTTPS every
      * 750 ms kept the radio busy and the phone hot, worst on a weak signal.
      */
-    private fun nextPollDelay():Long=if (sleepyActive && !hasLiveCall()) RtcSleepyListening.INTERVAL_MS + 15_000L else idlePollDelay(
+    private fun nextPollDelay():Long=if (sleepyActive && !hasLiveCall()) beatInterval + 15_000L else idlePollDelay(
         live = hasLiveCall(),
         wakeChannelLive = CallRuntime.wakeChannelLive,
         pushReady = runCatching(pushReady).getOrDefault(false),

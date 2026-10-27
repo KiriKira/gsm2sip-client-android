@@ -21,19 +21,26 @@ import android.os.SystemClock
  */
 internal object RtcSleepyListening {
     const val INTERVAL_MS = 60_000L
-    /** A gap this long between beats means the alarm was held back. */
-    const val LATE_MS = 80_000L
+    /** With push sleep granted by every node (see [RtcSleep]): only grants and SMS catch-up remain. */
+    const val TRUSTED_INTERVAL_MS = 10 * 60_000L
     private const val REQUEST = 7412
+
+    fun intervalFor(trusted: Boolean) = if (trusted) TRUSTED_INTERVAL_MS else INTERVAL_MS
+
+    /** A gap this long between beats means the alarm was held back: 20 s past a
+     * minute beat, before the 90 s capability lapses; 10 minutes past a trusted
+     * beat, well inside a 30-minute grant. */
+    fun lateAfter(intervalMs: Long) = intervalMs + if (intervalMs > INTERVAL_MS) 10 * 60_000L else 20_000L
 
     fun canSchedule(context: Context): Boolean =
         Build.VERSION.SDK_INT < 31 ||
             runCatching { context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms() }.getOrDefault(false)
 
-    fun schedule(context: Context) {
+    fun schedule(context: Context, intervalMs: Long = INTERVAL_MS) {
         val app = context.applicationContext
         runCatching {
             app.getSystemService(AlarmManager::class.java).setExactAndAllowWhileIdle(
-                AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + INTERVAL_MS, intent(app))
+                AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + intervalMs, intent(app))
         }
     }
 

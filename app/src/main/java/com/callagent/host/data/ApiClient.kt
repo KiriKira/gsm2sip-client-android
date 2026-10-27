@@ -178,8 +178,21 @@ class ApiClient(
         return try {
             if (method == "POST" && path == "/rtc/control/capability" && body?.has("enabled") == true && boundSession != null) {
                 if (sessionStore.read()?.sameSessionInstance(boundSession) != true) throw SessionChanged()
-                RtcCapabilityRefresh.request(boundSession.sessionInstanceId, body.getBoolean("enabled")) {
-                    authenticatedRequest(method, path, body)
+                val sessionId = boundSession.sessionInstanceId
+                val enabled = body.getBoolean("enabled")
+                RtcCapabilityRefresh.request(sessionId, enabled) {
+                    // Every renewal asks again: one without sleep_seconds ends the grant.
+                    val sleepy = enabled && com.callagent.host.calls.RtcSleep.wanted(sessionId, apiRoot)
+                    val sent = if (!sleepy) authenticatedRequest(method, path, body) else try {
+                        authenticatedRequest(method, path, JSONObject(body.toString())
+                            .put("sleep_seconds", com.callagent.host.calls.RtcSleep.REQUEST_SECONDS))
+                    } catch (failure: ApiFailure) {
+                        // A node rolled back to a version without sleep rejects the field.
+                        if (failure.httpStatus != 400) throw failure
+                        com.callagent.host.calls.RtcSleep.observed(apiRoot, false)
+                        authenticatedRequest(method, path, body)
+                    }
+                    sent.also { com.callagent.host.calls.RtcSleep.answered(sessionId, it, enabled) }
                 }
             } else authenticatedRequest(method, path, body)
         }
@@ -223,7 +236,10 @@ class ApiClient(
         val items = json.optJSONArray("extensions") ?: JSONArray()
         return ServerCapabilities(json.optBoolean("rtc_call_control", false), json.optBoolean("push", false),
             (0 until items.length()).mapNotNull { items.optString(it).takeIf(String::isNotBlank) }.toSet())
-            .also { ServerPushSignal.observed(apiRoot, it.push) }
+            .also {
+                ServerPushSignal.observed(apiRoot, it.push)
+                com.callagent.host.calls.RtcSleep.observed(apiRoot, json.optBoolean("rtc_sleep", false))
+            }
     }
 
     fun createMessage(envelope: RetryEnvelope): MessageAccepted {

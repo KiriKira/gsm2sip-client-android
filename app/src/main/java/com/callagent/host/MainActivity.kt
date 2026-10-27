@@ -1187,6 +1187,7 @@ class MainActivity : AppCompatActivity() {
                 MaterialAlertDialogBuilder(this).setTitle("省电接听")
                     .setMessage("开启后，空闲监听不再一直持有唤醒锁：手机每分钟由系统闹钟短暂唤醒一次，向节点续期接听资格并检查来电；" +
                         "来电提示通过 WebSocket 或 FCM 推送到达时会立即唤醒手机。\n\n" +
+                        "若所有节点都支持推送休眠（SoulGem 新版）且最近确实收到过它们的推送，唤醒间隔放宽到 10 分钟，来电完全靠推送唤醒。\n\n" +
                         "只有 WebSocket 已连接或推送已登记时才生效，否则自动使用兼容接听。若系统推迟闹钟导致资格可能过期，" +
                         "会自动改回兼容接听 30 分钟。WebSocket 断开且推送也没送达时，个别来电可能比兼容模式更容易漏接。")
                     .setPositiveButton(if (sleepy) "改用兼容接听" else "开启省电接听") { _, _ ->

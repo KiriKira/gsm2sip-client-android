@@ -91,3 +91,75 @@ class RtcSleepyListeningTest {
         } finally { engine.close() }
     }
 }
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [29])
+class RtcPushSleepTest {
+    private val app: Context = RuntimeEnvironment.getApplication()
+    private val listener = object : CallEngine.Listener {
+        override fun onConnectionState(state: EngineConnectionState, statusCode: Int?, reason: String?) = Unit
+        override fun onCallState(snapshot: EngineCallSnapshot) = Unit
+        override fun onEngineError(error: Throwable) = Unit
+    }
+    private val session = com.callagent.host.data.HostSession(java.util.UUID.randomUUID().toString(), "https://node.example/v1",
+        "owner", java.util.UUID.randomUUID().toString(), "client", "access", "2099-01-01T00:00:00Z",
+        "refresh", "2099-02-01T00:00:00Z")
+    private fun grant(minutes: Long) = JSONObject()
+        .put("sleep_until", java.time.Instant.ofEpochMilli(System.currentTimeMillis() + minutes * 60_000L).toString())
+
+    private var oldProvider: java.security.Provider? = null
+
+    @Before fun paired() {
+        oldProvider = java.security.Security.getProvider("AndroidKeyStore")
+        java.security.Security.removeProvider("AndroidKeyStore")
+        com.callagent.host.TestAndroidKeyStoreBacking.keys.clear()
+        java.security.Security.insertProviderAt(com.callagent.host.RobolectricAndroidKeyStoreProvider(), 1)
+        RtcSleep.resetForTest()
+        com.callagent.host.data.SessionStore(app).replace(session)
+        val network = shadowOf(app.getSystemService(ConnectivityManager::class.java))
+        network.setActiveNetworkInfo(ShadowNetworkInfo.newInstance(NetworkInfo.DetailedState.CONNECTED,
+            ConnectivityManager.TYPE_WIFI, 0, true, true))
+        network.setDefaultNetworkActive(true)
+        CallRuntime.wakeChannelLive = true
+    }
+
+    @After fun reset() {
+        RtcSleep.resetForTest()
+        CallRuntime.wakeChannelLive = false
+        com.callagent.host.data.SessionStore(app).clear()
+        com.callagent.host.TestAndroidKeyStoreBacking.keys.clear()
+        java.security.Security.removeProvider("AndroidKeyStore")
+        oldProvider?.let { java.security.Security.insertProviderAt(it, 1) }
+    }
+
+    @Test fun aGrantCountsOnlyWithRecentPushAndEndsWhenARenewalHasNone() {
+        val id = session.sessionInstanceId
+        RtcSleep.answered(id, grant(30), enabled = true)
+        assertFalse("no push has proved this node reaches the phone", RtcSleep.trusted(id))
+        RtcSleep.pushArrived(id)
+        assertTrue(RtcSleep.trusted(id))
+        assertTrue(RtcSleep.phoneMaySleep(app))
+        RtcSleep.answered(id, grant(3), enabled = true)
+        assertFalse("a grant about to end does not count", RtcSleep.trusted(id))
+        RtcSleep.answered(id, grant(30), enabled = true)
+        RtcSleep.answered(id, JSONObject(), enabled = true)
+        assertFalse("a renewal the node answered without a grant ends it", RtcSleep.trusted(id))
+    }
+
+    @Test fun aTrustedPhoneBeatsEveryTenMinutesOthersEveryMinute() {
+        val alarms = shadowOf(app.getSystemService(AlarmManager::class.java))
+        val engine = RtcCallEngine(app, MediaApi { _, path, _ ->
+            if (path.endsWith("/calls")) JSONObject("{\"calls\":[]}") else JSONObject()
+        }, listener, pushReady = { false })
+        val poll = RtcCallEngine::class.java.getDeclaredMethod("poll").apply { isAccessible = true }
+        fun nextBeatInMinutes() = (alarms.peekNextScheduledAlarm().triggerAtTime - android.os.SystemClock.elapsedRealtime()) / 60_000L
+        try {
+            poll.invoke(engine)
+            assertEquals(1L, nextBeatInMinutes())
+            RtcSleep.answered(session.sessionInstanceId, grant(30), enabled = true)
+            RtcSleep.pushArrived(session.sessionInstanceId)
+            poll.invoke(engine)
+            assertEquals(10L, nextBeatInMinutes())
+        } finally { engine.close() }
+    }
+}
