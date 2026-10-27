@@ -87,8 +87,7 @@ class HostBackgroundService : Service() {
         }
 
         override fun onLost(network: Network) {
-            val active = runCatching { connectivityManager.activeNetwork }.getOrNull()
-            if (active == null) setConnection("Waiting for network")
+            if (!com.callagent.host.network.NetworkEnvironment.online(this@HostBackgroundService)) setConnection("Waiting for network")
         }
     }
 
@@ -164,7 +163,7 @@ class HostBackgroundService : Service() {
         scheduler.schedule({
             try {
                 if (isOptedInAndPaired()) {
-                    if (connectivityManager.activeNetwork != null) enqueueSync()
+                    if (com.callagent.host.network.NetworkEnvironment.online(this)) enqueueSync()
                 } else stopForInvalidSession(
                     expectedGeneration = generation.get(),
                     expectedSession = runCatching { sessionStore.read() }.getOrNull(),
@@ -230,8 +229,8 @@ class HostBackgroundService : Service() {
     }
 
     private fun runSync(expectedGeneration: Long) {
-        // Absence of a default network is different from an unvalidated LAN/VPN network.
-        if (connectivityManager.activeNetwork == null) return
+        // No network at all differs from an unvalidated LAN; a VPN alone (airplane mode) counts as none.
+        if (!com.callagent.host.network.NetworkEnvironment.online(this)) return
         NodeMonitor.maintain(this)
         com.callagent.host.data.StandbyDiagnostics.checkpoint(this)
         // Pick the best server node first; a switch rebinds this service and
@@ -425,7 +424,7 @@ class HostBackgroundService : Service() {
     }
 
     private fun ensureWebSocket() {
-        if (connectivityManager.activeNetwork == null) return
+        if (!com.callagent.host.network.NetworkEnvironment.online(this)) return
         synchronized(webSocketLock) {
             if (!isOptedInAndPaired() || socket != null) return
             val session = sessionStore.read() ?: return

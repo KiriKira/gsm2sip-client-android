@@ -63,7 +63,7 @@ object PushProbe {
 
     private fun run(context: Context, test: Boolean, force: Boolean) {
         val app = context.applicationContext
-        if (!PushRegistration.available(app)) return
+        if (!PushRegistration.available(app) || !com.callagent.host.network.NetworkEnvironment.online(app)) return
         runCatching {
             worker.execute {
                 var changed = false

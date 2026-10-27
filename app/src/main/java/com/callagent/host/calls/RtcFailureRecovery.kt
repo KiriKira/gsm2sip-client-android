@@ -41,10 +41,15 @@ internal object RtcFailureRecovery {
         runCatching { app.getSystemService(AlarmManager::class.java).cancel(intent(app)) }
     }
 
-    /** Asks Android to re-validate the default network the engine cannot reach through. */
+    /**
+     * Asks Android to re-validate the networks the engine cannot reach through:
+     * under a VPN the default network is the tunnel, and only re-checking the
+     * Wi-Fi or mobile network under it notices that link failing.
+     */
     fun reportUnreachable(context: Context) {
         val manager = context.applicationContext.getSystemService(ConnectivityManager::class.java)
-        runCatching { manager.activeNetwork?.let { manager.reportNetworkConnectivity(it, false) } }
+        (com.callagent.host.network.NetworkEnvironment.underlying() + listOfNotNull(manager.activeNetwork)).distinct()
+            .forEach { runCatching { manager.reportNetworkConnectivity(it, false) } }
     }
 
     private fun intent(app: Context) = PendingIntent.getBroadcast(app, REQUEST,
