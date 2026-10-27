@@ -80,13 +80,18 @@ internal class RtcCallEngine(
             lastCapability = 0L
             return
         }
+        com.callagent.host.data.StandbyDiagnostics.event(if (hasLiveCall()) "rtc_poll_live" else "rtc_poll_idle")
         com.callagent.host.mesh.NodeMonitor.maintain(context)
         val work = wakeLease.acquire(RtcSignalingWakeLease.Reason.CONTROL_WORK)
         try {
             updateContinuousLease()
             val now=System.nanoTime()
-            if(now-lastCapability>30_000_000_000L){control.capability(true);lastCapability=now}
+            if(now-lastCapability>30_000_000_000L){
+                control.capability(true);lastCapability=now
+                com.callagent.host.data.StandbyDiagnostics.event("rtc_capability")
+            }
             val all=control.calls();lastControl=System.nanoTime();failedPolls=0
+            com.callagent.host.data.StandbyDiagnostics.event("rtc_poll_succeeded")
             lastPollSucceededAt=android.os.SystemClock.elapsedRealtime()
             if(!ready){ready=true;listener.onConnectionState(EngineConnectionState.READY)}
             all.forEach { snapshot ->
@@ -98,6 +103,7 @@ internal class RtcCallEngine(
                 store(id,snapshot);report(id)
             }
         }catch(_:Throwable){
+            com.callagent.host.data.StandbyDiagnostics.event("rtc_poll_failed")
             com.callagent.host.network.NetworkEnvironment.failed()
             com.callagent.host.mesh.NodeMonitor.requestFailover(context)
             // Idle polls are seconds apart, so time alone would fail on one miss.
@@ -109,8 +115,7 @@ internal class RtcCallEngine(
             }
         } finally {
             // Work completion cannot release the independent live-call owner.
-            updateContinuousLease()
-            wakeLease.release(work)
+            try { updateContinuousLease() } finally { wakeLease.release(work) }
         }
     }
     /** Keeps the newest snapshot: the poll and an operation race on separate threads. */
