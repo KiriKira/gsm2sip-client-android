@@ -1178,6 +1178,22 @@ class MainActivity : AppCompatActivity() {
         content.addView(HostUi.groupHeader(this, "通知与权限"))
         addPermissionSettings(content)
         content.addView(HostUi.groupHeader(this, "待机诊断"))
+        val sleepy = com.callagent.host.calls.StandbyPowerPolicy.sleepyListening(this)
+        content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "省电接听",
+            summary = if (sleepy) "已开启：空闲时不持续持锁，每分钟短暂唤醒续期；来电由 WebSocket 或推送即时唤醒"
+                else "已关闭：兼容接听，监听来电期间一直持有唤醒锁",
+            icon = R.drawable.ic_ui_battery,
+            onClick = {
+                MaterialAlertDialogBuilder(this).setTitle("省电接听")
+                    .setMessage("开启后，空闲监听不再一直持有唤醒锁：手机每分钟由系统闹钟短暂唤醒一次，向节点续期接听资格并检查来电；" +
+                        "来电提示通过 WebSocket 或 FCM 推送到达时会立即唤醒手机。\n\n" +
+                        "只有 WebSocket 已连接或推送已登记时才生效，否则自动使用兼容接听。若系统推迟闹钟导致资格可能过期，" +
+                        "会自动改回兼容接听 30 分钟。WebSocket 断开且推送也没送达时，个别来电可能比兼容模式更容易漏接。")
+                    .setPositiveButton(if (sleepy) "改用兼容接听" else "开启省电接听") { _, _ ->
+                        com.callagent.host.calls.StandbyPowerPolicy.setSleepyListening(this, !sleepy)
+                        renderCurrentScreen()
+                    }.setNegativeButton("取消", null).show()
+            }).apply { id = R.id.settings_sleepy_listening })
         content.addView(HostUi.tile(this, HostUi.Position.SINGLE, "故障退避省电（试验）",
             summary = if (com.callagent.host.calls.StandbyPowerPolicy.releaseDuringFailure(this))
                 "已启用：连接连续失败时释放空闲锁，恢复后最迟约 15 分钟重连" else "已关闭：保留兼容接听策略",

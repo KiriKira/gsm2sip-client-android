@@ -55,9 +55,19 @@ internal class RtcCallEngine(
         wakeLease.acquire(RtcSignalingWakeLease.Reason.CONTROL_WORK, SYSTEM_WAKE_MS)?.let { token ->
             systemWakeOwner.getAndSet(token)?.let { wakeLease.release(it) }
         }
-        wake()
+        polling.wake()
     }
     private fun releaseSystemWake() { systemWakeOwner.getAndSet(null)?.let { wakeLease.release(it) } }
+    /** Idle reception without the continuous lease: an alarm beat plus WebSocket/FCM wakes. */
+    @Volatile private var sleepyActive = false
+    @Volatile private var lastSleepyPollAt = 0L
+    private var lateBeats = 0
+    @Volatile private var sleepyBlockedUntil = 0L
+    private fun sleepyEligible(): Boolean =
+        StandbyPowerPolicy.sleepyListening(context) &&
+            android.os.SystemClock.elapsedRealtime() >= sleepyBlockedUntil &&
+            (CallRuntime.wakeChannelLive || runCatching(pushReady).getOrDefault(false)) &&
+            RtcSleepyListening.canSchedule(context)
     /** A failing streak in the failure-backoff experiment keeps a sleep-proof retry armed. */
     @Volatile private var recoveryArmed = false
     private var reportedUnreachable = false
@@ -79,17 +89,51 @@ internal class RtcCallEngine(
         if (!started.compareAndSet(false,true)) return
         networkRegistered = runCatching { connectivity.registerDefaultNetworkCallback(networkCallback); true }.getOrDefault(false)
         if (hasNetwork()) updateContinuousLease()
-        polling.wake()
+        systemWake()
     }
-    /** Coalesce every hint with the current fetch; each engine is node/session scoped. */
-    override fun wake() = polling.wake()
+    /** Coalesce every hint with the current fetch; each engine is node/session scoped.
+     * A hint may be the only thing keeping a sleeping CPU up (a WebSocket packet,
+     * an alarm), so it holds a short lock until the poll owns its own. */
+    override fun wake() = systemWake()
 
     private fun updateContinuousLease() {
         when {
             hasLiveCall() -> wakeLease.renew(if (media.isEmpty()) RtcSignalingWakeLease.Reason.RINGING else RtcSignalingWakeLease.Reason.LIVE_CALL)
             !hasNetwork() || !listeningEnabled() -> wakeLease.releaseContinuous()
             failedPolls >= 3 && StandbyPowerPolicy.releaseDuringFailure(context) -> wakeLease.releaseContinuous()
+            failedPolls == 0 && sleepyEligible() -> { sleepyActive = true; wakeLease.releaseContinuous() }
             else -> wakeLease.renew(RtcSignalingWakeLease.Reason.COMPAT_IDLE)
+        }
+    }
+
+    /** After a poll: keep the alarm beat while sleepy, else drop it. */
+    private fun scheduleSleepyBeat() {
+        val sleepy = !closed.get() && !hasLiveCall() && hasNetwork() && listeningEnabled() &&
+            failedPolls == 0 && sleepyEligible()
+        if (sleepy) {
+            sleepyActive = true
+            lastSleepyPollAt = android.os.SystemClock.elapsedRealtime()
+            RtcSleepyListening.schedule(context)
+        } else if (sleepyActive) {
+            sleepyActive = false
+            lastSleepyPollAt = 0L
+            RtcSleepyListening.cancel(context)
+        }
+    }
+
+    /** Two beats in a row held back past the capability window: stay awake for a while.
+     * Any poll in between (a WebSocket hint, a push) counts as a beat. */
+    private fun checkSleepyBeat() {
+        if (!sleepyActive) { lastSleepyPollAt = 0L; lateBeats = 0; return }
+        val now = android.os.SystemClock.elapsedRealtime()
+        val previous = lastSleepyPollAt
+        if (previous == 0L) return
+        lateBeats = if (now - previous > RtcSleepyListening.LATE_MS) lateBeats + 1 else 0
+        if (lateBeats >= 2) {
+            lateBeats = 0
+            lastSleepyPollAt = 0L
+            sleepyBlockedUntil = now + SLEEPY_FALLBACK_MS
+            com.callagent.host.data.StandbyDiagnostics.event("sleepy_beat_late")
         }
     }
     /**
@@ -98,7 +142,7 @@ internal class RtcCallEngine(
      * server routes calls to it for 90 s) and backs up a lost hint; HTTPS every
      * 750 ms kept the radio busy and the phone hot, worst on a weak signal.
      */
-    private fun nextPollDelay():Long=idlePollDelay(
+    private fun nextPollDelay():Long=if (sleepyActive && !hasLiveCall()) RtcSleepyListening.INTERVAL_MS + 15_000L else idlePollDelay(
         live = hasLiveCall(),
         wakeChannelLive = CallRuntime.wakeChannelLive,
         pushReady = runCatching(pushReady).getOrDefault(false),
@@ -111,17 +155,20 @@ internal class RtcCallEngine(
         if (!listeningEnabled() && !hasLiveCall()) {
             wakeLease.releaseContinuous()
             releaseSystemWake()
+            scheduleSleepyBeat()
             sessionInstanceId?.let { com.callagent.host.push.PushWakeHandoff.consumed(it, com.callagent.host.push.PushWakeHandoff.Channel.CALL) }
             return
         }
         if (!hasNetwork() && !hasLiveCall() && networkRegistered) {
             wakeLease.releaseContinuous()
             releaseSystemWake()
+            scheduleSleepyBeat()
             lastCapability = 0L
             sessionInstanceId?.let { com.callagent.host.push.PushWakeHandoff.consumed(it, com.callagent.host.push.PushWakeHandoff.Channel.CALL) }
             return
         }
-        com.callagent.host.data.StandbyDiagnostics.event(if (hasLiveCall()) "rtc_poll_live" else "rtc_poll_idle")
+        com.callagent.host.data.StandbyDiagnostics.event(if (hasLiveCall()) "rtc_poll_live" else if (sleepyActive) "rtc_poll_sleepy" else "rtc_poll_idle")
+        checkSleepyBeat()
         com.callagent.host.mesh.NodeMonitor.maintain(context)
         val budget = com.callagent.host.data.RequestBudget.until(android.os.SystemClock.elapsedRealtime() + CONTROL_BUDGET_MS)
         synchronized(budgetGuard) {
@@ -204,7 +251,7 @@ internal class RtcCallEngine(
             // Work completion cannot release the independent live-call owner.
             budget.close()
             synchronized(budgetGuard) { activeBudgets.remove(budget) }
-            try { updateContinuousLease() } finally { wakeLease.release(work) }
+            try { updateContinuousLease(); scheduleSleepyBeat() } finally { wakeLease.release(work) }
         }
     }
     /** Keeps the newest snapshot: the poll and an operation race on separate threads. */
@@ -356,6 +403,8 @@ internal class RtcCallEngine(
         private const val CONTROL_BUDGET_MS=15_000L
         /** Long enough for the woken poll to take its own work lock. */
         private const val SYSTEM_WAKE_MS=5_000L
+        /** After late beats, how long to keep the compatibility lease. */
+        private const val SLEEPY_FALLBACK_MS=30 * 60_000L
         // A ringing call expires 25 s after the gateway offers it; a lost wake
         // must still leave most of that window to ring and answer.
         private const val IDLE_POLL_MS=8_000L
@@ -397,6 +446,7 @@ internal class RtcCallEngine(
         polling.close()
         synchronized(budgetGuard) { activeBudgets.forEach { it.close() }; activeBudgets.clear() }
         if (recoveryArmed) { recoveryArmed = false; RtcFailureRecovery.cancel(context) }
+        if (sleepyActive) { sleepyActive = false; RtcSleepyListening.cancel(context) }
         wakeLease.close()
         com.callagent.host.mesh.NodeMonitor.maintain(context, force = true)
         if (networkRegistered) runCatching { connectivity.unregisterNetworkCallback(networkCallback) }
