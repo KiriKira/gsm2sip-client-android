@@ -28,7 +28,7 @@ internal object HostFullBackupProfile : FullBackupProfile {
         name == SessionStore.ACTIVE_PREFS || name.startsWith(HostNodes.NODE_PREFS_PREFIX)
 
     override fun includePreferences(name: String): Boolean =
-        name.startsWith("host-") && !isSessionStore(name) && name != PUSH_PREFS
+        name.startsWith("host-") && !isSessionStore(name) && name != PUSH_PREFS && name != "host-standby-runtime"
 
     override fun exportSecrets(context: Context): Map<String, JSONObject> =
         sessionStoreNames(context).mapNotNull { name ->

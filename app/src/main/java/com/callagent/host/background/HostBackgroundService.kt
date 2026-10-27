@@ -249,25 +249,39 @@ class HostBackgroundService : Service() {
         val startedAt = android.os.SystemClock.elapsedRealtime()
         val deadline = startedAt + WAKE_LOCK_TIMEOUT_MS
         var wakeToken: Long? = null
+        fun releaseSyncPower() {
+            if (wakeLock.isHeld) wakeLock.release()
+            wakeToken?.let { com.callagent.host.data.StandbyDiagnostics.wakeReleased(it) }
+            wakeToken = null
+        }
         try {
             wakeLock.acquire(WAKE_LOCK_TIMEOUT_MS)
             wakeToken = com.callagent.host.data.StandbyDiagnostics.wakeAcquired("host-sync", WAKE_LOCK_TIMEOUT_MS)
             val expectedRunGeneration = expectedGeneration
             val scopedCoalescer = notificationCoalescer(bound, expectedRunGeneration)
-            HostSyncEngine(
+            val syncPhase = com.callagent.host.data.StandbyDiagnostics.phaseStarted("host-sync-data", WAKE_LOCK_TIMEOUT_MS)
+            try { HostSyncEngine(
                 context = this,
                 boundSession = bound,
                 sessionIsCurrent = { expected -> isCurrent(expected, expectedGeneration) },
                 persistInboundNotificationIds = scopedCoalescer::record
             ).use { engine ->
                 engine.sync(deadline)
+            } } finally {
+                com.callagent.host.data.StandbyDiagnostics.phaseEnded(syncPhase)
+                // Registration has its own opportunistic cadence; it must not
+                // extend the data-sync wake lock after notifications are saved.
+                releaseSyncPower()
             }
             if (!isCurrent(bound, expectedGeneration)) return
             syncFailures = 0
             com.callagent.host.network.NetworkEnvironment.succeeded()
             RuntimeState.update(this, connection = if (socketLive) "Live updates connected" else "Periodic HTTPS sync", lastSyncAt = System.currentTimeMillis(), issue = null)
             // A reachable node is the moment to register FCM where due; this is throttled.
-            PushRegistration.sync(this)
+            val pushPhase = com.callagent.host.data.StandbyDiagnostics.phaseStarted("push-registration")
+            try { PushRegistration.sync(this) } finally {
+                com.callagent.host.data.StandbyDiagnostics.phaseEnded(pushPhase)
+            }
             sendBroadcast(Intent(HostBackgroundRuntime.BACKGROUND_SYNCED).setPackage(packageName))
             val latest = sessionStore.read()
             if (latest != null && latest.sameSessionInstance(bound) && latest.accessToken != bound.accessToken) {
@@ -297,8 +311,7 @@ class HostBackgroundService : Service() {
                 RuntimeState.update(this, connection = "Periodic HTTPS sync", issue = "Server unavailable; retrying over HTTPS.")
             }
         } finally {
-            if (wakeLock.isHeld) wakeLock.release()
-            wakeToken?.let { com.callagent.host.data.StandbyDiagnostics.wakeReleased(it) }
+            releaseSyncPower()
             val currentSession = runCatching { sessionStore.read() }.getOrNull()
             val stillEnabled = RuntimeState.preferences(this).getBoolean(RuntimeState.KEY_ENABLED, false)
             // Ordinary service recreation preserves alerts for the same pairing. Only an

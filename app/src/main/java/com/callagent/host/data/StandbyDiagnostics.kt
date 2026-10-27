@@ -28,6 +28,24 @@ object StandbyDiagnostics {
     private val held = mutableMapOf<Long, Held>()
     private val wakes = mutableMapOf<String, Wake>()
     private var nextToken = 0L
+    private data class Phase(val name: String, val start: Long, var deadline: Long)
+    private val phases = mutableMapOf<Long, Phase>()
+    private val phaseMillis = mutableMapOf<String, Long>()
+
+    @Synchronized fun phaseStarted(name: String, timeout: Long = Long.MAX_VALUE): Long = (++nextToken).also {
+        val now = android.os.SystemClock.elapsedRealtime()
+        phases[it] = Phase(name, now, if (timeout == Long.MAX_VALUE) timeout else now + timeout)
+    }
+
+    @Synchronized fun phaseRenewed(token: Long, deadline: Long) { phases[token]?.deadline = deadline }
+
+    @Synchronized fun phaseEnded(token: Long, deadline: Long = Long.MAX_VALUE) {
+        val phase = phases.remove(token) ?: return
+        val (name, start) = phase
+        val elapsed = (minOf(android.os.SystemClock.elapsedRealtime(), deadline, phase.deadline) - start).coerceAtLeast(0)
+        phaseMillis[name] = (phaseMillis[name] ?: 0L) + elapsed
+    }
+
     private var socketStart: Long? = null
     private var socketMillis = 0L
     @Volatile private var lastCheckpoint = -300_000L
@@ -86,12 +104,19 @@ object StandbyDiagnostics {
                 .put("longest_ms", maxOf(total.longest, durations.maxOrNull() ?: 0))
                 .put("currently_held", intervals.any { now < it.deadline }))
         }
+        val reasons = org.json.JSONObject()
+        (phaseMillis.keys + phases.values.map { it.name }).forEach { name ->
+            reasons.put(name, (phaseMillis[name] ?: 0L) + phases.values
+                .filter { it.name == name }.sumOf { (minOf(now, it.deadline) - it.start).coerceAtLeast(0) })
+        }
         val requests = org.json.JSONObject()
         snapshot().forEach { (key, count) -> requests.put(key, org.json.JSONObject()
             .put("requests", count.requests).put("failures", count.failures).put("elapsed_ns", count.elapsedNanos).put("sent_bytes", count.sentBytes).put("received_bytes", count.receivedBytes)) }
         return org.json.JSONObject().put("version", com.callagent.host.BuildConfig.VERSION_NAME)
             .put("segment_started_at", startedAt).put("sampled_at", System.currentTimeMillis())
             .put("http", requests).put("wake_locks", locks)
+            .put("work_and_owner_ms", reasons)
+            .put("owner_note", "Owners may overlap; never sum owner durations as physical wake-lock time.")
             .put("events", org.json.JSONObject(events.mapValues { it.value.get() }))
             .put("wss_connected_ms", socketMillis + (socketStart?.let { now - it } ?: 0L))
             .put("last_fcm_received_at", lastPushAt).put("fcm_priority", actualPriority).put("fcm_original_priority", originalPriority)
@@ -122,6 +147,8 @@ object StandbyDiagnostics {
             val lock = locks.getJSONObject(tag)
             lines += "$tag：累计 ${lock.getLong("held_ms") / 1000} 秒" + if (lock.getBoolean("currently_held")) "，正在持锁" else ""
         }
+        val reasons = data.getJSONObject("work_and_owner_ms")
+        reasons.keys().forEach { name -> lines += "$name：${reasons.getLong(name) / 1000} 秒（原因可重叠）" }
         lines += "HTTP 请求：${snapshot().values.sumOf { it.requests }} 次"
         lines += if (lastPushAt == 0L) "本次运行尚未收到 FCM；这不等于注册失败。"
             else "最近收到 FCM：${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(lastPushAt))}"
@@ -142,6 +169,7 @@ object StandbyDiagnostics {
             .put("node_count", com.callagent.host.mesh.HostNodes.nodes(context).size.coerceAtLeast(1))
             .put("listening_requested", com.callagent.host.calls.CallRuntime.isListeningRequested)
             .put("wss_live", com.callagent.host.calls.CallRuntime.wakeChannelLive)
+            .put("release_failed_idle_experiment", com.callagent.host.calls.StandbyPowerPolicy.releaseDuringFailure(context))
             .put("stable_network", com.callagent.host.network.NetworkEnvironment.stable).toString(2)
     }
 

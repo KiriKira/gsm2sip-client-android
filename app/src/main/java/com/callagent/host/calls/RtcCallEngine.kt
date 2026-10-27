@@ -6,8 +6,6 @@ import com.callagent.rtcmedia.*
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledFuture
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** Server call control and native WebRTC media. */
@@ -42,29 +40,27 @@ internal class RtcCallEngine(
     @Volatile private var lastControl = System.nanoTime()
     private var lastCapability = 0L
     @Volatile private var ready = false
-    private var nextPoll: ScheduledFuture<*>? = null
+    private val polling = CoalescedCallPoll(worker,
+        { com.callagent.host.data.StandbyDiagnostics.withCause("rtc") { poll() } },
+        { nextPollDelay() })
     private var failedPolls=0
 
     override fun connect() {
         if (!started.compareAndSet(false,true)) return
         networkRegistered = runCatching { connectivity.registerDefaultNetworkCallback(networkCallback); true }.getOrDefault(false)
         if (hasNetwork()) wakeLease.renew()
-        schedulePoll(0)
+        polling.wake()
     }
-    @Volatile private var wakeRequested=false
-    /** Polls at once; the server's WebSocket wake hint for this device lands here. */
-    override fun wake(){wakeRequested=true;schedulePoll(0)}
-    @Synchronized private fun schedulePoll(delayMs:Long){
-        if(closed.get())return
-        nextPoll?.cancel(false)
-        nextPoll=runCatching{worker.schedule({
-            wakeRequested=false
-            try{com.callagent.host.data.StandbyDiagnostics.withCause("rtc") { poll() }}finally{
-                // A wake during this poll was cancelled by this reschedule: honour it.
-                // In finally, so nothing a poll throws can end the polling for good.
-                schedulePoll(if(wakeRequested)0 else nextPollDelay())
-            }
-        },delayMs,TimeUnit.MILLISECONDS)}.getOrNull()
+    /** Coalesce every hint with the current fetch; each engine is node/session scoped. */
+    override fun wake() = polling.wake()
+
+    private fun updateContinuousLease() {
+        when {
+            hasLiveCall() -> wakeLease.renew(RtcSignalingWakeLease.Reason.LIVE_CALL)
+            !hasNetwork() -> wakeLease.releaseContinuous()
+            failedPolls >= 3 && StandbyPowerPolicy.releaseDuringFailure(context) -> wakeLease.releaseContinuous()
+            else -> wakeLease.renew(RtcSignalingWakeLease.Reason.COMPAT_IDLE)
+        }
     }
     /**
      * A live call keeps the fast cadence. Idle, a new invitation arrives as a
@@ -85,8 +81,9 @@ internal class RtcCallEngine(
             return
         }
         com.callagent.host.mesh.NodeMonitor.maintain(context)
+        val work = wakeLease.acquire(RtcSignalingWakeLease.Reason.CONTROL_WORK)
         try {
-            wakeLease.renew()
+            updateContinuousLease()
             val now=System.nanoTime()
             if(now-lastCapability>30_000_000_000L){control.capability(true);lastCapability=now}
             val all=control.calls();lastControl=System.nanoTime();failedPolls=0
@@ -110,6 +107,10 @@ internal class RtcCallEngine(
                 ready=false
                 listener.onConnectionState(EngineConnectionState.FAILED,503,"RTC control unavailable")
             }
+        } finally {
+            // Work completion cannot release the independent live-call owner.
+            updateContinuousLease()
+            wakeLease.release(work)
         }
     }
     /** Keeps the newest snapshot: the poll and an operation race on separate threads. */
@@ -139,6 +140,7 @@ internal class RtcCallEngine(
         if(previous in TERMINAL && state !in TERMINAL)return
         delivered[id]=state
         if(state==EngineCallState.DISCONNECTED || state==EngineCallState.FAILED){media.remove(id)?.close();audioAllowed.remove(id)}
+        updateContinuousLease()
         Log.i("GsmRtc","media=webrtc call_control=rtc call_id=$id event=control_${state.name.lowercase()}")
         listener.onCallState(EngineCallSnapshot(id,direction(snapshot),state,serverCallId=id,
             terminalReason=snapshot.optString("reason").takeIf{it.isNotBlank()}))
@@ -179,6 +181,7 @@ internal class RtcCallEngine(
         }
         if(!newlyFailed)return
         media.remove(id)?.close();audioAllowed.remove(id)
+        updateContinuousLease()
         Log.w("GsmRtc","media=webrtc call_control=rtc call_id=$id event=failed reason=$reason")
         listener.onCallState(EngineCallSnapshot(id,direction(snapshot),EngineCallState.FAILED,serverCallId=id,
             terminalReason=reason))
@@ -244,6 +247,7 @@ internal class RtcCallEngine(
     }
     override fun close(){
         if(!closed.compareAndSet(false,true))return
+        polling.close()
         wakeLease.close()
         com.callagent.host.mesh.NodeMonitor.maintain(context, force = true)
         if (networkRegistered) runCatching { connectivity.unregisterNetworkCallback(networkCallback) }
