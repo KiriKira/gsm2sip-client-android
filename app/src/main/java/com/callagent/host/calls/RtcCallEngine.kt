@@ -32,12 +32,35 @@ internal class RtcCallEngine(
     private fun hasNetwork() = connectivity.activeNetwork != null
     private fun hasLiveCall() = media.isNotEmpty() || delivered.values.any { it !in TERMINAL }
     private val networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: android.net.Network) { wake() }
+        @Volatile private var validated: Boolean? = null
+        override fun onAvailable(network: android.net.Network) { systemWake() }
         override fun onLost(network: android.net.Network) {
+            validated = null
             if (!hasNetwork() && !hasLiveCall()) wakeLease.releaseContinuous()
             wake()
         }
+        // The same network coming back (weak 4G recovering after a tunnel) shows
+        // only as validation returning; signal strength alone changes nothing.
+        override fun onCapabilitiesChanged(network: android.net.Network, caps: android.net.NetworkCapabilities) {
+            val now = caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            val before = validated
+            validated = now
+            if (now && before == false) systemWake()
+        }
     }
+    /** Holds the CPU from a system callback until the poll owns its own work lock. */
+    private val systemWakeOwner = java.util.concurrent.atomic.AtomicReference<Long?>()
+    private fun systemWake() {
+        if (closed.get()) return
+        wakeLease.acquire(RtcSignalingWakeLease.Reason.CONTROL_WORK, SYSTEM_WAKE_MS)?.let { token ->
+            systemWakeOwner.getAndSet(token)?.let { wakeLease.release(it) }
+        }
+        wake()
+    }
+    private fun releaseSystemWake() { systemWakeOwner.getAndSet(null)?.let { wakeLease.release(it) } }
+    /** A failing streak in the failure-backoff experiment keeps a sleep-proof retry armed. */
+    @Volatile private var recoveryArmed = false
+    private var reportedUnreachable = false
     private var networkRegistered = false
     private val media = ConcurrentHashMap<String,RtcAudioSession>()
     private val snapshots = ConcurrentHashMap<String,JSONObject>()
@@ -87,11 +110,13 @@ internal class RtcCallEngine(
         // keeps its own bounded work owner until it finishes.
         if (!listeningEnabled() && !hasLiveCall()) {
             wakeLease.releaseContinuous()
+            releaseSystemWake()
             sessionInstanceId?.let { com.callagent.host.push.PushWakeHandoff.consumed(it, com.callagent.host.push.PushWakeHandoff.Channel.CALL) }
             return
         }
         if (!hasNetwork() && !hasLiveCall() && networkRegistered) {
             wakeLease.releaseContinuous()
+            releaseSystemWake()
             lastCapability = 0L
             sessionInstanceId?.let { com.callagent.host.push.PushWakeHandoff.consumed(it, com.callagent.host.push.PushWakeHandoff.Channel.CALL) }
             return
@@ -104,6 +129,7 @@ internal class RtcCallEngine(
             activeBudgets.add(budget)
         }
         val work = wakeLease.acquire(RtcSignalingWakeLease.Reason.CONTROL_WORK, CONTROL_BUDGET_MS)
+        releaseSystemWake()
         sessionInstanceId?.let { com.callagent.host.push.PushWakeHandoff.consumed(it, com.callagent.host.push.PushWakeHandoff.Channel.CALL) }
         val startedAt = android.os.SystemClock.elapsedRealtime()
         val environment = com.callagent.host.network.NetworkEnvironment.token
@@ -148,6 +174,8 @@ internal class RtcCallEngine(
                 }
             }
             lastControl=System.nanoTime();failedPolls=0
+            reportedUnreachable = false
+            if (recoveryArmed) { recoveryArmed = false; RtcFailureRecovery.cancel(context) }
             sessionInstanceId?.let {
                 com.callagent.host.mesh.NodeMonitor.controlSucceeded(it,
                     android.os.SystemClock.elapsedRealtime() - startedAt, environment)
@@ -166,6 +194,11 @@ internal class RtcCallEngine(
                 snapshots.keys.forEach{fail(it,"control_authorization_unavailable")}
                 ready=false
                 listener.onConnectionState(EngineConnectionState.FAILED,503,"RTC control unavailable")
+            }
+            if (failedPolls >= 3 && !hasLiveCall() && StandbyPowerPolicy.releaseDuringFailure(context)) {
+                recoveryArmed = true
+                RtcFailureRecovery.schedule(context, failedPolls)
+                if (!reportedUnreachable) { reportedUnreachable = true; RtcFailureRecovery.reportUnreachable(context) }
             }
         } finally {
             // Work completion cannot release the independent live-call owner.
@@ -321,6 +354,8 @@ internal class RtcCallEngine(
         private val TERMINAL=setOf(EngineCallState.DISCONNECTED,EngineCallState.FAILED)
         private const val LIVE_POLL_MS=750L
         private const val CONTROL_BUDGET_MS=15_000L
+        /** Long enough for the woken poll to take its own work lock. */
+        private const val SYSTEM_WAKE_MS=5_000L
         // A ringing call expires 25 s after the gateway offers it; a lost wake
         // must still leave most of that window to ring and answer.
         private const val IDLE_POLL_MS=8_000L
@@ -361,6 +396,7 @@ internal class RtcCallEngine(
         if(!closed.compareAndSet(false,true))return
         polling.close()
         synchronized(budgetGuard) { activeBudgets.forEach { it.close() }; activeBudgets.clear() }
+        if (recoveryArmed) { recoveryArmed = false; RtcFailureRecovery.cancel(context) }
         wakeLease.close()
         com.callagent.host.mesh.NodeMonitor.maintain(context, force = true)
         if (networkRegistered) runCatching { connectivity.unregisterNetworkCallback(networkCallback) }

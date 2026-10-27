@@ -74,12 +74,15 @@ class RtcCallEngineOfflineTest {
         }, pushReady = { false })
         val lock = ShadowPowerManager.getLatestWakeLock()
         val poll = RtcCallEngine::class.java.getDeclaredMethod("poll").apply { isAccessible = true }
+        val alarms = shadowOf(app.getSystemService(android.app.AlarmManager::class.java))
         try {
             repeat(3) { poll.invoke(engine) }
             assertFalse("failed idle attempts must release work and compatibility owners", lock.isHeld)
+            assertNotNull("a released streak keeps a retry that runs in deep sleep", alarms.peekNextScheduledAlarm())
             failing = false
             poll.invoke(engine)
             assertTrue("a successful fetch restores compatibility listening", lock.isHeld)
+            assertNull("success cancels the sleep-proof retry", alarms.peekNextScheduledAlarm())
         } finally {
             engine.close()
             StandbyPowerPolicy.setReleaseDuringFailure(app, false)
@@ -87,4 +90,44 @@ class RtcCallEngineOfflineTest {
         assertFalse(lock.isHeld)
     }
 
+    @Test fun recoveryRetriesBackOffToFifteenMinutes() {
+        assertEquals(listOf(1L, 2L, 4L, 8L, 15L, 15L), (3..8).map { RtcFailureRecovery.delayFor(it) / 60_000L })
+    }
+
+    @Test fun theSameNetworkValidatingAgainWakesAReleasedEngine() {
+        val app: Context = RuntimeEnvironment.getApplication()
+        val network = shadowOf(app.getSystemService(ConnectivityManager::class.java))
+        network.setActiveNetworkInfo(ShadowNetworkInfo.newInstance(NetworkInfo.DetailedState.CONNECTED,
+            ConnectivityManager.TYPE_MOBILE, 0, true, true))
+        network.setDefaultNetworkActive(true)
+        val requests = AtomicInteger()
+        val engine = RtcCallEngine(app, MediaApi { _, path, _ ->
+            requests.incrementAndGet()
+            if (path.endsWith("/calls")) JSONObject("{\"calls\":[]}") else JSONObject()
+        }, object : CallEngine.Listener {
+            override fun onConnectionState(state: EngineConnectionState, statusCode: Int?, reason: String?) = Unit
+            override fun onCallState(snapshot: EngineCallSnapshot) = Unit
+            override fun onEngineError(error: Throwable) = Unit
+        }, pushReady = { false })
+        val callback = RtcCallEngine::class.java.getDeclaredField("networkCallback").apply { isAccessible = true }
+            .get(engine) as ConnectivityManager.NetworkCallback
+        val worker = RtcCallEngine::class.java.getDeclaredField("worker").apply { isAccessible = true }.get(engine) as ScheduledExecutorService
+        val mobile = org.robolectric.shadows.ShadowNetwork.newInstance(201)
+        fun caps(validated: Boolean) = org.robolectric.shadows.ShadowNetworkCapabilities.newInstance().apply {
+            shadowOf(this).addTransportType(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+            if (validated) shadowOf(this).addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+        try {
+            callback.onCapabilitiesChanged(mobile, caps(validated = true))
+            callback.onCapabilitiesChanged(mobile, caps(validated = false))
+            worker.submit {}.get(3, TimeUnit.SECONDS)
+            val before = requests.get()
+            callback.onCapabilitiesChanged(mobile, caps(validated = false))
+            worker.submit {}.get(3, TimeUnit.SECONDS)
+            assertEquals("an unchanged unvalidated link does not poll", before, requests.get())
+            callback.onCapabilitiesChanged(mobile, caps(validated = true))
+            worker.submit {}.get(3, TimeUnit.SECONDS)
+            assertTrue("validation returning on the same network polls at once", requests.get() > before)
+        } finally { engine.close() }
+    }
 }

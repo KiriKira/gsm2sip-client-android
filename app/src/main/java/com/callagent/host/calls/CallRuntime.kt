@@ -358,9 +358,9 @@ object CallRuntime {
         return runCatching { startSignalingIfNeeded(app, session) }.getOrDefault(false)
     }
 
-    internal fun requestCallSyncFromWakeHint() {
-        service?.requestCallSyncFromWakeHint()
-    }
+    /** Whether a call service took the wake; false when none is running to poll. */
+    internal fun requestCallSyncFromWakeHint(): Boolean =
+        service?.requestCallSyncFromWakeHint() == true
 
     internal fun detach(hostCallService: HostCallService) {
         if (service === hostCallService) {

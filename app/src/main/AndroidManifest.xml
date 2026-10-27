@@ -97,6 +97,9 @@
             android:name=".calls.CallActionReceiver"
             android:exported="false" />
         <receiver
+            android:name=".calls.RtcRetryReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".notify.SmsNotificationActionReceiver"
             android:exported="false" />
         <service
