@@ -1,5 +1,7 @@
 # PLAN — gsm2sip-client-android 主机 App v1
 
+> **下一阶段（2026-10-27，待实施）**：[Reception v2 实施 PLAN](docs/reception-v2-PLAN.md)与[协议设计及参考依据](docs/reception-v2-protocol.md)。电话监听、短信同步和通话历史独立；通过持久订阅与按需唤醒消除空闲续约和常驻锁，并规定关闭电话监听后的行为。下文保留历史实施背景，后台接收新工作的顺序以该 PLAN 为准。
+
 > **0.4.0（Madoka）**：SIP/PJSUA2 已移除，通话只走服务端呼叫控制与 WebRTC，“WebRTC 语音”开关也已去掉。下文关于开关、SIP 兼容和迁移期的描述是历史记录。
 
 > 2026-10-19：独立 Go/HTTPS 呼叫控制与原生 WebRTC 已完成两台持续运行的 KVM 模拟器、三个真实 Docker 节点联合验收，并发布沿用原签名的 Debug Release。纯模式三节点不运行 Asterisk，SIP/ARI 抓包为 0；呼入/呼出双向测试 PCM、呼叫事件、TURN UDP/TCP、控制/媒体故障与 A→B→C→A 切换通过。WebRTC 开关关闭时的 SIP 来电、开启时的混合来电事件另行通过。物理蜂窝 HAL 和真实手机音频仍待真机验收。 [本批结果](docs/webrtc-independent-validation-20261019.md)。下文保留原计划背景。
