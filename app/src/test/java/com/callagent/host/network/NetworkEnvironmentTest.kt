@@ -39,4 +39,28 @@ class NetworkEnvironmentTest {
             NetworkCapabilities().apply { shadowOf(this).addTransportType(NetworkCapabilities.TRANSPORT_CELLULAR) }) }
         assertNotEquals("the VPN moving from Wi-Fi to mobile matters", onVpn, NetworkEnvironment.token)
     }
+
+    @Test fun aVpnWithNothingUnderItIsNoNetwork() {
+        val app = RuntimeEnvironment.getApplication()
+        NetworkEnvironment.start(app)
+        val callbacks = shadowOf(app.applicationContext.getSystemService(ConnectivityManager::class.java)).networkCallbacks.toList()
+        fun caps(transport: Int, portal: Boolean = false) = NetworkCapabilities().apply {
+            shadowOf(this).addTransportType(transport)
+            if (portal) shadowOf(this).addCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
+        }
+        val vpn = org.robolectric.shadows.ShadowNetwork.newInstance(201)
+        callbacks.forEach { it.onAvailable(vpn); it.onCapabilitiesChanged(vpn, caps(NetworkCapabilities.TRANSPORT_VPN)) }
+        assertFalse("Tailscale keeps its tunnel through airplane mode; it carries nothing", NetworkEnvironment.online(app))
+        val mobile = org.robolectric.shadows.ShadowNetwork.newInstance(202)
+        callbacks.forEach { it.onAvailable(mobile); it.onCapabilitiesChanged(mobile, caps(NetworkCapabilities.TRANSPORT_CELLULAR)) }
+        assertTrue(NetworkEnvironment.online(app))
+        assertEquals(listOf(mobile), NetworkEnvironment.underlying())
+        callbacks.forEach { it.onLost(mobile) }
+        assertFalse("mobile data lost under the VPN", NetworkEnvironment.online(app))
+        val cabin = org.robolectric.shadows.ShadowNetwork.newInstance(203)
+        callbacks.forEach { it.onAvailable(cabin); it.onCapabilitiesChanged(cabin, caps(NetworkCapabilities.TRANSPORT_WIFI, portal = true)) }
+        assertFalse("a Wi-Fi waiting at its sign-in page reaches no node", NetworkEnvironment.online(app))
+        callbacks.forEach { it.onCapabilitiesChanged(cabin, caps(NetworkCapabilities.TRANSPORT_WIFI)) }
+        assertTrue(NetworkEnvironment.online(app))
+    }
 }

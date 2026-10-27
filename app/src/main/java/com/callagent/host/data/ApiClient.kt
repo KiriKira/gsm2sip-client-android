@@ -17,6 +17,8 @@ data class EventPage(
     val resyncRequired: Boolean
 )
 
+data class PushEndpointStatus(val failures: Int, val deliveredAt: String?)
+
 data class ServerCapabilities(val rtcCallControl: Boolean, val push: Boolean, val extensions: Set<String>)
 
 class ApiFailure(
@@ -88,6 +90,16 @@ class ApiClient(
             )
         }
     }
+
+    /** This node's view of its wake-ups for the device; null when no endpoint is registered. */
+    fun pushStatus(): PushEndpointStatus? {
+        val json = authenticatedRequest("GET", "/devices/self/push-endpoint")
+        if (!json.optBoolean("registered", false)) return null
+        return PushEndpointStatus(json.optInt("failures", 0), json.optString("delivered_at").takeIf { it.isNotBlank() })
+    }
+
+    /** Asks the node for a silent test wake-up now; whether the relay accepted it. */
+    fun testPush(): Boolean = authenticatedRequest("POST", "/devices/self/push-endpoint/test").optBoolean("sent", false)
 
     fun listPairedHosts(): List<PairedHost> = parsePairedHosts(
         authenticatedRequest("GET", "/clients")
@@ -494,7 +506,9 @@ internal fun parsePairedHosts(json: JSONObject): List<PairedHost> {
             name = item.optNullableString("name") ?: id.take(8),
             platform = item.optNullableString("platform") ?: "unknown",
             state = item.optNullableString("state") ?: "unknown",
-            isSelf = item.optBoolean("is_self", false)
+            isSelf = item.optBoolean("is_self", false),
+            live = if (item.has("live")) item.optBoolean("live") else null,
+            lastActiveAt = item.optNullableString("last_active_at")?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
         )
     }
 }

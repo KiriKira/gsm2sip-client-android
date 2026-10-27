@@ -15,6 +15,8 @@ internal object NetworkEnvironment {
     private val window = StableNetworkWindow()
     private val capabilities = mutableMapOf<Network, String>()
     private val links = mutableMapOf<Network, String>()
+    /** Networks that carry traffic themselves: anything but a VPN or a captive portal. */
+    private val paths = mutableSetOf<Network>()
     private val main = Handler(Looper.getMainLooper())
     private val epoch = java.util.UUID.randomUUID().toString()
     private var generation = 0L
@@ -25,6 +27,20 @@ internal object NetworkEnvironment {
     val stable: Boolean @Synchronized get() = registered && window.stable(SystemClock.elapsedRealtime())
     fun succeeded() = window.succeeded()
     fun failed() = window.failed(SystemClock.elapsedRealtime())
+
+    /**
+     * Some Wi-Fi, mobile or Ethernet network is up. The default network is not
+     * enough: Tailscale keeps its tunnel, and so a default network, through
+     * airplane mode, and every request into it waits out a timeout. Until the
+     * callbacks have reported anything, the default network decides.
+     */
+    fun online(context: Context): Boolean {
+        synchronized(this) { if (registered && capabilities.isNotEmpty()) return paths.isNotEmpty() }
+        return runCatching { context.getSystemService(ConnectivityManager::class.java).activeNetwork != null }.getOrDefault(false)
+    }
+
+    /** The networks under any VPN, for asking Android to re-check them. */
+    @Synchronized fun underlying(): List<Network> = paths.toList()
 
     @Synchronized fun start(context: Context) {
         val app = context.applicationContext
@@ -37,25 +53,30 @@ internal object NetworkEnvironment {
         }
         capabilities.clear()
         links.clear()
+        paths.clear()
         defaultNetwork = null
         window.changed("", SystemClock.elapsedRealtime())
         generation++
         val notify = Runnable {
+            if (!online(app)) return@Runnable
+            // Back online: check, silently, that each node's push still reaches this phone.
+            com.callagent.host.push.PushProbe.onNetworkRecovered(app)
             if (!com.callagent.host.background.HostBackgroundService.isRunning &&
                 !com.callagent.host.calls.CallRuntime.hasServiceForPush) return@Runnable
-            if (manager.activeNetwork == null) return@Runnable
             com.callagent.host.mesh.NodeMonitor.environmentChanged(app)
             com.callagent.host.background.HostBackgroundService.onNetworkEnvironmentChanged()
             com.callagent.host.calls.CallRuntime.requestCallSyncFromWakeHint()
         }
-        fun update(network: Network, capability: String? = null, link: String? = null, lost: Boolean = false, defaultAvailable: Boolean = false, defaultLost: Boolean = false) {
+        fun update(network: Network, capability: String? = null, link: String? = null, lost: Boolean = false, defaultAvailable: Boolean = false, defaultLost: Boolean = false, path: Boolean? = null) {
             synchronized(this) {
                 if (defaultAvailable) defaultNetwork = network
                 if (defaultLost && defaultNetwork == network) defaultNetwork = null
                 if (lost) {
                     capabilities.remove(network)
                     links.remove(network)
+                    paths.remove(network)
                 } else {
+                    if (path == true) paths.add(network) else if (path == false) paths.remove(network)
                     if (capability != null) capabilities[network] = capability
                     if (link != null) links[network] = link
                 }
@@ -84,7 +105,8 @@ internal object NetworkEnvironment {
                     NetworkCapabilities.TRANSPORT_VPN, NetworkCapabilities.TRANSPORT_ETHERNET)
                     .joinToString { caps.hasTransport(it).toString() } +
                     ":${caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)}:${caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)}"
-                update(network, capability = signature)
+                update(network, capability = signature, path = !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL))
             }
             override fun onLinkPropertiesChanged(network: Network, properties: LinkProperties) {
                 // Addresses are left out: a rotated address leaves the route, and open sockets, as they were.
