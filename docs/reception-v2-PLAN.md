@@ -1,155 +1,106 @@
-# PLAN：Reception v2 实施与交付
+# PLAN：精简接收改造与可选节点协作
 
-状态：待实施。设计依据及参考来源已完成并写入 [协议提案](reception-v2-protocol.md)。本 PLAN 只列实现、迁移、验证与发布任务，不把资料调研或再次选型作为前置工作。
+状态：待实施；按 [Claude 对 PR #37 的评审](https://github.com/KiriKira/gsm2sip-client-android/pull/37#issuecomment-6447204378)和最新main重新收敛。协议见 [reception-v2-protocol.md](reception-v2-protocol.md)，完整mesh的成本/取舍见 [整合决策](reception-mesh-decision.md)。本文件替代原P1–P10实施顺序，不包含调研任务。
 
-适用：Madoka、SoulGem、Homura 和 Kyubey。本次提交只交付设计文档，不表示服务端或客户端功能已经落地。APK 由后续 PR CI 按仓库流程生成，不要求本地生成 APK。
+基线：Madoka `6e8aee8`、SoulGem `494c420`、Homura `31f65a7`、Kyubey `28213b59`。本轮仅设计文档；实际实现另开PR，APK走PR CI。
 
-## 1. 交付目标
+## 1. 交付边界
 
-- 手机空闲接收不持持续唤醒锁，不按分钟刷新接听资格；推送可用时不为来电维持后台长连接。
-- 电话监听与短信同步在配置、协议、队列、运行时、诊断和开关行为上独立。电话关闭后仍能收发短信、查看通话记录和主动拨号。
-- 真实来电使用固定截止时间、可恢复邀请、持久投递任务与真实设备回执；取消或过期后不再次响铃。
-- 无 FCM 时同样删除常驻锁和空闲 RTC 轮询，采用有界 stream 降级，明确系统休眠导致的接收限制。
-- 不改变现有 WebRTC 媒体、SIM 映射、Homura 一次蜂窝执行和 winner CAS 安全边界。
-- 初版可在单节点和现有独立多节点上线，完整 mesh 继续作为独立后续项目。
+本次发布R1只解决持久接收意图、电话/短信解耦、按需来电和无FCM的尽力WSS。之后可独立交付R2单跳推送代发。单入口业务代理R3仅在确有手机与网关入口分离需求时启动。完整事件复制、自动成员发现、跨节点通话迁移不再作为当前路线的完成条件。
 
-## 2. PR 拆分与依赖
+R1先拿到主要省电收益：无空闲持续锁、无每分钟续约/闹钟、短信不启动RTC；关闭电话后仍可主动拨号。保留现有事件/cursor、WebRTC、活动控制租约和Homura执行账本。
 
-每一行可独立审查和回退，不能用一个跨四仓库大 PR 同时替换所有运行时。
+## 2. R1：四个仓库的实现顺序
 
-| 阶段 | 仓库 / 交付 | 依赖 | 完成门槛 |
-| --- | --- | --- | --- |
-| P1 | SoulGem：规范、OpenAPI、fixtures、增量表结构 | 无 | 明确 topic、revision、deadline、错误码；client 提案改为 server 固定链接 |
-| P2 | SoulGem：订阅/端点 API、协议代际与关闭事务 | P1 | 关闭电话不改短信；旧写入不覆盖 v2 意图；并发 mutation 幂等 |
-| P3 | SoulGem：持久邀请、独立 call/SMS outbox 与 cursor | P2 | 邀请不依赖短在线租约；延迟/取消正确；业务与 outbox 原子提交 |
-| P4 | Kyubey：Wake v2、TTL、类别、generation 与受理状态 | P1 | 真正 provider TTL；call/SMS互不吞消息；旧端点仍可服务旧客户端 |
-| P5 | Homura：邀请起点与无订阅处理、终态上报 | P1、P3 | 真实蜂窝仍不提前接听；多节点同 ID/截止时间；无订阅可留未接记录 |
-| P6 | Madoka：领域拆分、持久接收偏好、v1 adapter | P1 | 短信路径零 RTC 启动；电话开关状态重启后保持；旧服务可用 |
-| P7 | Madoka：v2邀请/推送/独立同步与按需 CallSession | P2–P6 | push → 取状态 → 一次响铃；后台无空闲 RTC；短信正常 |
-| P8 | Madoka：stream降级、网络恢复、资源计量 | P6、P7 | 无 FCM 下无持续锁/空闲 call poll；断流 cursor 恢复 |
-| P9 | 三端 + Kyubey：迁移、必要真机场景、灰度开关 | P3–P8 | 满足第7节，能按设备回退且保留关闭意图 |
-| P10 | Madoka：正式显示“接收来电”开关 | P7、P9 | 可独立版本发布；P6起已有完整语义，后续不再改协议 |
+| 工作包 | 交付 | 依赖 / 完成标准 |
+| --- | --- | --- |
+| R1-S SoulGem | 一张接收偏好表、一个GET/PUT资源、候选/呼出校验拆分、分类推送水位与有界并发、wire2协商 | 先落协议/OpenAPI样例；旧端保持兼容；偏好关闭不影响SMS和outgoing |
+| R1-K Kyubey | wire2透传call_id/来源/wake_id/generation、真实剩余TTL、按kind类别、旧wire1兼容 | 按已冻结的小契约实现，不引入数据库或四阶段回执 |
+| R1-H Homura | 节点范围无订阅继续分叉、单调剩余振铃预算、维持未知结果/终态队列 | 服务端支持后启用扩展；A无订阅而B有订阅时仍可响铃 |
+| R1-M Madoka | 持久关闭意图、按kind分发、按需RTC、删除v2空闲续约/锁/闹钟、无FCM分类WSS | S/K就绪后灰度；正式UI入口可后发，关闭语义本轮必须可调用验证 |
+| R1发布 | 设备级启用、下述有限回归和两段待机观察 | 不等待R2/R3，不承诺全部旧节点同样省电 |
 
-P4、P5、P6可在依赖契约落地后分别开发。P1–P9构成协议发布；P10是用户所述未来入口，不阻塞底层解耦。每阶段状态初始均为待实施，不将文档完成计作功能完成。
+这是四个逻辑工作包，不强制把Android改动塞进一个巨大PR；Madoka可拆“领域解耦”和“切v2”两次审查。S先确定样例，K/H可分别推进，M最后切换接收路径。
 
-## 3. 服务端与中继具体改动
+### R1-S：服务端
 
-### P1：契约和迁移
+- 迁入规范到 `docs/reception-v2.md`，更新既有OpenAPI与少量样例；本仓库提案随后改固定提交链接，不维持双权威。
+- 新增 `device_reception(device_id, protocol_version, incoming_enabled, sms_enabled, revision)`，引用现有设备/owner权限；扩展push_endpoints的generation、wire版本和分领域退避。复用既有两个水位，不新增邀请/outbox/receipt/快照表。
+- GET/PUT配置使用expected_revision；首次迁移与偏好保存同事务；旧capability不能重写v2意图。重复/超时通过GET比对，不引入单独配置操作历史。
+- `rtc_control.go` 拆开incoming eligibility与outgoing authorization。持久enabled控制来电；显式拨出仍查会话、SIM、占用、RTC能力。关闭监听不能导致呼出FORBIDDEN，也不能通过呼出临时capability重新打开监听。
+- 关闭事务只退出未接听参与者，与accept同锁序；accept先成功则保留该次接听/通话。处理晚到worker时重查本设备偏好，不能影响其他参与者或释放真实蜂窝占用。
+- `push.go` 用已有call_events/server_events扫描，电话/短信水位、退避和并发配额分开；每设备/领域单任务。取一批call事件须覆盖各call_id，不能只推最新一个后把前面的全部跳过。
+- call发送前重算剩余TTL；WSS/push同时发，不等回执；已过期或终态不复活邀请。旧端点回调按generation条件更新。
+- 新Homura无订阅返回明确 `NO_INCOMING_SUBSCRIBERS`；旧Homura保留 `GATEWAY_UNAVAILABLE`。其他权限/网关错误不滥用无订阅分类。
+- 首版每独立数据库一个推送调度实例。重启允许重复，客户端去重；若当前部署要开同库多实例，再单独加互斥，不为假设中的集群先造任务系统。
 
-- 将协议规范迁入 `gsm2sip-server/docs/reception-v2.md`；在 `openapi/openapi.yaml` 声明全部 API 和错误响应，在 `fixtures/api/reception-v2/` 保存开启、关闭、短信、邀请取消、cursor失效、端点换代的样例。
-- 增量增加 `reception_subscriptions`、`delivery_endpoints`、`call_invitations`、`wake_outbox`、`wake_attempts`、`wake_receipts` 和 topic feed/checkpoint 存储。可复用已有业务表，不能复制短信正文产生第二权威。
-- 增加唯一键、revision CAS、claim lease、查询 deadline/next_attempt 索引和 endpoint 加密存储。topic feed的追加必须与业务写入同事务。
-- 实现 per-device 协议代际和 cursor bootstrap 数据迁移；启用开关默认关闭，旧表/接口继续运行。迁移不自动启用用户未开启的监听。
+### R1-K：中继
 
-### P2：接收与关闭事务
+- 在 `src/relay.js` 支持wire2字段白名单与明确版本握手；在 `src/fcm.js` 写真实剩余TTL，call不使用跨call共用collapse key。
+- 保留v1密封endpoint与validate-only check；无状态透传generation，不伪称能即时撤销所有旧密封URL。
+- 新SMS通知可即时，静默状态补齐普通类别；真实来电紧急，诊断不周期性发送高优先级静默消息。
+- provider accepted写服务端诊断；手机收到/取到/展示阶段留本地诊断，不新增HTTP回执和后台回执重试。
 
-- 新增独立 reception handler/store，复用现有 paired bearer/owner 校验。订阅生命周期独立于访问 token 短期过期和连接状态。
-- `enabled=false` 事务同步撤回未接听邀请、取消未发送 call jobs；SMS/历史资源不变。与 accept 使用固定锁序，胜出的操作有确定结果。
-- endpoint登记与订阅分开；显式永久失效只更新匹配 generation；暂时不可达记路由故障。旧 callback/worker不得删除新端点。
-- 实现 revision冲突、operation幂等、撤销与单设备协议切换；v2关闭后的旧 capability请求不重新开监听。
+### R1-H：网关
 
-### P3：邀请和持久投递
+- `IncomingForkCoordinator`/`mayHaveCommittedCreate`将新无订阅错误归为当前节点明确REJECTED，`offerIncoming`继续B/C；保留UNKNOWN不确定结果和terminal队列。
+- 第一次蜂窝RINGING记录单调25秒预算，向每节点发送剩余值；不做跨设备5秒时钟偏差准入。服务端首次落盘deadline后重试不延长。
+- 全部节点无订阅才结束本轮远端offer，蜂窝保持原行为；不创建伪参与者、不提前接听，不为此新建全量历史同步框架。
+- 维持既有winner CAS、dispatch ledger和真实END处理；不动SMS采集服务。
 
-- 修改 `internal/httpapi/rtc_control.go` 的**客户端空闲接收资格**：v2读持久订阅；v1保留原90秒/sleep规则；活动控制租约继续独立运行。
-- incoming事务保存原call_id、起点、deadline、接收者与订阅revision；无可达路由不等于无订阅。响应区分 `accepted_for_delivery/no_subscribers`。
-- 替换 `internal/httpapi/push.go` 的混合cursor推进方式：call/SMS/history独立任务；SQL事务提交后由worker投递。单节点慢请求不串行阻塞所有接收者。
-- 实现claim过期恢复、网络超时、受理响应丢失、终态检查、截止时间预算、端点换代、最大重试和分队列公平调度。
-- 新增接收WSS订阅和 topic增量API；业务事务提交后唤起dispatcher，保留有界补扫弥补进程中断。设备receipt不决定服务端业务日志是否保留。
-- 实现终态保留、cursor超窗快照、旧新cursor bootstrap；迁移期间双写日志但每设备只由一个协议分发。
+### R1-M：客户端
 
-### P4：Kyubey
+- 复用 `CallPreferences` 改为持久本机意图和各节点确认revision；记录待同步请求与本地sequence，旧响应不能覆盖新开关。去除可见页面自动调用 `ensureEnabledFor` 的恢复监听路径。
+- `PushWake`/WSS按wire版本和kind分派：v2 SMS仅SmsSync；v2 call查指定call_id的当前状态；旧混合提示先检查电话关闭标志。
+- 已关闭时收到SMS、网络回调、进程重建都不得初始化RTC。主动拨号只创建单通CallSession，结束后仍保持关闭；已经接通的电话不被关闭监听误挂断。
+- `HostBackgroundService`与电话runtime分离；共享传输按需求存在，历史API不启动电话。短信cursor/cache/notification journal继续原格式。
+- 已确认切v2的节点停用 `RtcSleep`、`RtcSleepyListening`、`COMPAT_IDLE`、空闲call轮询和 `NodeMonitor` capability续约；保留独立工作锁、超时、现有活动通话租约。
+- 没有合格push时复用共享WSS，非唤醒心跳、单侧ping、路径变化合并恢复、有限退避。Doze受限如实显示，不恢复永久持锁。
+- 补充少量诊断字段：接收版本、incoming开关及待同步节点、实际推送模式、工作锁owner、按call/SMS计请求量。无需远端receipt链路。
 
-- 在现有endpoint请求处理和FCM sender中支持v2 envelope；返回 `provider_accepted` 与 provider message ID，不返回“设备已收到”。
-- 根据kind映射 provider类别和真实TTL；call不共用全局collapse key；短信hint可合并。实际到期不再发送。
-- 新增v2 register/wake入口，检查接收端版本、密封端点与schema；generation由SoulGem/Madoka核对，Kyubey透传。保留无状态中继边界及旧v1编码，不宣称即时撤销已泄露端点。拒绝未知topic/kind、超大payload和任意URL代理。
-- 保留可移植provider adapter边界，首版实现已有FCM通道。厂商推送接入可以另开PR，不将“存在接口”标为“已解决无GMS”。
-- 紧急推送仅用于用户可见事件；移除以周期性高优先级静默探测获取睡眠资格的要求。诊断测试由用户触发、限频、独立回执。
+## 3. R2：单跳推送出口代发（独立可选发布）
 
-### P5：Homura
+仅在A到Kyubey出口失败而B出口正常的真实部署需求存在时做。不等待完整mesh，也不声称A宕机后B能接管A业务。
 
-- 调整 `GatewayCallControl` / `IncomingForkCoordinator`：首次真实振铃固定call_id与截止时间，跨节点重试不重置窗口；支持时调用新的gateway incoming入口，否则保留v1请求形状。
-- 区分服务器接收邀请、设备响铃和真实蜂窝ACTIVE；`no_subscribers`不转成自动接听/误挂断，不影响短信采集。
-- 保留安装范围winner CAS、dispatch ledger、occupancy与terminal queue；无远端参与者时也能最终持久上报未接记录。
-- v1节点继续现有兼容流程；新旧混合时同一次蜂窝来电仍共用执行身份，不能产生两次接听。
+- SoulGem静态配置2–3个同管理员peer：固定peer_id、mTLS证书/受信指纹、允许的origin/owner、固定Kyubey目的地址。没有自动发现/选主/gossip。
+- 新增一项peer内部push-forward接口；A先按TTL预算尝试直接发送，局部出口失败时仅选一个B。请求保留来源配对、wake_id、call_id、generation、剩余预算，hop_limit=1，B不能继续转发。
+- B校验peer权限、目的地址白名单及预算，再使用同一R1-K sender提交；返回provider accepted或明确失败。A只在成功时推进原call/SMS水位；超时仍未确认可重试，但客户端去重。
+- 首版同步代发，不新增远程持久outbox：A重启依靠已有事件重试，B重启中断返回不确定，A宕机无法读取业务仍可能接不到电话。需要宕机接管时才另立持久复制需求。
+- 局部网络/TLS超时可换出口；token永久失效、同一Kyubey/FCM全局失败不盲目扇出。撤销peer从两侧配置中移除，日志不写endpoint/token。
+- 只增加两条集成场景：A出口断/B可达可代发且不重复响；全出口失败按预算结束不转发循环。加一个拒绝未授权peer的接口断言即可，不做大规模集群压测。
 
-## 4. Madoka 具体改动
+## 4. R3与原mesh计划的取舍
 
-### P6：先完成解耦
+详见整合决策。原S0/S4/F1/F2的接收优化被R1替代，S1缩成R2；S2全量事件复制、S3完整控制委托、S5 TURN目录暂不排期，S6活跃迁移从当前路线移除。
 
-- 在 `CallPreferences` 基础上建立 `ReceptionPreferences`：全局本机接收意图、各authority确认revision、持久mutation队列；删除可由短信启动/普通打开页面隐式启用监听的路径。
-- 将 `PushWake.handle()` 拆为类型明确的router。v1混合hint留在legacy adapter内；即便v1无法分类，也先查本地电话开关，关闭时不得启动RTC。
-- 从 `HostBackgroundService` 移出 `CallRuntime.wakeChannelLive` 所有权，交给共享 `WakeTransport`；短信运行时只消费SmsSync需求。
-- 将 `NodeMonitor.maintain()` 的capability续约放入v1电话adapter；普通SMS同步、节点列表刷新不能顺便全节点续订来电。
-- 拆出 `CallHistorySync`；电话记录展示、SIM元数据读取不启动实时接收。新增组件路径见协议第10节，旧类逐步变为adapter。
-- 实现关闭/开启、离线关闭、进程重建、活跃通话排空、关闭后主动拨出的完整行为。暂不显示正式开关时保留内部可调用入口与诊断状态。
+有明确“Madoka只能到A、Homura只到B”的需求时，可独立设计R3一跳授权业务代理：原节点继续权威，手机保留各来源授权，代理不复制会话或假装接管控制。该能力涉及精确session绑定、媒体授权及撤销，不与R1一起做。无此需求就停在R1/R2。
 
-### P7：按需接收
+## 5. 迁移与回退
 
-- 支持capability协商、v2订阅迁移与endpoint token换代。按authority选择adapter，一个旧节点不得把其他节点强制降级。
-- `CallInvitationReceiver` 只在有效邀请时创建 `CallSession`； `RtcCallEngine` 收敛为活跃通话控制，不再承担常驻空闲接收。
-- 服务端成功切v2后停止该authority的capability周期续约、`RtcSleep`授予请求、`RtcSleepyListening`精确闹钟与compat idle lease。
-- push接力先读持久关闭意图与配对，再获取短工作锁，立即交给合法后台生命周期；过期、未配对、错误generation和关闭状态无RTC启动。
-- 收到cancel或终态先清本地响铃；时间预算到期也清理。复用Telecom单通协调器，持久去重避免进程重建重复响。
-- SmsSync/历史使用各自cursor、缓存事务和通知日志；显示通知失败可重试通知，不能伪造已展示回执或跳过数据持久化。
-- 有推送时后台关闭来电专用WSS，只在前台/真实呼叫/独立stream需求时建连接。首次API401可执行一次合法refresh，仍受来电剩余预算限制。
+1. S/K兼容版本先部署，wire1继续可用，按设备关闭新模式；H升级后识别新错误/剩余时间。
+2. M先保留现有明确意图，成功PUT并确认wire2后，在无活跃call时切v2；短信cursor/已提醒ID不动。
+3. 从一个设备/节点启用，再用现有三个独立节点做一次A无订阅→B成功场景。旧节点按adapter运行，不能强称混合环境已达到纯v2电耗。
+4. 回退按设备保留incoming=false与sms=true，不清数据、不重配对。仅用户仍开启电话时恢复旧接收；旧代码自动续capability不得抹掉v2关闭意图。
+5. 明确发布阻断：关闭后误响/自动开启、主动拨号被误禁、SMS丢失/重复发送、重复蜂窝接听、过期来电复活、v2空闲持续锁。出现问题修复相关场景，不重跑无关媒体/全机型矩阵。
 
-### P8：无FCM、网络与资源
+## 6. 精简验收：覆盖真实风险，不做组合穷举
 
-- 实现共享WSS的topic需求集合与统一重连退避；独立authority保留必要连接，未来mesh才收敛到一个授权入口。
-- 网络回调只在有效路径变化时合并恢复。VPN存在但没有可用底层路径时暂停连接；信号强度波动不触发周期全节点探测。
-- 使用非唤醒心跳和单侧ping；后台空闲不再HTTP拉call列表；重连后一次补有效邀请，再按topic补数据。
-- 仅保留系统允许的WorkManager短信补齐；不把闹钟权限或电池豁免当协议前置条件，不自动打开常驻锁“可靠模式”。
-- 诊断分别记录 `calls.incoming / calls.active / sms.sync / history.sync / transport` 的工作量、锁所有者、模式及切换原因。公开“无系统推送，休眠可能延迟”的真实能力状态。
+复用现有测试和既有设备。每个行为只在最合适的一层验证：SQL/状态竞态做自动测试；Doze和待机做真机。不为未实现的mesh/快照/outbox测试。以下都是后续实施验收，不是本次文档已经通过。
 
-## 5. 删除与保留清单
-
-| 现有部分 | v2处理 |
+| 场景 | 最小验证与标准 |
 | --- | --- |
-| `COMPAT_IDLE` / 空闲锁续租 | 删除v2路径；兼容adapter不得悄悄替v2恢复 |
-| 60秒精确闹钟、30分钟sleep grant、每小时sleep check | v2停用；不再构成接听资格 |
-| 所有节点push可信才允许手机睡眠 | 改为每authority独立投递模式与成本 |
-| 空闲calls轮询、全节点capability刷新 | v2停用；真实来电/活跃call才工作 |
-| 混合call/SMS push + cursor | 仅legacy adapter保留；v2分领域 |
-| `RequestBudget`、独立work owner、诊断、幂等与去重 | 保留并作为新组件基础 |
-| 20秒活动控制租约、WebRTC/Telecom、Homura执行账本 | 保留；不得为了待机省电放松真实通话安全规则 |
+| 现用手机、日常Wi-Fi/VPN熄屏与移动网络 | 每种网络3通真实呼入，其中一次确认进入Doze；记录逐通网关RINGING→展示时间，目标≤5秒，任何一次不得超25秒窗口；小样本不报可靠率/P95 |
+| 电话关闭但SMS开启 | 一次入站SMS、一次显式短信发送、一次主动呼出；短信正常、呼出后仍关闭，空闲RTC初始化/续约/call轮询为0 |
+| 离线关闭→进程重启→网络恢复 | 一次真实流程；旧回调/SMS不复活监听，服务端最终关闭；再开启后只接新来电 |
+| 三节点实际分叉 | A无订阅、B有订阅，确认B响；并注入同call重复/迟到提示、取消后提示，确保只响一次、终态不复活。直接复用现有winner用例，不新造多分区矩阵 |
+| 真正有副作用的边界 | 服务端accept与关闭两种顺序、call成功不推进SMS水位、旧endpoint失败不删新端点；各一个有意义自动用例。客户端保留一个旧响应不覆盖新意图用例 |
+| 慢节点与无FCM | 一个endpoint超时不堵另一个正常来电；关闭FCM后WSS正常收一通，切VPN/网络一次能恢复；深睡延迟记录受限，不用持续锁掩盖 |
+| 升级/回退 | 用现有一对旧新版本跑一次协议切换与回退，保留incoming关闭和SMS cursor；已有SMS去重/出站账本用例复用 |
 
-## 6. 迁移、发布、回退
+待机只做两段有目的的观察：同一手机常用三节点环境，正常push静默8小时；无FCM stream另静默8小时。记录VPN、网络、充电/电池豁免、模式与版本。已有同条件旧版日志可作基线；条件不同则补一段匹配基线，不固定要求三轮重复。
 
-1. 先部署兼容服务端schema/API与Kyubey v2，功能门默认关闭；数据库回滚不删新增状态。
-2. 部署Homura兼容更新，再发布支持v1/v2的Madoka；继承本地明确开关，保存SMS通知去重账本。
-3. 单节点、单设备开启v2：同事务迁移订阅并切路由，现有call结束后切；确认实际provider消息为v2，不能仅看capabilities字段。
-4. 完成SMS cursor bootstrap后再切读源；迁移期间双写不双通知。随后扩到现有三个独立节点和混合版本。
-5. 任一发布门槛失败按设备停用v2；保留电话关闭与短信开启状态，再启用正确的legacy adapter。不能通过清除App数据“修复”。
-6. 灰度结果记录commit、设备/系统、provider、接收模式与观察时段；主版本启用后保留旧端兼容一个明确发布周期，再单独删除旧代码。
+- 纯v2期间 `COMPAT_IDLE=0`、周期capability/call列表请求=0、协议续订精确闹钟=0。单次控制工作锁≤10秒；无业务稳定环境累计应用工作锁目标≤60秒/8小时，超出先解释并修复来源。
+- push组没有来电专用WSS；stream组允许声明过的必要连接与心跳。稳定网络不反复全节点探测；请求/连接按领域统计，不能把旧节点或真实通话混入idle结论。
+- 报告实际CPU时间/锁/网络活动与系统电量估计，观察相对基线下降，不承诺硬件无关百分比。只有新失败或异常波动才加测相关场景。
 
-回退触发：关闭后再次响铃/被自动启用、重复蜂窝执行、SMS丢失/重复通知、过期来电复活、空闲持续锁、正常支持环境来电延迟明显退化。收到provider回执但手机没有收到，不足以单独归咎新协议；必须结合完整阶段诊断。
-
-## 7. 必要验证与可量化发布门槛
-
-只覆盖实际风险，不组合穷举所有Android版本/网络开关排列；已有媒体与SIM用例复用。单元用例验证纯状态边界，跨线程/数据库幂等用集成用例，Doze和耗电留给真机。验收在实施阶段执行，本次文档不声称通过。
-
-| 必须覆盖的场景 | 判定标准 |
-| --- | --- |
-| 正常Wi-Fi/VPN、移动网络，FCM可用，屏幕关闭/Doze | 每类至少10次真实来电，测试样本内无漏接；网关振铃到手机展示P95目标≤5秒，全部在25秒邀请期内；记录原始样本，不据此声称生产可靠率 |
-| 电话关闭，短信开启 | 新SMS可同步/通知；RTC初始化、capability续约、空闲call拉取、call锁均为0；通话历史可读；显式呼出成功且结束后仍关闭 |
-| 离线关闭→杀进程→SMS push/重连→再开启 | 关闭期间不响铃；旧enable响应不能复活；远端最终关闭；开启不重放历史来电 |
-| 振铃/接听/关闭竞态、多手机及三节点重复push | 仅一个真实接听winner；其他设备正确结束；已接通call不被关闭监听误挂断 |
-| 延迟invite、cancel先到、过期push、token换代 | 无幽灵来电、无新generation被旧回执删除；重复push只展示一个Telecom实例 |
-| provider受理响应丢失、worker重启、单坏endpoint | 重试有限、任务可恢复、好设备不被阻塞；SMS队列不挤占call预算 |
-| SMS通知/进程中断、cursor超窗、切节点 | 业务记录不丢、通知不重复、无重发SMS；旧新feed迁移不跳数据 |
-| 无FCM，稳定WSS与VPN切换、断网恢复 | 无持续空闲锁、无周期call HTTP轮询；合法运行环境内WSS到达即处理；Doze延迟如实记为受限，不靠加锁让测试变绿 |
-| 老server/新client、新server/老client | 兼容且明确模式；不越权启用关闭订阅，不混用cursor |
-
-静默8小时观测（单节点与三节点各一组，记录机型、系统、电池豁免、VPN、网络、是否充电）：
-
-- 推送模式：空闲RTC capability请求=0、空闲call list定时请求=0、协议续订闹钟=0、`COMPAT_IDLE`=0、无电话专用后台WSS；非业务触发的电话网络请求目标=0。
-- 无FCM stream模式：允许已声明数量的WSS心跳/重连；空闲RTC轮询=0、持续idle锁=0；任何单次控制工作锁≤10秒，异常退出也释放。
-- 无业务稳定环境下，全部应用显式工作锁累计目标≤60秒/8小时；超标按owner解释并阻止发布，不能通过重命名锁隐藏。此为工程门槛，不等于硬件电池百分比承诺。
-- 同手机、同网络/VPN与使用条件对照旧版，记录BatteryStats/应用诊断、CPU时间、锁、HTTP、WSS帧/重连和系统电量估计。三次重复观察用于判断方向；来电及时性不得为耗电指标让步。
-- 所有结果按协议/模式分段，不能把通话时长和idle混算；provider accepted、received、fetched、presented分别记录，不把用户没有接听算投递失败。
-
-## 8. 后续独立交付
-
-- P10显示正式“接收来电”入口，提供本机已关闭/各节点待同步状态；保持短信默认体验，不增加不必要的技术开关。
-- 真正系统可唤醒的其他provider接入，采用相同Wake v2；必须在对应机型验收，不能把普通自建长连接宣称为系统推送。
-- mesh订阅代理、推送出口代发、事件复制和最优入口选择继续按服务端远期计划实施。只有完成授权路由后才减少跨authority连接；这不阻塞本次空闲锁根治。
+删去原固定10/30次每场景、全网组合故障、多种拓扑重复8小时、100个慢端点、快照过期/乱序复制/克隆旧key等当前不实施能力的发布门槛。保留关闭、短信幂等和winner并发这些真实会发生且后果大的验证。

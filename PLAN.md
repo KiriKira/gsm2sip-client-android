@@ -1,6 +1,6 @@
 # PLAN — gsm2sip-client-android 主机 App v1
 
-> **下一阶段（2026-10-27，待实施）**：[Reception v2 实施 PLAN](docs/reception-v2-PLAN.md)与[协议设计及参考依据](docs/reception-v2-protocol.md)。电话监听、短信同步和通话历史独立；通过持久订阅与按需唤醒消除空闲续约和常驻锁，并规定关闭电话监听后的行为。下文保留历史实施背景，后台接收新工作的顺序以该 PLAN 为准。
+> **下一阶段（2026-10-27，待实施，已按 Claude 评审精简）**：[Reception v2 实施 PLAN](docs/reception-v2-PLAN.md)、[协议设计及参考依据](docs/reception-v2-protocol.md)与[mesh 整合决定](docs/reception-mesh-decision.md)。先完成电话/短信解耦与按需唤醒，独立选做单跳代发；完整 mesh 不作前置。下文保留历史实施背景，后台接收新工作的顺序以该 PLAN 为准。
 
 > **0.4.0（Madoka）**：SIP/PJSUA2 已移除，通话只走服务端呼叫控制与 WebRTC，“WebRTC 语音”开关也已去掉。下文关于开关、SIP 兼容和迁移期的描述是历史记录。
 
