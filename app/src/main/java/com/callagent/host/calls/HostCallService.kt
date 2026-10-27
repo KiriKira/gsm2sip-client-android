@@ -298,10 +298,13 @@ class HostCallService : android.app.Service() {
         }
     }
 
+    /** Without [message] this is the user's own decline (the button, the
+     * notification or Telecom), which may end the call on every phone. */
     internal fun rejectCall(callId: String, message: String? = null) {
         executeOnIo {
             val engineKey = inboundEngineIds[callId]
-            if (engineKey != null) runCatching { callEngine?.reject(engineKey, CallRejection.DECLINED) }
+            val reason = if (message == null) CallRejection.DECLINED_BY_USER else CallRejection.DECLINED
+            if (engineKey != null) runCatching { callEngine?.reject(engineKey, reason) }
             else pendingOutboundCallId?.takeIf { it == callId }?.let { runCatching { callEngine?.hangup(it) } }
             if (message != null) CallRuntime.setStatus(message, callId)
             finishCall(callId, failed = false)
@@ -768,7 +771,8 @@ class HostCallService : android.app.Service() {
                 pushReady = { com.callagent.host.push.PushRegistration.isReady(this, pushSession) },
                 sessionInstanceId = pushSession,
                 sessionIsCurrent = { sessionStore.read()?.sameSessionInstance(targetSession) == true },
-                listeningEnabled = { CallPreferences(this).enabledFor(targetSession) })
+                listeningEnabled = { CallPreferences(this).enabledFor(targetSession) },
+                receptionV2 = { ReceptionV2.active(this, targetSession) })
             engineSession = targetSession
         }
         if (connectionState !in setOf(EngineConnectionState.READY, EngineConnectionState.CONNECTING)) {

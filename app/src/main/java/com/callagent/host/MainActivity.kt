@@ -2371,7 +2371,7 @@ class MainActivity : AppCompatActivity() {
         listen.isEnabled = serverReady && nativeReady
         listen.setOnClickListener {
             if (CallRuntime.isListeningRequested) {
-                CallRuntime.disableForegroundListening(this)
+                CallRuntime.disableForegroundListening(this, byUser = true)
                 renderCallPanel()
             } else if (!CallRuntime.enableForegroundListening(this)) {
                 showToast("无法启动前台来电接收。")

@@ -169,13 +169,27 @@ object NodeMonitor {
                 renewals += maintenanceWorkers.submit(Runnable {
                     try {
                         val prefs = com.callagent.host.calls.CallPreferences(app)
+                        if (store.read()?.sessionInstanceId != session.sessionInstanceId) return@Runnable
+                        val api = ApiClient(session.apiBaseUrl, store, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
+                        // A reception v2 node keeps the choice itself: write it when it
+                        // changes, and renew nothing. A node is switched only between calls.
+                        val reception = com.callagent.host.calls.ReceptionV2
+                        // A node not yet seen by this process is asked once.
+                        if (!reception.known(api.apiRoot)) runCatching { api.serverCapabilities() }
+                        val v2 = reception.active(app, session) || (!callInProgress() && reception.advertises(api.apiRoot))
+                        if (v2) {
+                            if (reception.needsSync(app, session, prefs.enabledFor(session))) {
+                                com.callagent.host.data.StandbyDiagnostics.withCause("reception") {
+                                    reception.sync(app, session, api) { prefs.enabledFor(session) }
+                                }
+                            }
+                            return@Runnable
+                        }
                         // The active engine owns the capability of an outgoing call even with listening off.
                         val active = com.callagent.host.data.SessionStore(app).read()
                         if (callInProgress() && active?.sessionInstanceId == session.sessionInstanceId) return@Runnable
                         val enabled = prefs.enabledFor(session)
                         if (!enabled && advertised[session.sessionInstanceId] == false) return@Runnable
-                        if (store.read()?.sessionInstanceId != session.sessionInstanceId) return@Runnable
-                        val api = ApiClient(session.apiBaseUrl, store, CONNECT_TIMEOUT_MS, READ_TIMEOUT_MS)
                         fun send(value: Boolean) = com.callagent.host.data.StandbyDiagnostics.withCause("rtc") {
                             api.rtcRequest("POST", "/rtc/control/capability", org.json.JSONObject().put("version", 1).put("enabled", value))
                         }

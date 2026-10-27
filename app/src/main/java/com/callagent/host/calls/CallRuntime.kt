@@ -115,6 +115,8 @@ object CallRuntime {
     }
 
     fun enableForegroundListening(activity: Activity): Boolean {
+        val session = runCatching { SessionStore(activity.applicationContext).read() }.getOrNull()
+        if (session != null) CallPreferences(activity).setUserChoice(session, true)
         return ensureIncomingCallSignalingForPairedSession(activity)
     }
 
@@ -162,9 +164,11 @@ object CallRuntime {
         }
     }
 
-    fun disableForegroundListening(context: Context) {
+    /** [byUser]: the user turned it off, and opening the app keeps it off. */
+    fun disableForegroundListening(context: Context, byUser: Boolean = false) {
         val session = SessionStore(context.applicationContext).read()
-        CallPreferences(context).setEnabled(session, false)
+        if (byUser) CallPreferences(context).setUserChoice(session, false)
+        else CallPreferences(context).setEnabled(session, false)
         wantsForegroundListening = false
         signalingStartRequestedFor = null
         if (service != null) service?.setForegroundListening(false)

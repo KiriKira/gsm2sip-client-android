@@ -37,7 +37,7 @@ internal object PushWake {
         CallRuntime.requestCallSyncFromWakeHint()
     }
 
-    fun handle(context: Context, kind: String?, deviceId: String?, allowServiceStart: Boolean = true, actualPriority: Int? = null, originalPriority: Int? = null): Boolean {
+    fun handle(context: Context, kind: String?, deviceId: String?, allowServiceStart: Boolean = true, actualPriority: Int? = null, originalPriority: Int? = null, wire: Int = 1): Boolean {
         val app = context.applicationContext
         val pairings = PushRegistration.pairings(app)
         // Only wake-ups from a pairing this phone still holds are acted on.
@@ -52,18 +52,23 @@ internal object PushWake {
         // hint from another node is handed to the active pairing's consumers;
         // keyed to its own node, nothing would consume it before the timeout.
         val consumer = active?.sessionInstanceId ?: from.sessionInstanceId
-        // v1 call hints may also cover SMS: keep both fetches, with call control first.
         fun dispatch(channel: PushWakeHandoff.Channel, permitted: Boolean, start: () -> Boolean) {
             if (!permitted) { runCatching(start); return }
             val ticket = runCatching { PushWakeHandoff.begin(app, consumer, channel) }.getOrNull()
             val accepted = runCatching(start).getOrDefault(false)
             if (!accepted && ticket != null) PushWakeHandoff.rejected(ticket)
         }
-        if (allowServiceStart || CallRuntime.hasServiceForPush) {
+        val route = route(wire, kind)
+        // With incoming calls off here, a call hint starts no call control;
+        // a call already running (one this phone placed) still takes it.
+        val callsWanted = com.callagent.host.calls.CallPreferences(app).enabledFor(from) || CallRuntime.hasServiceForPush
+        if (route.call && callsWanted && (allowServiceStart || CallRuntime.hasServiceForPush)) {
             dispatch(PushWakeHandoff.Channel.CALL, true) { CallRuntime.wakeFromPush(app) }
         }
-        dispatch(PushWakeHandoff.Channel.SYNC, allowServiceStart || com.callagent.host.background.HostBackgroundService.isRunning) {
-            HostBackgroundRuntime.wakeFromPush(app, allowServiceStart)
+        if (route.sms) {
+            dispatch(PushWakeHandoff.Channel.SYNC, allowServiceStart || com.callagent.host.background.HostBackgroundService.isRunning) {
+                HostBackgroundRuntime.wakeFromPush(app, allowServiceStart)
+            }
         }
         if (pairings.size > 1 && active?.sessionInstanceId != from.sessionInstanceId) {
             // The event reached another node: re-check which one is usable now.
@@ -83,6 +88,20 @@ internal object PushWake {
             }, CALL_CHECK_MS)
         }
         return true
+    }
+
+    internal data class Route(val call: Boolean, val sms: Boolean)
+
+    /**
+     * What a wake-up asks for. A wire 1 hint may cover both, so it fetches
+     * both, calls first. A wire 2 hint names its domain: an SMS hint never
+     * starts call control, and a call hint fetches no messages.
+     */
+    internal fun route(wire: Int, kind: String?): Route = when {
+        wire < 2 -> Route(call = true, sms = true)
+        kind == "call" -> Route(call = true, sms = false)
+        kind == "sms" -> Route(call = false, sms = true)
+        else -> Route(call = false, sms = false)
     }
 
     /** No call is showing and call control has not answered since the wake-up. */

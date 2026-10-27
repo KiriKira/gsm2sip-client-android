@@ -460,14 +460,18 @@ class HostBackgroundService : Service() {
                 val hint = runCatching { JSONObject(text) }.getOrNull() ?: return
                 if (hint.optInt("protocol_version", -1) == 1 && hint.optString("type") == "sync_required") {
                     // The websocket is only a wake hint; all data comes from the authenticated HTTPS event API.
-                    CallRuntime.requestCallSyncFromWakeHint()
-                    // With idle reception asleep this packet may be all that woke the
-                    // CPU: bridge it to the sync's own lock, which runSync consumes.
-                    if (isOptedInAndPaired()) runCatching {
-                        com.callagent.host.push.PushWakeHandoff.begin(this@HostBackgroundService,
-                            session.sessionInstanceId, com.callagent.host.push.PushWakeHandoff.Channel.SYNC)
+                    // A reception v2 node says which domain changed; otherwise both may have.
+                    val domains = hint.optJSONArray("domains")?.let { list -> (0 until list.length()).map(list::optString).toSet() }
+                    if (domains == null || "call" in domains) CallRuntime.requestCallSyncFromWakeHint()
+                    if (domains == null || "sms" in domains) {
+                        // With idle reception asleep this packet may be all that woke the
+                        // CPU: bridge it to the sync's own lock, which runSync consumes.
+                        if (isOptedInAndPaired()) runCatching {
+                            com.callagent.host.push.PushWakeHandoff.begin(this@HostBackgroundService,
+                                session.sessionInstanceId, com.callagent.host.push.PushWakeHandoff.Channel.SYNC)
+                        }
+                        enqueueSync("websocket")
                     }
-                    enqueueSync("websocket")
                 }
             }
 
