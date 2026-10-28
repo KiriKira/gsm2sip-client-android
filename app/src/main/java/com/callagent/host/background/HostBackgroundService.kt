@@ -69,6 +69,8 @@ class HostBackgroundService : Service() {
     }
     @Volatile private var socket: WebSocket? = null
     @Volatile private var socketLive = false
+    /** The default network the current socket was opened on. */
+    @Volatile private var socketNetwork: Network? = null
     @Volatile private var syncFailures = 0
     @Volatile private var activeSession: HostSession? = null
     private val reconnectAttempt = java.util.concurrent.atomic.AtomicInteger(0)
@@ -83,7 +85,11 @@ class HostBackgroundService : Service() {
             // A new network (home Wi-Fi, mobile data) can change which node is best.
             forceNodeProbe.set(true)
             enqueueSync("network")
-            scheduleWebSocketReconnect(500L)
+            // A socket opened on the old network is dead even if nothing says so
+            // yet; the node's next ping can be minutes away. Switches come in
+            // bursts (Wi-Fi, then VPN), so reconnect once they settle.
+            if (socket != null && socketNetwork != null && socketNetwork != network) closeWebSocket()
+            scheduleWebSocketReconnect(NETWORK_SETTLE_MS)
         }
 
         override fun onLost(network: Network) {
@@ -473,6 +479,7 @@ class HostBackgroundService : Service() {
                     SystemClock.elapsedRealtime() - openedAt, failed && com.callagent.host.network.NetworkEnvironment.online(this@HostBackgroundService))
             }
             val localSocketGeneration = socketGeneration.incrementAndGet()
+            socketNetwork = runCatching { connectivityManager.activeNetwork }.getOrNull()
             socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: okhttp3.Response) {
                 if (!isSocketCurrent(session, expectedGeneration, localSocketGeneration)) {
@@ -820,6 +827,7 @@ class HostBackgroundService : Service() {
         private const val WAKE_LOCK_TIMEOUT_MS = 60_000L
         private const val FALLBACK_SYNC_MS = 30_000L
         private const val STABLE_SOCKET_MS = 60_000L
+        private const val NETWORK_SETTLE_MS = 2_000L
         private const val NOTIFICATION_WINDOW_MS = 12_000L
         private const val MAX_COALESCED_IDS = 99
         private const val MAX_SEEN_NOTIFICATION_IDS = 2_048

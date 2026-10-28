@@ -115,6 +115,29 @@ internal object ReceptionV2 {
         return Status(synced, pending, legacy)
     }
 
+    /**
+     * Per node, for the standby report: the node's answer, whether the
+     * phone's choice still has to reach it, and how calls get to this phone
+     * from there: "push" (woken by push, nothing kept running), "stream"
+     * (v2 without push: the WebSocket with its heartbeat) or "legacy"
+     * (capability renewals).
+     */
+    fun diagnostics(context: Context): org.json.JSONArray {
+        val nodes = org.json.JSONArray()
+        runCatching { com.callagent.host.push.PushRegistration.pairings(context) }.getOrDefault(emptyList()).forEachIndexed { index, (session, _) ->
+            val confirmed = confirmed(context, session.sessionInstanceId)
+            val v2 = active(context, session)
+            val push = runCatching { com.callagent.host.push.PushRegistration.isReady(context, session.sessionInstanceId) }.getOrDefault(false)
+            nodes.put(org.json.JSONObject().put("node", index + 1)
+                .put("version", confirmed?.version ?: 1)
+                .put("incoming", confirmed?.incoming).put("sms", confirmed?.sms).put("revision", confirmed?.revision)
+                .put("pending", v2 && needsSync(context, session, choice(context, session)))
+                .put("mode", if (!v2) "legacy" else if (push) "push" else "stream")
+                .put("heartbeat_s", if (v2 && !push) com.callagent.host.background.WakeHeartbeat.seconds(context, normalizeApiBaseUrl(session.apiBaseUrl)) else null))
+        }
+        return nodes
+    }
+
     /** One line for the call panel, or null when no node offers reception v2. */
     fun describe(status: Status): String? {
         if (status.synced + status.pending == 0) return null

@@ -24,5 +24,6 @@ data class RemoteCall(
 fun RemoteCall.localTerminalNotice(): String? = when {
     state != "ended" -> null
     reason == "answered_elsewhere" -> "另一台主机已接听此来电。"
+    reason == "declined" -> "已拒接，所有主机已停止响铃。"
     else -> null
 }

@@ -392,7 +392,7 @@ internal class RtcCallEngine(
         // The user's decline ends the call on every phone when the gateway can
         // decide it; it stays ringing on the server until the gateway does, so
         // this phone stops at once on its own.
-        if (reason == CallRejection.DECLINED_BY_USER && snapshots[callId]?.optBoolean("global_decline") == true) {
+        if (reason == CallRejection.DECLINED_BY_USER && declinesEverywhere(callId)) {
             try { store(callId,control.operation(callId,"decline_all"));endLocally(callId,"declined") }
             catch (error: Throwable) { fail(callId,"local_reject_unconfirmed"); throw error }
             return@controlAction
@@ -400,6 +400,7 @@ internal class RtcCallEngine(
         try { store(callId,control.operation(callId,"reject"));report(callId) }
         catch (error: Throwable) { fail(callId,"local_reject_unconfirmed"); throw error }
     }
+    override fun declinesEverywhere(callId:String)=snapshots[callId]?.optBoolean("global_decline")==true
     /** Ends a call here only; later snapshots never bring it back. */
     private fun endLocally(id:String,reason:String){
         val snapshot=snapshots[id]?:return

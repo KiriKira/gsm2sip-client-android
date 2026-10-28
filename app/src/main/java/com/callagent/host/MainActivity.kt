@@ -1220,7 +1220,7 @@ class MainActivity : AppCompatActivity() {
             onClick = {
                 val report = com.callagent.host.data.StandbyDiagnostics.export(this)
                 MaterialAlertDialogBuilder(this).setTitle("待机统计")
-                    .setMessage(com.callagent.host.data.StandbyDiagnostics.summary()).setPositiveButton("关闭", null)
+                    .setMessage(com.callagent.host.data.StandbyDiagnostics.summary(this)).setPositiveButton("关闭", null)
                     .setNeutralButton("分享统计") { _, _ ->
                         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"

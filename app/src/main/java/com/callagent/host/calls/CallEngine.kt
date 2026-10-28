@@ -38,6 +38,8 @@ interface CallEngine : AutoCloseable {
     fun dial(serverCallId: String, destination: String)
     fun answer(callId: String)
     fun reject(callId: String, reason: CallRejection = CallRejection.DECLINED)
+    /** The user's decline would end this call on every phone (see [CallRejection.DECLINED_BY_USER]). */
+    fun declinesEverywhere(callId: String): Boolean = false
     fun hangup(callId: String)
     fun sendDtmf(callId: String, digits: String)
     fun setMute(callId: String, muted: Boolean)
