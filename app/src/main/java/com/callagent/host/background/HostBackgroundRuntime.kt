@@ -57,8 +57,25 @@ object HostBackgroundRuntime {
         )
     }
 
+    /**
+     * Whether nodes should wake this phone for messages of [session]'s account:
+     * background sync, which fetches and notifies them, is on for it. Every
+     * node of an account shares its database.
+     */
+    fun smsWanted(context: Context, session: HostSession): Boolean {
+        val state = RuntimeState.preferences(context.applicationContext)
+        return state.getBoolean(RuntimeState.KEY_ENABLED, false) &&
+            state.getString(RuntimeState.KEY_SESSION_DB_NAME, null) == session.databaseName()
+    }
+
     /** Enable is deliberately accepted only from a focused Activity following an explicit user action. */
-    fun setEnabled(context: Context, enabled: Boolean): Boolean {
+    fun setEnabled(context: Context, enabled: Boolean): Boolean =
+        setEnabledOnly(context, enabled).also { changed ->
+            // Reception v2 nodes stop or resume SMS wake-ups with it.
+            if (changed) com.callagent.host.mesh.NodeMonitor.maintain(context.applicationContext, force = true)
+        }
+
+    private fun setEnabledOnly(context: Context, enabled: Boolean): Boolean {
         val app = context.applicationContext
         val state = RuntimeState.preferences(app)
         if (!enabled) {

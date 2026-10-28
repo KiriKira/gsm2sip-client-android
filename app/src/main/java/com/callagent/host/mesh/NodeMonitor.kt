@@ -178,9 +178,9 @@ object NodeMonitor {
                         if (!reception.known(api.apiRoot)) runCatching { api.serverCapabilities() }
                         val v2 = reception.active(app, session) || (!callInProgress() && reception.advertises(api.apiRoot))
                         if (v2) {
-                            if (reception.needsSync(app, session, prefs.enabledFor(session))) {
+                            if (reception.needsSync(app, session, reception.choice(app, session))) {
                                 com.callagent.host.data.StandbyDiagnostics.withCause("reception") {
-                                    reception.sync(app, session, api) { prefs.enabledFor(session) }
+                                    reception.sync(app, session, api) { reception.choice(app, session) }
                                 }
                             }
                             return@Runnable

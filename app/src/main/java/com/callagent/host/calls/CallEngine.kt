@@ -30,6 +30,8 @@ interface CallEngine : AutoCloseable {
         fun onConnectionState(state: EngineConnectionState, statusCode: Int? = null, reason: String? = null)
         fun onCallState(snapshot: EngineCallSnapshot)
         fun onEngineError(error: Throwable)
+        /** Call control answered and nothing is ringing or live. */
+        fun onIdle() {}
     }
 
     fun connect()

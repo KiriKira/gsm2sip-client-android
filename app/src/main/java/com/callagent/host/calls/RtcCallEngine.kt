@@ -238,6 +238,7 @@ internal class RtcCallEngine(
                     android.os.SystemClock.elapsedRealtime() - startedAt, environment)
             }
             com.callagent.host.data.StandbyDiagnostics.event("rtc_poll_succeeded")
+            if (!hasLiveCall()) listener.onIdle()
             lastPollSucceededAt=android.os.SystemClock.elapsedRealtime()
             sessionInstanceId?.let { id -> synchronized(pollEvidence) { pollEvidence[id] = lastPollSucceededAt } }
         } }catch(_:Throwable){

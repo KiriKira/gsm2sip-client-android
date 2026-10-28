@@ -62,9 +62,20 @@ internal object ReceptionV2 {
     fun confirmed(context: Context, sessionId: String): ReceptionConfig? =
         ReceptionConfig.decode(prefs(context).getString(sessionId, null))
 
-    /** The node must be told: it is not on version 2 yet, or has another choice than [incoming]. */
-    fun needsSync(context: Context, session: HostSession, incoming: Boolean): Boolean =
-        confirmed(context, session.sessionInstanceId)?.let { it.version != 2 || it.incoming != incoming } ?: true
+    /** What the phone wants a node to do. */
+    data class Choice(val incoming: Boolean, val sms: Boolean)
+
+    /** The node must be told: it is not on version 2 yet, or has another choice. */
+    fun needsSync(context: Context, session: HostSession, choice: Choice): Boolean =
+        confirmed(context, session.sessionInstanceId)?.let { it.version != 2 || it.incoming != choice.incoming || it.sms != choice.sms } ?: true
+
+    /**
+     * The phone's choice for [session]'s node: incoming calls as set in
+     * [CallPreferences]; SMS wake-ups while background sync, which syncs and
+     * notifies messages, is on for this account.
+     */
+    fun choice(context: Context, session: HostSession): Choice =
+        Choice(CallPreferences(context).enabledFor(session), com.callagent.host.background.HostBackgroundRuntime.smsWanted(context, session))
 
     /**
      * Writes the phone's choice to the node of [session] and records the answer.
@@ -72,13 +83,13 @@ internal object ReceptionV2 {
      * each write [desired] is read again, so a choice changed meanwhile is
      * written too and an older answer never stands for a newer choice.
      */
-    fun sync(context: Context, session: HostSession, api: ApiClient, desired: () -> Boolean): Boolean {
+    fun sync(context: Context, session: HostSession, api: ApiClient, desired: () -> Choice): Boolean {
         repeat(ATTEMPTS) {
-            val incoming = desired()
-            if (!needsSync(context, session, incoming)) return true
+            val choice = desired()
+            if (!needsSync(context, session, choice)) return true
             val current = api.reception()
-            val answer = if (current.version == 2 && current.incoming == incoming && current.sms) current else try {
-                api.putReception(current.revision, incoming, sms = true)
+            val answer = if (current.version == 2 && current.incoming == choice.incoming && current.sms == choice.sms) current else try {
+                api.putReception(current.revision, choice.incoming, choice.sms)
             } catch (failure: ApiFailure) {
                 if (failure.httpStatus == 409) return@repeat
                 throw failure
@@ -86,6 +97,32 @@ internal object ReceptionV2 {
             prefs(context).edit().putString(session.sessionInstanceId, answer.encode()).apply()
         }
         return !needsSync(context, session, desired())
+    }
+
+    /** How far the phone's choice has reached its nodes. */
+    data class Status(val synced: Int, val pending: Int, val legacy: Int)
+
+    fun status(context: Context): Status {
+        var synced = 0; var pending = 0; var legacy = 0
+        runCatching { com.callagent.host.push.PushRegistration.pairings(context) }.getOrDefault(emptyList()).forEach { (session, _) ->
+            val root = normalizeApiBaseUrl(session.apiBaseUrl)
+            when {
+                !active(context, session) && (root in withdrawn || confirmed(context, session.sessionInstanceId) == null && root !in advertised) -> legacy++
+                needsSync(context, session, choice(context, session)) -> pending++
+                else -> synced++
+            }
+        }
+        return Status(synced, pending, legacy)
+    }
+
+    /** One line for the call panel, or null when no node offers reception v2. */
+    fun describe(status: Status): String? {
+        if (status.synced + status.pending == 0) return null
+        val parts = buildList {
+            add(if (status.pending == 0) "接收设置已同步到 ${status.synced} 个节点" else "${status.pending} 个节点的接收设置待同步（联网后自动提交，本机设置已生效）")
+            if (status.legacy > 0) add("${status.legacy} 个旧版节点仍按原方式保持接收")
+        }
+        return parts.joinToString("；") + "。"
     }
 
     private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

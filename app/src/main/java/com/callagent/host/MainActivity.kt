@@ -52,6 +52,7 @@ import com.callagent.host.calls.CallPhase
 import com.callagent.host.calls.CallPreferences
 import com.callagent.host.calls.CallEngineFactory
 import com.callagent.host.calls.CallRuntime
+import com.callagent.host.calls.ReceptionV2
 import com.callagent.host.calls.CallActionActivity
 import com.callagent.host.calls.startCallUi
 import com.callagent.host.data.ApiClient
@@ -2379,6 +2380,10 @@ class MainActivity : AppCompatActivity() {
         }
         panel.addView(listen)
         panel.addView(body("开启后使用系统可见的专用信令前台服务保持呼叫控制和 HTTPS 来电检查；不启用麦克风。来电匹配服务器状态后才交给 Telecom，用户接听后才请求麦克风和通话前台服务。网络中断、强行停止或系统资源限制仍可能延迟来电。"))
+        // Nodes with reception v2 keep the choice themselves and wake the phone by push.
+        ReceptionV2.describe(ReceptionV2.status(this))?.let { line ->
+            panel.addView(body("$line 支持新接收方式的节点在待机时通过推送唤醒本机，不需要常驻信令服务；关闭后仍可主动拨号、收发短信。"))
+        }
 
         val refresh = smallButton(if (callAvailabilityLoading) "正在检查…" else "刷新通话可用状态")
         refresh.isEnabled = !callAvailabilityLoading

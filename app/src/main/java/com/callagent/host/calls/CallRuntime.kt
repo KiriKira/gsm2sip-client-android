@@ -356,7 +356,8 @@ object CallRuntime {
     /** An FCM wake-up: start call control if Android stopped it, else poll now. */
     internal fun wakeFromPush(context: Context): Boolean {
         val app = context.applicationContext
-        service?.let { if (it.requestCallSyncFromWakeHint()) return true }
+        service?.takeUnless { it.stoppingUntilInvited }?.let { if (it.requestCallSyncFromWakeHint()) return true }
+        signalingStartRequestedFor = null
         val session = runCatching { SessionStore(app).read() }.getOrNull() ?: return false
         restoreForegroundPreference(app, session)
         return runCatching { startSignalingIfNeeded(app, session) }.getOrDefault(false)
@@ -381,8 +382,9 @@ object CallRuntime {
         }
         if (signalingStartRequestedFor == session.sessionInstanceId) return@synchronized true
         signalingStartRequestedFor = session.sessionInstanceId
-        val started = if (service != null) {
-            service?.setForegroundListening(true)
+        val running = service?.takeUnless { it.stoppingUntilInvited }
+        val started = if (running != null) {
+            running.setForegroundListening(true)
             true
         } else {
             HostCallService.setForegroundListening(context, true)

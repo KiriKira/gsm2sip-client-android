@@ -71,6 +71,9 @@ class HostCallService : android.app.Service() {
     private var pendingAnswerCallId: String? = null
 
     val isForegroundListening: Boolean get() = foregroundListening
+    /** Stopped itself to wait for a push: a new call must start a new service. */
+    @Volatile internal var stoppingUntilInvited = false
+        private set
     val isSignalingReady: Boolean get() = connectionState == EngineConnectionState.READY
 
     override fun onCreate() {
@@ -83,6 +86,7 @@ class HostCallService : android.app.Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         latestStartId = startId
+        stoppingUntilInvited = false
         if (intent == null) {
             val persisted = runCatching { CallPreferences(this).enabledFor(sessionStore.read()) }.getOrDefault(false)
             if (persisted) setForegroundListening(true) else stopSelf(startId)
@@ -166,6 +170,38 @@ class HostCallService : android.app.Service() {
                 if (generation == engineGeneration) onCallEngineError()
             }
         }
+
+        override fun onIdle() {
+            executeOnIo {
+                if (generation == engineGeneration) stopUntilInvitedIfIdle()
+            }
+        }
+    }
+
+    /**
+     * Reception v2 with working push: the node keeps offering calls while this
+     * phone sleeps and wakes it by push for each one, so nothing has to stay
+     * running in between. With nothing ringing or live, call control and its
+     * notification stop; the next call's push starts them again. The user's
+     * choice to receive calls is unchanged. Without push this keeps running.
+     */
+    private fun stopUntilInvitedIfIdle() {
+        if (!foregroundListening || destroying || pendingCallWake.get()) return
+        if (CallRuntime.currentSessionForService()?.phase?.isInProgress() == true ||
+            pendingOutboundCallId != null || pendingAnswerCallId != null || inboundEngineIds.isNotEmpty()) return
+        val session = engineSession ?: return
+        if (!ReceptionV2.active(this, session) ||
+            !com.callagent.host.push.PushRegistration.isReady(this, session.sessionInstanceId)) return
+        Log.i(TAG, "Call control idle; the next call arrives by push")
+        com.callagent.host.data.StandbyDiagnostics.event("call_control_stopped_until_push")
+        listeningGeneration.incrementAndGet()
+        stoppingUntilInvited = true
+        foregroundListening = false
+        listeningRequested = false
+        stopSignalingForeground()
+        closeEngine()
+        // A start that arrived meanwhile keeps the service.
+        stopSelf(latestStartId)
     }
 
     internal fun setForegroundListening(enabled: Boolean) {

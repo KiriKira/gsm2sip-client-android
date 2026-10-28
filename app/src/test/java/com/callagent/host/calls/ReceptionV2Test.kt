@@ -29,11 +29,13 @@ class ReceptionV2Test {
     @Test
     fun aNodeNeedsTheChoiceUntilItConfirmedVersionTwoWithThatChoice() {
         val session = session("node-a")
-        assertTrue(ReceptionV2.needsSync(context, session, incoming = true))
+        val both = ReceptionV2.Choice(incoming = true, sms = true)
+        assertTrue(ReceptionV2.needsSync(context, session, both))
         assertFalse(ReceptionV2.active(context, session))
         store(session, ReceptionConfig(2, incoming = true, sms = true, revision = 1))
-        assertFalse(ReceptionV2.needsSync(context, session, incoming = true))
-        assertTrue("a changed choice is written again", ReceptionV2.needsSync(context, session, incoming = false))
+        assertFalse(ReceptionV2.needsSync(context, session, both))
+        assertTrue("a changed call choice is written again", ReceptionV2.needsSync(context, session, both.copy(incoming = false)))
+        assertTrue("so is a changed SMS choice", ReceptionV2.needsSync(context, session, both.copy(sms = false)))
         assertTrue(ReceptionV2.active(context, session))
         store(session, ReceptionConfig(1, incoming = true, sms = true, revision = 2))
         assertFalse("a node set back to version 1 renews the old way", ReceptionV2.active(context, session))
