@@ -58,7 +58,9 @@ internal object CallTelecomController {
         val handle = ensurePhoneAccount(app)
         val extras = Bundle().apply {
             putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, handle)
-            putDetails(details)
+            // Telecom forwards this nested Bundle as ConnectionRequest.extras;
+            // custom keys on the outer placeCall Bundle are not forwarded.
+            putBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS, Bundle().apply { putDetails(details) })
         }
         val address = Uri.fromParts("gsm2sip", details.callId, null)
         try {
