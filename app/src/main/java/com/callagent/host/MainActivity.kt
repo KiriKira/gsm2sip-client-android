@@ -973,12 +973,8 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun formatCallTime(value: String): String = runCatching {
-        val millis = timestampMillis(value)
-        val today = android.text.format.DateUtils.isToday(millis) ||
-            android.text.format.DateUtils.isToday(millis + android.text.format.DateUtils.DAY_IN_MILLIS)
-        java.text.SimpleDateFormat(if (today) "HH:mm" else "M月d日", java.util.Locale.getDefault()).format(java.util.Date(millis))
-    }.getOrDefault(value.take(16))
+    private fun formatCallTime(value: String): String =
+        runCatching { com.callagent.host.ui.CallTimeFormat.format(Instant.parse(value)) }.getOrDefault(value.take(16))
 
     private fun emptyState(message: String): View = body(message, selectable = false).apply {
         gravity = Gravity.CENTER
