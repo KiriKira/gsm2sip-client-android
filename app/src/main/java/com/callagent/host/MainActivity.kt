@@ -669,6 +669,9 @@ class MainActivity : AppCompatActivity() {
         callDestinationEdit = null
         searchEdit = null
         callSearchEdit = null
+        backgroundSwitch = null
+        backgroundSummary = null
+        backgroundRestartButton = null
         smsList = null
         smsThreadList = null
         smsConversationList = null
@@ -1189,6 +1192,10 @@ class MainActivity : AppCompatActivity() {
         }
         content.addView(HostUi.groupHeader(this, "通知与权限"))
         addPermissionSettings(content)
+        if (session != null) {
+            content.addView(HostUi.groupHeader(this, "后台接收"))
+            addBackgroundReceptionSettings(content)
+        }
         content.addView(HostUi.groupHeader(this, "待机与省电"))
         val sleepy = com.callagent.host.calls.StandbyPowerPolicy.sleepyListening(this)
         content.addView(HostUi.tile(this, HostUi.Position.FIRST, "省电接听",
@@ -1239,6 +1246,61 @@ class MainActivity : AppCompatActivity() {
         ).apply { id = R.id.full_backup_entry })
         content.addView(smsArchiveEntryButton())
         settingsMessage = null
+    }
+
+    private fun addBackgroundReceptionSettings(content: LinearLayout) {
+        val pairedSession = session ?: return
+        val incomingToggle = MaterialSwitch(this).apply {
+            id = R.id.settings_incoming_calls
+            contentDescription = "后台来电接收"
+            isSaveEnabled = false
+            isChecked = CallPreferences(this@MainActivity).enabledFor(pairedSession)
+        }
+        incomingToggle.setOnCheckedChangeListener { _, checked ->
+            val accepted = if (checked) {
+                CallRuntime.enableForegroundListening(this@MainActivity)
+            } else {
+                CallRuntime.disableForegroundListening(this@MainActivity, byUser = true)
+                true
+            }
+            if (!accepted && checked) showToast("无法启动后台来电接收。")
+        }
+        content.addView(HostUi.tile(this, HostUi.Position.FIRST, "后台来电接收",
+            summary = "允许本机在后台参与来电。关闭后仍可主动拨号和收发短信。",
+            icon = R.drawable.ic_ui_refresh,
+            trailing = incomingToggle,
+            onClick = { incomingToggle.isChecked = !incomingToggle.isChecked }))
+
+        val syncStatus = runCatching { HostBackgroundRuntime.snapshot(this) }.getOrNull()
+        val syncToggle = MaterialSwitch(this).apply {
+            id = R.id.settings_background_sync
+            contentDescription = "后台短信同步"
+            isSaveEnabled = false
+            isChecked = syncStatus?.enabled == true
+        }
+        syncToggle.setOnCheckedChangeListener { _, checked ->
+            val accepted = runCatching { HostBackgroundRuntime.setEnabled(this@MainActivity, checked) }.getOrDefault(false)
+            if (!accepted) showToast(if (checked) "后台同步无法启动，请检查通知权限。" else "无法停止后台同步。")
+            refreshBackgroundStatus()
+        }
+        content.addView(HostUi.tile(this, HostUi.Position.LAST, "后台短信同步",
+            summary = "开启后，在后台接收新短信提醒并同步消息。",
+            icon = R.drawable.ic_ui_refresh,
+            trailing = syncToggle,
+            onClick = { syncToggle.isChecked = !syncToggle.isChecked }))
+
+        backgroundSwitch = syncToggle
+        backgroundSummary = body("")
+        content.addView(backgroundSummary)
+        backgroundRestartButton = smallButton("重新启动后台同步").apply {
+            setOnClickListener {
+                val accepted = runCatching { HostBackgroundRuntime.setEnabled(this@MainActivity, true) }.getOrDefault(false)
+                if (!accepted) showToast("后台同步无法启动，请检查通知权限。")
+                refreshBackgroundStatus()
+            }
+        }
+        content.addView(backgroundRestartButton)
+        updateBackgroundCard(syncStatus)
     }
 
     private fun probeNodes(force: Boolean) {

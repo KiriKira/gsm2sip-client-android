@@ -236,12 +236,39 @@ class MainActivityThemeTest {
         )
         val databaseName = clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
         application.deleteDatabase(databaseName)
+        application.getSharedPreferences("host-call-settings", 0).edit().clear().commit()
+        application.getSharedPreferences("host-background", 0).edit().clear().commit()
         var controller: org.robolectric.android.controller.ActivityController<MainActivity>? = null
         try {
             assertTrue(SessionStore(application).writeIfCurrent(null, session))
+            assertTrue(com.callagent.host.calls.CallPreferences(application).setUserChoice(session, false))
             val activityController = Robolectric.buildActivity(MainActivity::class.java).setup()
             controller = activityController
             assertReceptionStatus(activityController.get(), null)
+
+            selectTab(activityController.get(), R.id.tab_settings)
+            var incomingToggle = activityController.get().findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.settings_incoming_calls)
+            assertFalse("the setting must reflect the saved user-off choice", incomingToggle.isChecked)
+            incomingToggle.performClick()
+            assertTrue("the settings control must let a user turn reception back on", com.callagent.host.calls.CallPreferences(application).enabledFor(session))
+            assertFalse("re-enabling must clear the persisted user-off guard", com.callagent.host.calls.CallPreferences(application).declinedByUser(session))
+            incomingToggle.performClick()
+            assertFalse(com.callagent.host.calls.CallPreferences(application).enabledFor(session))
+            assertTrue(com.callagent.host.calls.CallPreferences(application).declinedByUser(session))
+
+            activityController.recreate()
+            selectTab(activityController.get(), R.id.tab_settings)
+            incomingToggle = activityController.get().findViewById(R.id.settings_incoming_calls)
+            assertFalse("recreation must preserve the user's disabled state", incomingToggle.isChecked)
+            incomingToggle.performClick()
+            assertTrue(com.callagent.host.calls.CallPreferences(application).enabledFor(session))
+
+            val backgroundToggle = activityController.get().findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.settings_background_sync)
+            assertFalse("background SMS sync starts opt-in", backgroundToggle.isChecked)
+            backgroundToggle.performClick()
+            assertTrue("the settings control must enable background SMS sync", com.callagent.host.background.HostBackgroundRuntime.smsWanted(application, session))
+            backgroundToggle.performClick()
+            assertFalse(com.callagent.host.background.HostBackgroundRuntime.smsWanted(application, session))
 
             val choice = ReceptionV2.choice(application, session)
             val confirmed = ReceptionConfig(2, choice.incoming, choice.sms, 1)
@@ -274,7 +301,11 @@ class MainActivityThemeTest {
             assertReceptionStatus(activityController.get(), null)
         } finally {
             controller?.let { runCatching { it.pause().stop().destroy() } }
+            runCatching { com.callagent.host.calls.CallRuntime.disableForegroundListening(application, byUser = false) }
+            runCatching { com.callagent.host.background.HostBackgroundRuntime.setEnabled(application, false) }
             runCatching { SessionStore(application).clearIfCurrent(session) }
+            application.getSharedPreferences("host-call-settings", 0).edit().clear().commit()
+            application.getSharedPreferences("host-background", 0).edit().clear().commit()
             ReceptionV2.resetForTest(application)
             application.deleteDatabase(databaseName)
             TestAndroidKeyStoreBacking.keys.clear()
