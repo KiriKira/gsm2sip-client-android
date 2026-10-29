@@ -1,0 +1,5 @@
+captured_utc=2026-10-29T18:30:46Z
+test_host_disk=/dev/root        61G   54G  7.7G  88% /
+H1_saved_apk_sha256=f5a73df1fbcd7caa42d3a46be9b6ee5f3a7fdce0d05ef8a4b6519afe0d5f453c
+H1_push_endpoint=f|t|3|32|0|4|269|[redacted temporary relay hostname]
+new_tunnel_public_root_http=200

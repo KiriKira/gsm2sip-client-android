@@ -1,0 +1,9 @@
+B3 outbound call — single attempt, 2026-10-29 UTC
+
+Device-role mapping was checked before interacting: emulator-5554=`reception-r1-gw-api34` (GW), emulator-5556=`reception-r1-h1-api35-play` (H1, API 35). H1's Settings switch was off and Node A showed `protocol_version=2, incoming_enabled=false, sms_enabled=true, revision=12`; the H2 server preference remained incoming-enabled. The H2 AVD was off after the monitored resource stop.
+
+At 19:20:54Z the test operator dialed the reserved test destination from Madoka's visible dialer UI. Node A created one outgoing session at 19:20:57.494Z. It ended at 19:21:19.472Z with `state=ended, reason=control_expired` (about 22.0 seconds after creation; session ID is represented only by MD5 `2477fe1882393edb2719ce160f0987cc`). The H1 UI still showed `正在呼叫…` at 19:21:16Z; after a visible Hang up action it showed `通话已结束`, then was closed. Homura `telephony.registry` stayed `mCallState=0`; no cellular call was placed. The H1 incoming preference was still false after the attempt.
+
+Homura's UI reported `通话控制已就绪`; at 19:23:34Z Node A reported a fresh gateway heartbeat and an enabled RTC call-control capability. This does not explain why the outgoing control expired. The result is recorded as **FAIL for B3's outbound-success assertion**, cause unresolved; the same B3 dial path was not retried. It is not claimed to be a confirmed source-code defect. The plan's synthetic PCM harness does not validate cellular HAL audio.
+
+Raw private logs are on the test host under `/tmp/reception-r1-private-20261030/`: `b3-gw.log` SHA-256 `c294c9aa8f9c000d4da0b3c7eccd81360d020f01318e6c5893c61e32961e0aad`; `b3-h1.log` SHA-256 `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` (the selected H1 logcat tags emitted no lines). The SQL outcome above is a redacted Node A snapshot; no raw call ID, telephone number, endpoint, or credential is included here.

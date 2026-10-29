@@ -1,0 +1,24 @@
+B5 remaining call assertion — 2026-10-30 UTC
+
+No second call was attempted. The test reused the already-passed offline-setting sync substep and tested only its remaining call assertion.
+
+Pre-call Node A state:
+
+| Device digest | Incoming | SMS | Revision | Push generation | Endpoint failures | Call failures | Call cursor |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
+| H1 `51d70f6369485156ed9ff31327080aba` | false | true | 20 | 4 | 0 | 0 | 306 |
+| H2 `3d6942a1039d5d1d4513b5f63dd90959` | true | true | 10 | 2 | 0 | 0 | 304 |
+
+The current Homura runner was at READY with SIM/Gateway revision 10 and the explicit verified identity checks in `sim-reconfirmation-second-20261030.txt`. Node A had 60 prior sessions; the GSM emulator call was injected once at 2026-10-29 21:11:59Z. No Asterisk or synthetic push was used.
+
+Observed result:
+
+- H2's real `HostPush` log recorded `received wire=2 kind=call priority=1 original=1` at its emulator time 21:11:52.301, followed by `GsmRtc ... event=control_incoming` at 21:11:53.071. Its Android Telecom log recorded `setCallState NEW -> RINGING` at 21:11:54.818. The H2 call service started in the background. The caller was not answered; Telecom disconnected the ringing call when the 25-second emulator call ended.
+- H1 remained `incoming_enabled=false`; its call cursor stayed 306, its endpoint delivery time did not change, `HostCallService` was absent after the call, and its post-call log had no new push/call event.
+- Node A increased to 61 sessions. The test session was incoming, used RTC, ended as `cellular_ended` at 21:12:25.978Z, and retained mapping revision 10. H2's endpoint remained generation 2 with failures 0 and call_failures 0; its call cursor advanced to 310. H2 and H3 both had `call.ringing` then `call.ended` events in SQL.
+
+Environment note: H3 remains an active server client with incoming enabled but has no push endpoint and its emulator was stopped/not attached to ADB during this call. It received a server participant/event row, but it had no running phone process to ring. The two live phones in this B5 assertion were H1 and H2; only H2 entered Telecom RINGING. This extra H3 server participant is an environment deviation that must be accounted for before D1's “A has no hosts” topology assertion.
+
+The sanitized facts above were extracted from a private full logcat capture and redacted SQL snapshots. Private raw captures remain outside the repository because they contain call/SIM identifiers and the test dial string. Their local SHA-256 values are H1 `9f6aafbeda476815d6baaf2bf5efc67f152017e39c3f47034f8d865deb7ae49f`, H2 focused `962a9904274281654f75b1478404833f801e665d0f70e88fb206e5c553fcd76f`, and GW `4a97d0329cdfacc4c5e2921b61d952dc4f7cf07632b5e063cd89113b30a2546d`.
+
+**Result: PASS for B5's remaining H1/H2 call assertion.** The prior offline synchronization substep remains PASS. The H3 server-only recipient is recorded as an environment deviation, not counted as another ringing phone.

@@ -1,0 +1,20 @@
+G1 post-restart delivery retest — 2026-10-30 local / 2026-10-29 UTC
+
+Node A (`reception-r1-a`) was restarted while the emulator call state was idle. Docker reported healthy immediately at 2026-10-29T22:19:29Z. The test call was injected at 22:24:02Z, 4 minutes 33 seconds after restart, so it satisfied the plan's minimum one-minute recovery interval.
+
+Immediately before restart, Node A had 64 call sessions and no ringing/active session. It had 3 reception rows, all protocol v2, incoming enabled, and SMS sync enabled; 2 push endpoints had failures=0 and call_failures=0. Immediately before the G1 call, the same three v2 settings remained, both endpoint failure counters remained zero, and call cursors were 323–329. After the call, there were 65 sessions; the newest was `incoming|ended|cellular_ended|rtc`. Its three participant rows all ended as `cellular_ended`. The endpoint event cursor remained 8, call cursors advanced to 334–335, and failures/call_failures remained zero.
+
+The one real emulator GSM injection (`adb -s emulator-5554 emu gsm call`, reserved synthetic test dial string) returned `OK`. Homura reported `Incoming GSM call detected` and `GSM_RINGING`; H2 received `HostPush: received wire=2 kind=call priority=1 original=1`, then `GsmRtc event=control_incoming` and Android Telecom `NEW -> RINGING`. The host-side poll observed GW modem entry at +2 seconds, H2 FCM at +3 seconds, and H2 Telecom ringing at +4 seconds. H2 guest log timestamps lagged host UTC by about 8 seconds, so these relative timings use the polling clock, not uncorrected guest timestamps. H2 started HostCallService. The call was not answered and ended through the emulator's normal unanswered-call timeout at approximately 25 seconds, with `cellular_ended`; no media/audio pass is claimed.
+
+This used the already-running `GatewayJointInstrumentation` process, whose ongoing presence was verified in ActivityManager and by a fresh unique `status` mailbox command returning `status=OK, bridge=IDLE` after the call. The runner's PCM backend is synthetic, so this verifies modem-to-SoulGem-to-real-FCM-to-Telecom delivery only, not physical cellular HAL audio or the missing user-facing answer controls recorded under C1. No API call, simulated push, source change, pairing change, database edit, root, or Magisk was used.
+
+During runner inspection, only its transient `joint-ready`, `joint-finished`, `joint-command`, `joint-result`, and `joint-stage` mailbox files were removed before the still-running instrumentation was noticed. The instrumentation itself remained active; no app database/preferences, server data, pairings, SIM mapping, or test APK were changed. Sol advised not to restore older snapshots because they would rewind later SIM/mesh state. A fresh status command then proved the existing runner remained live. Its `joint-ready.json` is absent and can be regenerated only by restarting the runner; this does not affect current call handling.
+
+Private, mode-0600 full logcat captures remain outside the repository:
+
+- GW before call: `/tmp/reception-r1-private-20261030/g1-gw-before-call.log`, SHA-256 `4f758bb819618abf4220b31b2b935010913d6c01fe803edd496a07f09203bc2c`.
+- H2 before call: `/tmp/reception-r1-private-20261030/g1-h2-before-call.log`, SHA-256 `ffd195b90cf1530ee882dad3787cc973dd4bd775c116027d89a96a1164626b7f`.
+- GW after call: `/tmp/reception-r1-private-20261030/g1-gw-after-call.log`, SHA-256 `164a866c76a73d23afd5d44843d3bea1fe543e681e8a7aeb7afb41bf55adad32`.
+- H2 after call: `/tmp/reception-r1-private-20261030/g1-h2-after-call.log`, SHA-256 `36598da7ee3f90d77e9e9d009d7ae5e6e6cfcc6fc5dc52a0a24bfa0d0e19bade`.
+
+**Result: PASS for G1 node-restart persistence and delivery through H2 Telecom ringing.** C1's separate user-facing answer/reject UI failure remains open and is not hidden by this lower-level delivery result.

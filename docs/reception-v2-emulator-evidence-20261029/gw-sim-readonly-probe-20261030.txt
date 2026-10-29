@@ -1,0 +1,35 @@
+Homura read-only SIM identity probe — 2026-10-30 UTC
+
+The first standalone `Instrumentation` component remained active without a result. It did not call any server API or change the SIM registry. The target and test packages were force-stopped; `dumpsys telephony.registry` then reported `mCallState=0`, `adb emu gsm list` returned empty (`OK`), and no active instrumentation remained.
+
+A second probe used the already exercised `GatewayJointInstrumentation` component with a temporary `sim_probe=true` early-return path. It adopted shell permission identity only for read-only `SubscriptionInfo`, Telephony, Telecom, role, and private-preference reads. It did not call `SimRegistry.snapshot`, GatewayService, or the network; no app preference was written. Only redacted digests/booleans and SIM slot/subscription metadata were returned. The temporary androidTest source was restored immediately after building; the Homura product source and app data were untouched.
+
+Probe APK local SHA-256: `6c293f326ca6cf779f011d9d9d7190a898ac2edac995656cd2d8ba04ad1e5d26`. Its signing certificate was the test host's existing debug certificate, SHA-256 `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28`.
+
+Sanitized result:
+
+```json
+{
+  "status": "PROBE_ONLY",
+  "sim_md5": "e8929d4f6127114e7d66c2edd2c8795f",
+  "owner_md5": "3e1e720d9e8b3feac035419ae8a4d16d",
+  "mapping_revision": 9,
+  "local_revision_barrier": 5,
+  "identity_state": "UNVERIFIED",
+  "sub_id": 1,
+  "slot": 0,
+  "live_sub_id": 1,
+  "live_slot": 0,
+  "stored_pin_present": true,
+  "live_fingerprint_readable": true,
+  "same_salt_pin_matches": true,
+  "sim_phone_account_count": 1,
+  "telephony_forward_match": true,
+  "default_dialer": true,
+  "telecom_active_call": false
+}
+```
+
+Node A's read-only SQL snapshot immediately before the probe showed the same SIM and Gateway digests, owner digest `c66592cc36beba342952a82010ef8f69` on both Gateway and SIM binding, active state, `identity_verified=true`, slot 0, and revision 9. Thus the observed `UNVERIFIED` state is local-only; current same-salt identity and live Telecom association match. This satisfies Sol's guard for a single retained-ID recovery, but does **not** authorize a new SIM UUID or prove upgrade persistence.
+
+The standalone component timeout demonstrates a tool/runner limitation; the same check succeeded through the established Gateway instrumentation path. No `propose` or `confirm` call has been made during this probe.

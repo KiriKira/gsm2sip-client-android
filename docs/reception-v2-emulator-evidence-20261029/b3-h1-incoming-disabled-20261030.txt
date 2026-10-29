@@ -1,0 +1,5 @@
+B3 setup — 2026-10-29 UTC
+
+The Madoka API 35 Play UI switch `后台来电接收` was turned off through Settings. Its accessibility tree reported `checked=false`; the corresponding Node A `device_reception` row was protocol v2, `incoming_enabled=false`, `sms_enabled=true`, revision 12. H2 remains configured `incoming_enabled=true` on Node A, although its AVD is currently shut down after the monitored resource stop. No call was active at setup. The state is suitable for B3's outgoing-call action and post-call H1 persistence assertion; it does not establish B5's H2 ringing assertion.
+
+The UI screenshot was not retained because the settings page also showed unrelated historical SMS previews on this emulator. The text/UI and SQL state above are the sanitized evidence.

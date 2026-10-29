@@ -1,0 +1,21 @@
+G2 outage and recovery attempt — 2026-10-30 local / 2026-10-29 UTC
+
+The preflight and reversible scope are recorded in `g2-firewall-risk-before-20261030.md`. Before the change, Node A was healthy at `172.30.100.2`; its container resolver returned the two recorded relay-edge addresses, and `DOCKER-USER` was empty. Node A had 65 sessions, no ringing/active call, and two current endpoints (generations 4 and 2). Both had `failures=0`, `call_failures=0`, and event cursor 8; the emulator modem call list was empty.
+
+The two narrowly scoped Node-A-to-relay TCP/443 reject rules were inserted at 2026-10-29 22:32:22Z. One real emulator GSM call was issued at 22:32:23Z (`adb -s emulator-5554 emu gsm call`; the reserved test destination is omitted). Homura logged `Incoming GSM call detected` at 22:32:24Z and `GSM_RINGING`; the session reached SoulGem and ended `incoming|ended|cellular_ended` at 22:32:49Z. Node A increased from 65 to 66 sessions.
+
+After the blocked call window, both exact rules were removed before the recovery attempt at 22:32:50Z. The recovery `adb emu gsm call` returned `OK`, but there was no second `Incoming GSM call detected`, no new SoulGem session, and no new H1/H2 `HostPush kind=call` event. At the end of the 26-second recovery window, the emulator call list was empty and Node A still had 66 sessions. No retry of the injection was made.
+
+Counter snapshots (generation | endpoint `failures` | `call_failures` | event cursor | call cursor):
+
+| Snapshot | Generation 4 | Generation 2 |
+| --- | --- | --- |
+| Before outage call | `0 | 0 | 8 | 334` | `0 | 0 | 8 | 335` |
+| After outage call | `0 | 3 | 8 | 340` | `0 | 3 | 8 | 341` |
+| After recovery attempt | `0 | 3 | 8 | 340` | `0 | 3 | 8 | 341` |
+
+The three `call_failures` increments occurred during the single blocked call's ring window. Sol confirmed that the counter alone is not a failure: the server may retry while a call window remains open. The packets were rejected before reaching Kyubey, so this does not establish relay-side duplicate suppression. Neither host logged a new call push during the outage; this is consistent with the blocked egress and is not evidence that Kyubey received or suppressed duplicate requests.
+
+After cleanup, `iptables -S DOCKER-USER` showed only the empty `DOCKER-USER` chain declaration, with no tagged rule. G2 is **BLOCKED (environment at the restored-call injection step)**: the modem injector accepted the command but did not generate a second modem/Gateway event, so recovery delivery and counter reset could not be evaluated. Per the no-repeat rule, no further call was injected. No push or call was generated through an API, and no synthetic push was used.
+
+Private mode-0600 logcat captures remain on the test host under `/tmp/reception-r1-private-20261030/`: `g2-gw.log` SHA-256 `159b12e85a4b769e8ac190946a55a0953406177fb0a5b50bca6845fb7de9aebc`; `g2-h1.log` SHA-256 `633816ca8aa9eb0c645397f2cbd047a6466729cec5373c0dde1b948406fe0dfd`; `g2-h2.log` SHA-256 `78d072548fd531ad0b68e2220ec86e8ccd4df47fe61933c574cec8a95b1b9362`. They contain private emulator/call identifiers and were not copied into the repository.
