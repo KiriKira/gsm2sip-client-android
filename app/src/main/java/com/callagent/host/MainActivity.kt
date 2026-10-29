@@ -829,6 +829,9 @@ class MainActivity : AppCompatActivity() {
         callSearchEdit = search
         content.addView(search)
         if (session != null) content.addView(gatewayStatusCard(compact = true))
+        ReceptionV2.describe(ReceptionV2.status(this))?.let { line ->
+            content.addView(body(line))
+        }
         phoneContactsList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(phoneContactsList)
         callHistoryList = LinearLayout(this).apply {
