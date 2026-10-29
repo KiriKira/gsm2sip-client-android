@@ -1,0 +1,9 @@
+B5 offline reception-setting sync — H1, 2026-10-29 UTC
+
+Starting state: H1 incoming reception was enabled and SMS sync enabled; all three server device_reception rows were v2 with incoming=true,sms=true.
+
+Airplane mode was enabled with `cmd connectivity airplane-mode enable`. Android reported airplane mode enabled and no active default network. While offline, H1's incoming reception switch was turned off. The accessibility switch reported checked=false while SMS sync remained checked=true. The server snapshot still showed all three rows as v2,incoming=true,sms=true, as expected before connectivity returned. The Phone page showed: "1 个节点的接收设置待同步（联网后自动提交，本机设置已生效）。"
+
+Airplane mode was disabled at 2026-10-29 16:34:37.403 UTC; Android selected an active default network. By 16:34:40.849 UTC (about 3.4 seconds later), SQL showed one v2 row incoming=false,sms=true and two rows incoming=true,sms=true. The Phone page then showed "接收设置已同步到 1 个节点。" Thus the offline choice and one-minute resync substeps passed.
+
+The final B5 call assertion (only H2 rings) is BLOCKED (environment): G1's ordinary Homura emulator did not create a modem call or a new server call_sessions row using the plan's ADB injection, so no valid gateway call could be used for this dependent assertion. No push or call was synthesized through an API.

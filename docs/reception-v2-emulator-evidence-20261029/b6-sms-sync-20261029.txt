@@ -1,0 +1,9 @@
+B6 background SMS sync follow-up — H1, 2026-10-29 UTC
+
+H1 entered the case with incoming reception off and background SMS sync on. At 16:43:07.432 UTC, the UI switch was turned off. SQL then showed one device with sms_enabled=false and one push endpoint for that row; its pushed_event_cursor was 4. The other two device_reception rows retained sms_enabled=true.
+
+At 16:43:34.670 UTC, the ordinary Android Emulator SMS injection command delivered one test SMS to Homura (`emu sms send`, marker `R1B6syncdisabled20261029`). This was a modem/SMS event, not a simulated push. SoulGem stored an inbound received message at 16:43:34 UTC. With H1 sync disabled, its endpoint cursor stayed at 4 and the marker was absent from H1 notifications. The still-enabled endpoint's failure count increased, while the local redacted Kyubey worker log received no new request; the log remained at 203 wake lines (33 sms, 167 call) and 226 accepted requests. Because the relay path was unavailable, this does not establish the planned H1-specific `wrangler tail` assertion.
+
+Background SMS sync was restored at 16:45:09.450 UTC. SQL returned to all three devices sms_enabled=true. H1 then showed the test marker once in its Messages thread. The active notification list had two records containing the marker (the thread notification and its group summary), consistent with one message notification rather than duplicate SMS events. The local relay log did not gain a new wake request during re-enable, so the FCM/relay wake assertion remains BLOCKED (environment).
+
+The final B6 call assertion was not attempted because G1 established that the ordinary Homura AVD's planned incoming-call injection did not reach Telecom or create a SoulGem call session. B6 is BLOCKED (environment), with the SMS suppression/backfill behavior above recorded as partial evidence. No API-generated push or call was used.

@@ -1,0 +1,96 @@
+Disk capacity audit and cleanup — 2026-10-29
+
+Before cleanup
+==============
+
+Local machine (`/data0/codes`):
+
+```
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/nvme0n1p2   47G   35G   12G  75% /
+/dev/nvme0n1p3  3.7T  2.7T 1011G  73% /data0
+```
+
+The active checkout `/data0/codes/reception-v2-r1` used 703 MiB. No cleanup was
+performed on the local machine or elsewhere under `/data0`.
+
+Test machine (remote KVM):
+
+```
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/root        61G   56G  5.5G  92% /
+```
+
+Inodes were 4% used. Largest directories under `/home/ubuntu/gsm-webrtc-validation`:
+
+```
+40G  /home/ubuntu/gsm-webrtc-validation
+17G  /home/ubuntu/gsm-webrtc-validation/avd
+13G  /home/ubuntu/gsm-webrtc-validation/android-sdk
+3.1G /home/ubuntu/gsm-webrtc-validation/joint-0.4
+1.3G /home/ubuntu/gsm-webrtc-validation/reception-v2-r1
+523M /home/ubuntu/gsm-webrtc-validation/artifacts
+408M /home/ubuntu/gsm-webrtc-validation/tools
+```
+
+The H3 startup failure reported `available 5661.45 MB, required 7372.80 MB`,
+a shortfall of 1711.35 MB (about 1.71 decimal GB). This identifies the test
+machine root filesystem as the limiting disk, not the local machine.
+
+The current Reception R1 AVDs (GW/H1/H2) were running as emulator ports
+5554/5556/5558. The R1 H3 AVD and its evidence were retained. No running process
+used any of the following old AVDs, which were from earlier WebRTC test rounds:
+
+```
+1.8G  /home/ubuntu/gsm-webrtc-validation/avd/gsm-webrtc-api36.avd
+625M  /home/ubuntu/gsm-webrtc-validation/avd/gsm-rtc-host-api36.avd
+931M  /home/ubuntu/gsm-webrtc-validation/avd/gsm-rtc-host-api29.avd
+```
+
+Cleanup is limited to those three regenerable, inactive AVD data directories
+and their matching AVD registry files. Current Reception R1 AVDs, SDK images,
+Docker containers/images/volumes, current build outputs, the 5.4G older API 29
+Google Play AVD, and all R1 evidence are retained.
+
+After cleanup
+=============
+
+The three inactive old AVD directories and matching registry files were removed.
+No container, image, volume, current AVD, current build, or evidence was changed.
+
+```
+$ df -h /
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/root        61G   53G  8.7G  86% /
+
+$ du -xhd1 /home/ubuntu/gsm-webrtc-validation | sort -h | tail -8
+523M /home/ubuntu/gsm-webrtc-validation/artifacts
+1.3G /home/ubuntu/gsm-webrtc-validation/reception-v2-r1
+3.1G /home/ubuntu/gsm-webrtc-validation/joint-0.4
+13G  /home/ubuntu/gsm-webrtc-validation/android-sdk
+14G  /home/ubuntu/gsm-webrtc-validation/avd
+37G  /home/ubuntu/gsm-webrtc-validation
+
+$ du -xhd1 /home/ubuntu/gsm-webrtc-validation/avd | sort -h
+514M /home/ubuntu/gsm-webrtc-validation/avd/reception-r1-h3-api34.avd
+1.3G /home/ubuntu/gsm-webrtc-validation/avd/reception-r1-gw-api34.avd
+3.3G /home/ubuntu/gsm-webrtc-validation/avd/reception-r1-h2-api35-play.avd
+3.4G /home/ubuntu/gsm-webrtc-validation/avd/reception-r1-h1-api35-play.avd
+5.4G /home/ubuntu/gsm-webrtc-validation/avd/gsm-rtc-host-api29-gplay-041.avd
+14G  /home/ubuntu/gsm-webrtc-validation/avd
+```
+
+H3 startup result
+=================
+
+After cleanup, the API 34 no-Google-Play H3 AVD started successfully from its
+existing userdata image and completed boot. Its current host AVD data directory
+is about 514 MiB. The host root filesystem had 8.7G available immediately after
+cleanup and about 8.2G after H3 startup; `/data0` was not modified.
+
+Starting H3 alongside the still-running GW initially filled the test host's
+6G swap and reduced available RAM to about 67 MiB. H1 and H2 were then shut down
+cleanly with `adb emu kill` (their AVD data was preserved). With only GW and H3
+running, the host recovered to about 3.5 GiB available RAM and 2.6/6 GiB swap
+used; `vmstat` showed near-zero continuing swap traffic. No disk cleanup beyond
+the three listed inactive AVDs was performed.

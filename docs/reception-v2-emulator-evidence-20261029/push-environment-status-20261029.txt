@@ -1,0 +1,10 @@
+Push environment end snapshot — 2026-10-29 UTC
+
+At 16:51:49.591 UTC, SoulGem A was healthy. SQL grouped the three v2 devices as:
+
+  incoming=false, sms=true: 1 device, 1 endpoint, failures=8, call_failures=0, event_cursor=4
+  incoming=true,  sms=true: 2 devices, 1 endpoint, failures=8, call_failures=0, event_cursor=4
+
+The H1 endpoint is the single incoming=false row. The second endpoint is in the incoming=true group; H3 has no push endpoint. Neither endpoint had advanced its event cursor in this snapshot. The local redacted Kyubey worker log stayed unchanged after the earlier localhost health GET: 203 wake records total (33 sms, 167 call), 226 accepted relay requests total. G1 created no SoulGem call session, so it could not issue a call wake; B6 added no local-worker request. This is why no H1 push-hour observation was started; it would not test a live FCM delivery path.
+
+No cleanup was performed after the documented AVD cleanup. At this snapshot the test host root had 8.1 GiB available, and the local `/data0` filesystem had about 1010 GiB available.

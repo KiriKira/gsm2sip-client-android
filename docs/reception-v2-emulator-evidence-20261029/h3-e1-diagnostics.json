@@ -1,0 +1,158 @@
+{
+  "segments": [
+    {
+      "version": "0.4.2",
+      "segment_started_at": 1793282564377,
+      "sampled_at": 1793283101998,
+      "http": {
+        "periodic:write:events:node-1": {
+          "requests": 1,
+          "failures": 0,
+          "elapsed_ns": 138806688,
+          "sent_bytes": 23,
+          "received_bytes": 92
+        },
+        "other:write:events:node-1": {
+          "requests": 8,
+          "failures": 0,
+          "elapsed_ns": 137607992,
+          "sent_bytes": 184,
+          "received_bytes": 734
+        },
+        "other:write:other:node-1": {
+          "requests": 3,
+          "failures": 0,
+          "elapsed_ns": 1208050758,
+          "sent_bytes": 302,
+          "received_bytes": 491
+        },
+        "other:read:capabilities:node-1": {
+          "requests": 4,
+          "failures": 0,
+          "elapsed_ns": 635854288,
+          "sent_bytes": 0,
+          "received_bytes": 744
+        },
+        "other:read:events:node-1": {
+          "requests": 8,
+          "failures": 0,
+          "elapsed_ns": 56041967,
+          "sent_bytes": 0,
+          "received_bytes": 2512
+        },
+        "periodic:read:events:node-1": {
+          "requests": 7,
+          "failures": 0,
+          "elapsed_ns": 592813628,
+          "sent_bytes": 0,
+          "received_bytes": 2456
+        },
+        "periodic:read:metadata:node-1": {
+          "requests": 4,
+          "failures": 0,
+          "elapsed_ns": 39718707,
+          "sent_bytes": 0,
+          "received_bytes": 1608
+        },
+        "other:read:other:node-1": {
+          "requests": 19,
+          "failures": 0,
+          "elapsed_ns": 690575758,
+          "sent_bytes": 0,
+          "received_bytes": 6763
+        },
+        "other:write:rtc_control:node-1": {
+          "requests": 2,
+          "failures": 0,
+          "elapsed_ns": 231383554,
+          "sent_bytes": 56,
+          "received_bytes": 100
+        },
+        "other:read:metadata:node-1": {
+          "requests": 16,
+          "failures": 0,
+          "elapsed_ns": 941663395,
+          "sent_bytes": 0,
+          "received_bytes": 6432
+        },
+        "periodic:read:other:node-1": {
+          "requests": 1,
+          "failures": 0,
+          "elapsed_ns": 11839122,
+          "sent_bytes": 0,
+          "received_bytes": 1500
+        },
+        "rtc:read:rtc_control:node-1": {
+          "requests": 2,
+          "failures": 0,
+          "elapsed_ns": 196874218,
+          "sent_bytes": 0,
+          "received_bytes": 90
+        }
+      },
+      "wake_locks": {
+        "node-maintain": {
+          "acquisitions": 6,
+          "held_ms": 784,
+          "longest_ms": 641,
+          "currently_held": false
+        },
+        "rtc-signaling": {
+          "acquisitions": 8,
+          "held_ms": 1775,
+          "longest_ms": 933,
+          "currently_held": false
+        },
+        "host-sync": {
+          "acquisitions": 6,
+          "held_ms": 1672,
+          "longest_ms": 820,
+          "currently_held": false
+        },
+        "push-handoff": {
+          "acquisitions": 1,
+          "held_ms": 692,
+          "longest_ms": 692,
+          "currently_held": false
+        }
+      },
+      "work_and_owner_ms": {
+        "push-registration": 106,
+        "rtc-control-work": 1968,
+        "host-sync-data": 1512,
+        "push-sync-handoff": 693
+      },
+      "owner_note": "Owners may overlap; never sum owner durations as physical wake-lock time.",
+      "events": {
+        "rtc_poll_idle": 2,
+        "wss_open": 1,
+        "rtc_poll_succeeded": 2,
+        "network_changed": 3
+      },
+      "wss_connected_ms": 446771,
+      "last_fcm_received_at": 0,
+      "fcm_priority": 0,
+      "fcm_original_priority": 0,
+      "push_by_node": {},
+      "scope": "process segment; wake intervals capped at lease expiry; application HTTP only"
+    }
+  ],
+  "history_note": "Cache may be cleared. Earlier segments end at last checkpoint; abrupt endings are incomplete.",
+  "node_count": 1,
+  "listening_requested": true,
+  "wss_live": true,
+  "release_failed_idle_experiment": false,
+  "stable_network": false,
+  "reception": [
+    {
+      "node": 1,
+      "version": 2,
+      "incoming": true,
+      "sms": true,
+      "revision": 2,
+      "pending": false,
+      "mode": "stream",
+      "heartbeat_s": 120
+    }
+  ]
+}

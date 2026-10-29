@@ -1,0 +1,15 @@
+B4 reboot follow-up — H1, 2026-10-29 UTC
+
+The first substep (swipe Madoka from Recents, reopen it) had already shown incoming reception off and background SMS sync on; see b4-reboot-status.txt.
+
+After the earlier boot ANR, H1 was stopped cleanly and restarted from the same AVD userdata after H3 was shut down. Android reached sys.boot_completed=1. Launching com.callagent.host produced a live process; dumpsys activity lastanr reported "no ANR has occurred since boot". The Settings tab showed the reception controls with these accessibility values:
+
+  resource-id=com.callagent.host:id/settings_incoming_calls
+  content-desc=后台来电接收
+  checked=false
+
+  resource-id=com.callagent.host:id/settings_background_sync
+  content-desc=后台短信同步
+  checked=true
+
+The main screen also showed "接收设置已同步到 1 个节点。" No app data was cleared and no APK was reinstalled. This completes both B4 substeps: PASS.
