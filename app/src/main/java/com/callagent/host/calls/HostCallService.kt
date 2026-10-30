@@ -478,7 +478,6 @@ class HostCallService : android.app.Service() {
                 throw SessionChanged()
             }
             startEngine()
-            if (connectionState == EngineConnectionState.READY) startAuthorizedOutbound()
         } catch (failure: Exception) {
             failPendingOutbound(readinessFailure(failure))
         }
@@ -849,6 +848,10 @@ class HostCallService : android.app.Service() {
             requireCallEngine().connect()
         }
         deliverPendingCallWake()
+        // RTC dialing performs its own authenticated control/media setup. An
+        // incoming-disabled engine intentionally does not poll or emit READY,
+        // so a granted outgoing call must not wait for that listening signal.
+        startAuthorizedOutbound()
     }
 
     /** An engine is bound to the authenticated node session that started it. */
