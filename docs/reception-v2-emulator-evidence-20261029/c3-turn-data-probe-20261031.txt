@@ -1,0 +1,10 @@
+Reception v2 R1 — C3 TURN data-channel probe — 2026-10-30 21:46 UTC
+
+Result: private TURN relay data-channel preflight PASS; the C3 product case remains unrun.
+
+- H1 (answerer) gathered one relay candidate through UDP to the private VPC TURN sidecar. H2 (offerer) gathered one relay candidate through TURN/TCP using a workstation-loopback SSH forward and a metadata-only TCP inspection proxy. Both candidates were in the configured private relay range.
+- The complete offer and answer were copied between the separate AVD filesystems and source/destination bytes were verified identical. Raw SDP, ICE credentials, and relay addresses were not saved in the repository.
+- Both probes reported valid non-rejected application m-lines, BUNDLE/MID, ICE credentials, and a relay-only candidate. H1 sent 4 and received 4 data-channel messages; H2 sent 5 and received 4. The proxy observed authenticated Allocate success, CreatePermission success, and ChannelBind success.
+- The first attempt is unscored: the test controller had not copied H1's generated answer to H2, so H2 timed out waiting for an answer. It was a test orchestration failure, not product evidence. After correcting the SDP handoff, the two-way relay data probe passed.
+- No call, FCM push, SMS, pairing, SIM mapping, server API, SQL, or product app state was changed. Test-only configuration and SDP/result files were removed from both AVDs. The local TCP proxy and SSH forward were stopped; the private TURN sidecar remains for the separate D1 recovery path.
+- This does not prove C3: it does not exercise a real GSM call, simultaneous ringing, disabling H1 reception, or H2 continuing to ring and answer. Those assertions still require the Homura SIM UUID to have a verified node mapping; the permitted no-database-write path has not been found.

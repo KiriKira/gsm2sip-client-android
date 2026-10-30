@@ -288,3 +288,7 @@ Sol 复核后，D1 不需要等待 H3 启动：保留 H1，改用已运行的 AP
 Homura API 34 与 H2 API 35 Google Play 均已通过应用内全量备份导出，并在各自原 AVD 上用恢复流程完成解密、数据库校验和配对数核验；两份清单各含 1 个配对，均在“恢复并重启”前取消，没有覆盖数据。备份 SHA、私有路径和 APK 回滚校验见 `d1-backup-preflight-20261031.md`。Homura 当前安装包已是目标 R1 同签名构建；H2 将覆盖安装同签名、versionCode 1000000000 的 FCM PR APK。此处只完成可恢复性核验，尚未创建 owner、消费配对码或改任何服务器/设备配对状态。
 
 继续做只读 API 预检时发现：A/B/C 在测试机本机 `127.0.0.1:18110`–`:18112` 均返回 HTTP 200，但 H2 直连 `10.0.2.2` 的对应端口返回 connection refused；Homura 仅验证了原 A 路径可达。节点 API 容器端口只绑定宿主机 loopback。为避免对外开放端口，风险记录已增加可逆的逐 AVD `adb reverse` 路由，并规定发码前必须验证每台设备对 `http://127.0.0.1:<port>/v1/capabilities` 返回 HTTP 200；该预检尚未设置任何 reverse 或产生服务器写入。
+
+### C3 双端私网 TURN 数据通道预检（2026-10-30 21:46Z）
+
+Sol 复核认为上一轮 `wait_answer` 结果同时可能代表答案文件缺失或 SDP 应用失败，不能判成产品缺陷。只读核对发现 H1 已生成答案，而 H2 没有收到相同答案文件；上一轮未完成独立 AVD 之间的 SDP 搬运，故该次不计分。修正搬运并校验两端文件字节一致后，H1/H2 均收集到一个私网 relay candidate，TURN/TCP/UDP 握手和双向数据通道通过：H1 收发 `4/4` 条，H2 收发 `5/4` 条。测试只用 instrumentation 数据通道，没有真实来电、FCM 或 C3 的接收切换断言，因此 **C3 仍未完成**；本次证明的是私网 TURN relay media route 可用。脱敏证据见 `c3-turn-data-probe-20261031.txt`。H1/H2 临时探针配置与 SDP、工作站 loopback proxy 和 SSH forward 已清理；私网 TURN sidecar 按 D1 恢复路径保留。
