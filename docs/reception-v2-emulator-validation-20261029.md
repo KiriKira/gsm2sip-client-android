@@ -231,3 +231,25 @@ Sol 随后在 H1 app UID 中只读加载实际 APK 的生产 `KyubeyClient`，�
 ### F1 HTTPS relay 修复后的 SMS 与通话复测（2026-10-30）
 
 经 HTTPS origin 重建 exact-main Madoka 后，H1 的真实 push endpoint 已登记，SMS/真实 FCM 子项通过，详见 `f1-sms-rerun-20261030.md`。随后在 Homura 使用受审的测试 PCM runner 执行真实 GSM 来电：modem/Telecom 确认来电，Homura 于 `15:17:09.024Z` 因本地 SIM account mapping 不可用、状态为 `UNVERIFIED` 而在 offer 前拒绝；H1 没有 call push 或 Incoming call UI，Node C 在该窗口没有新 call session。Sol 判定这是测试配对状态前置问题，记 BLOCKED（环境），不作为产品 FAIL；按未改变 SIM mapping 的约束停止重试。去电同样依赖该 SIM/Telecom 前置而未尝试。F1 仍不完整，因此 F2/F3 未运行。报告也记录了计划默认节点 A 与本次隔离节点 C 的方法偏差，以及 runner 退出后恢复后台偏好的结果；运行态仍未恢复。脱敏证据见 `f1-call-rerun-20261030.md`。
+
+### Kiri follow-up: paused-item audit and next gates (2026-10-31)
+
+“尚未通过”与“无法继续”分开记录如下；本次只读复核及 H3 磁盘复试没有更改产品代码、数据库、配对或应用数据。
+
+| 项目 | 当前判定与继续条件 |
+| --- | --- |
+| B6 来电断言 | **PASS**：清理旧 Telecom 状态后，短信同步关闭时真实 FCM 来电响铃，Modem/Telecom 收尾为空闲。 |
+| G2 | **PASS**：恢复 relay 后下一通真实来电送达且 `call_failures` 归零；此前“无新 modem event”由旧来电仍处于 INCOMING、而非产品未恢复导致。 |
+| D1 | **未完成；可继续**：H1 的 `HostJointInstrumentation` runner 已安装，先前称 runner 不可用已过时；准确拓扑还需让 A/C 无来电订阅，当前 H3 仍在 A 且无法启动，测试机需先扩盘约 8 GiB 才能重设 H3 状态。 |
+| D2 | **PASS**：已按 A/B 双节点完成单一 Telecom 来电合并、接听赢家及另一节点 `answered_elsewhere` 断言。 |
+| D3 | **FAIL（产品行为）**：有效 stop-A 重试中 B 分支因 `reception_disabled` 结束且没有响铃；原始日志缺少直接证明具体异常来源的栈，本轮授权不含该缺陷修复。 |
+| C2 | **PASS**：两种接听/拒接顺序各两次，终局一致且无网关先挂断、主机仍通话。 |
+| C3 | **未完成；当前有两个可解除前置**：外网 TURN 不通；两个远端 AVD 可达私网 TURN 地址，但完整媒体呼叫还需一条与现有网关 SIM 映射一致的有效呼叫路径，且目前映射为 `UNVERIFIED`。 |
+| E2 | **BLOCKED（环境）**：H3 不能启动；远端根盘 61G 总量、56G 已用、5.4G 可用，AVD 需要 7.37G，差 1.94G，按停止规则需扩远端盘约 8 GiB 后重试。 |
+| E3 | **BLOCKED（环境）**：同样需要 H3 在线执行 Wi-Fi/移动数据切换；扩盘前不再尝试启动或清理。 |
+| E4 | **仅记录**：已有 30 分钟现象记录；计划不严格判定该项，不将其记作失败；H1/H3 各一小时观察按 Kiri 指示暂缓。 |
+| F1 | **部分通过，通话未判定**：SMS/真实 FCM 子项 PASS；来电和去电都未执行成功，因为当前 Homura SIM UUID 在 A/B/C 上没有匹配的已验证映射。相同签名 main APK 已找到；在“不改数据库/不清数据/不重新配对”限制下，需要恢复配套完整 Homura AVD/Keystore 快照，或 Kiri 明确允许对隔离节点走生产 SIM propose/confirm API（保留 UUID，但会写映射并推进 revision）。 |
+| F2 | **可继续的部分尚未执行**：旧 Gateway main APK 和同签名 PR 构建都可用；实际去电/来电断言仍受 F1 的 SIM 映射限制，不能把只完成 `install -r` 当成 F2 PASS。 |
+| F3 | **尚未执行；当前缺有效升级起点**：现有 H1 的服务端接收状态已是 v2，无法用它证明 main/v1 → PR/v2 迁移；需要原始 main 状态快照或一台按计划建立的 main 版本测试主机，保持同一 H1 数据和配对后覆盖升级。 |
+
+只读检查还确认：历史 2026-10-21 SQL 快照确有与当时 Homura 完全相同的已验证 SIM UUID/slot，但归档 app-data 中的 session blob 依赖缺失的 Android Keystore 私钥，且原 API36 Homura AVD 未找到，故它不能直接恢复为无写入 F1 路径。另一个实用路径是对隔离 Node C 调用受支持的生产 SIM 确认 API；该请求不会清数据或重配对，但会改动服务器映射并单调推进 revision，所以本次没有越过既有“不改数据库”约束。详细可复核的脱敏证据、哈希与具体剩余前置见 `followup-20261031-precondition-audit.txt`。
