@@ -38,4 +38,51 @@ class CallTelecomControllerTest {
         assertEquals(details.remoteNumber, forwarded.getString(CallTelecomController.EXTRA_NUMBER))
         assertEquals(details.simLabel, forwarded.getString(CallTelecomController.EXTRA_SIM_LABEL))
     }
+
+    @Test fun telecomIncomingUiRequestOpensAnswerAndRejectScreenWithoutAnswering() {
+        val app = RuntimeEnvironment.getApplication()
+        val now = System.currentTimeMillis()
+        val callId = "incoming-ui-call"
+        assertTrue(CallRuntime.coordinator.incomingInvite(IncomingInviteIdentity("engine", callId),
+            CallAuthority(callId, "incoming", "ringing", "sim", "+12025550101", now + 60_000), now))
+        val connection = HostCallConnection(app, TelecomCallDetails(callId, CallDirection.INCOMING, "+12025550101", "SIM"))
+        try {
+            connection.setRinging()
+            connection.onShowIncomingCallUi()
+            val intent = shadowOf(app).nextStartedActivity
+            assertNotNull("Telecom's self-managed UI request must open visible call controls", intent)
+            assertEquals(CallActionActivity::class.java.name, intent.component?.className)
+            assertEquals(CallActionActivity.ACTION_SHOW_CALL, intent.action)
+            assertEquals(callId, intent.getStringExtra(CallActionActivity.EXTRA_CALL_ID))
+            assertEquals("showing UI must never accept the call", CallPhase.INCOMING_RINGING, CallRuntime.currentSession?.phase)
+        } finally {
+            connection.destroy()
+            CallRuntime.coordinator.ended(callId)
+            CallRuntime.clearTerminal(callId)
+        }
+    }
+
+    @Test fun aLateTelecomUiRequestCannotOpenAnEndedOrDifferentCall() {
+        val app = RuntimeEnvironment.getApplication()
+        val now = System.currentTimeMillis()
+        val callId = "current-incoming"
+        assertTrue(CallRuntime.coordinator.incomingInvite(IncomingInviteIdentity("engine", callId),
+            CallAuthority(callId, "incoming", "ringing", "sim", "+12025550102", now + 60_000), now))
+        val stale = HostCallConnection(app, TelecomCallDetails("stale", CallDirection.INCOMING, null, "SIM"))
+        val outgoing = HostCallConnection(app, TelecomCallDetails(callId, CallDirection.OUTGOING, null, "SIM"))
+        val current = HostCallConnection(app, TelecomCallDetails(callId, CallDirection.INCOMING, null, "SIM"))
+        try {
+            listOf(stale, outgoing, current).forEach { it.setRinging() }
+            stale.onShowIncomingCallUi()
+            outgoing.onShowIncomingCallUi()
+            assertNull(shadowOf(app).nextStartedActivity)
+            CallRuntime.coordinator.ended(callId)
+            current.onShowIncomingCallUi()
+            assertNull("an ended call must not reopen its UI", shadowOf(app).nextStartedActivity)
+        } finally {
+            listOf(stale, outgoing, current).forEach { it.destroy() }
+            CallRuntime.coordinator.ended(callId)
+            CallRuntime.clearTerminal(callId)
+        }
+    }
 }

@@ -222,6 +222,14 @@ internal class HostCallConnection(
 
     override fun onAnswer() = CallRuntime.onTelecomAnswer(callId)
 
+    override fun onShowIncomingCallUi() {
+        // Self-managed accounts provide their own answer/reject screen when
+        // Telecom permits it; setting the connection to RINGING is not a UI.
+        if (details.direction != CallDirection.INCOMING || state != STATE_RINGING ||
+            CallRuntime.snapshot(callId)?.phase != CallPhase.INCOMING_RINGING) return
+        context.startCallUi(callId)
+    }
+
     override fun onAnswer(videoState: Int) = onAnswer()
 
     override fun onReject() = CallRuntime.onTelecomReject(callId)
