@@ -253,3 +253,28 @@ Sol 随后在 H1 app UID 中只读加载实际 APK 的生产 `KyubeyClient`，�
 | F3 | **尚未执行；当前缺有效升级起点**：现有 H1 的服务端接收状态已是 v2，无法用它证明 main/v1 → PR/v2 迁移；需要原始 main 状态快照或一台按计划建立的 main 版本测试主机，保持同一 H1 数据和配对后覆盖升级。 |
 
 只读检查还确认：历史 2026-10-21 SQL 快照确有与当时 Homura 完全相同的已验证 SIM UUID/slot，但归档 app-data 中的 session blob 依赖缺失的 Android Keystore 私钥，且原 API36 Homura AVD 未找到，故它不能直接恢复为无写入 F1 路径。另一个实用路径是对隔离 Node C 调用受支持的生产 SIM 确认 API；该请求不会清数据或重配对，但会改动服务器映射并单调推进 revision，所以本次没有越过既有“不改数据库”约束。详细可复核的脱敏证据、哈希与具体剩余前置见 `followup-20261031-precondition-audit.txt`。
+
+### F1 判断纠正及逐项继续条件（2026-10-31，Sol 复核）
+
+Sol 明确复核后，F1 的 `UNVERIFIED` **不是产品缺陷证据，也不是整个验收的终点**；它是尚未满足的呼叫前置。F1 的目标仍是 exact-main Homura/H1 完成真实来电、去电和短信，并确认旧 capability/wire1 路径。短信/真实 FCM 已通过；来电、去电没有进入有效业务判定，因此既不能记通过，也不能记产品失败。保留当前 SIM UUID 的生产 propose/confirm 是最小有效恢复路径，它不清数据、不重新配对，但会通过正式 API 写入 Node C 的 SIM 映射并推进 revision。当前 Kiri 明确要求不改数据库，因此本轮没有执行该 API 写入；Sol 没有找到已验证的无写入替代路径。继续 F1 需要二选一：允许只对隔离 Node C 做一次受支持 API 确认（不手写 SQL、不动 A/B、不重配对），或恢复与历史 verified SQL 配套的 Homura AVD/Keystore/session。若两者都不允许/无法提供，F1 的呼叫断言才可记为受限未完成；不能据此推断需要修产品。
+
+截至本次复核，各暂停项逐项判定：
+
+| 项目 | 当前结论、是否能继续及所需前置 |
+| --- | --- |
+| B6 来电断言 | **PASS**：已清理旧 Telecom 状态后重试，真实 FCM 来电响铃；无需继续。 |
+| G2 | **PASS**：旧来电残留导致首次无 modem edge 的根因已复现；真实 relay 恢复后的下一通也已送达。 |
+| D1 | **可继续，但当前受硬环境资源限制**：H1 runner 已安装；准确拓扑要求 A/C 无来电订阅、B 仅 H1，旧 owner 下 H3 仍在 A。安全替代需要独立 Homura AVD或可认证的 H3 会话；测试机根盘仅余 5.4 GiB、AVD 预检需 7.37 GiB。按磁盘停止规则，需要把测试机扩盘至少 8 GiB 后再建干净 AVD，不能用旧 Homura 重配 primary 污染 A/B/C。 |
+| D2 | **PASS**：A/B 双节点单一 Telecom 来电与 `answered_elsewhere` 断言已有证据。 |
+| D3 | **FAIL（产品行为，已有复现）**：A 停止后 B participant 以 `reception_disabled` 结束且没有响铃。原因写入端尚未由原始异常栈证实；此前授权修复范围只含 B3/C1，故本轮没有改 D3 产品代码。 |
+| C2 | **PASS**：接听/拒接竞态四次均完成。 |
+| C3 | **未完成但可继续**：已有私网到测试机 VPC 地址的连通证据；当前 Node A 宣告公网 TURN 地址，现有公网 relay 不可达。先准备隔离私网 relay，再需 Node A 宣告该地址及一通有效 RTC 呼叫；呼叫仍受 F1 SIM 映射前置影响。 |
+| D1/D2/D3 runner | **D1 runner 缺失已解决**：runner 已在 H1。D2 已 PASS；D3 为实际 FAIL，不是 runner/环境阻塞。 |
+| E2 | **当前硬环境阻塞**：H3 无法启动，缺少约 1.94 GiB 预检空间；测试机扩盘至少 8 GiB 后才能按计划熄屏来电。 |
+| E3 | **当前硬环境阻塞**：同一 H3 启动空间限制；另外原 API 34 AVD 没有 Wi-Fi transport，换机需在扩盘后按计划镜像重建，不能以不同用例替代。 |
+| E4 | **仅记录**：计划要求 30 分钟现象观察，已有 30 分钟记录；用户暂停的一小时观察不在本轮执行。 |
+| F1 | **部分通过、无产品缺陷证据**：短信/FCM PASS；通话需受支持的 retained-SIM API 写入或可恢复的旧 AVD/Keystore/session。严格不写数据库的限制下无已验证替代路径。 |
+| F2 | **尚未通过但可继续部分升级验证**：从 exact-main Homura 覆盖升级到 PR 可验证安装/数据保持及短信；要满足计划中“重复 F1”的通话断言，仍需先解除同一 SIM 映射前置。 |
+| F3 | **尚未通过，不等于无法继续**：当前 H1 的 server reception 已是 v2，不能证明 v1→v2 迁移。需要保留有效 pairing/session 的 main/v1 server state 快照，或建立独立的 main/v1 Host 基线；不能把已是 v2 的状态当成迁移验证。 |
+
+在制作一致性备份时，Homura 与 H1 进程曾被 force-stop；备份完成后已重新打开两端，复核 GW/H1 modem 均 idle、Homura `GatewayService` 与 Madoka `HostCallService` 均运行。没有更改应用数据、配对、数据库或产品代码。Sol 的完整路径/风险评审保留在会话交接记录；磁盘数字与 H3 启动证据见 `followup-20261031-precondition-audit.txt`。
