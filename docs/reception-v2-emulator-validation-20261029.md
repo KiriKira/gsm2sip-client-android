@@ -94,3 +94,9 @@ A1–A4、B1–B2 和 B4 在模拟器上通过；B5 的离线设置同步子项�
 | H3 一小时 stream | 方法/时间限制：之前 43 分 21 秒不可外推；QEMU `-icount` 或 guest clock 倍速会让 Android timer 与真实网络、服务器和 FCM 脱节。 | **未重跑，等待用户决定是否真等**：必须 fresh、连续 60 分钟墙钟；diagnostics/deviceidle/alarm/logcat/ping-pong 只能佐证实际墙钟时长。H3 需重新启动并确认 stream live、屏幕关闭、deep idle。H1 与 H3 可在短用例结束后共享一段 60 分钟窗口，另需约 10–15 分钟准备和前后导出。 |
 
 G2 恢复阶段最初未出现新 modem edge 的原因已查明：旧 GSM 来电仍在 modem `INCOMING` 与 Telecom `RINGING`，而非 relay 恢复失败。旧来电已明确取消并验证空闲。其后 B6 清理后注入产生了新 modem edge，但该时刻 Homura 的 call-control runtime、SIM 绑定和后台启动均未就绪，不能把旧的 G2 session 当成本次证据。随后仅通过普通 UI 确认 AVD SIM 并启用 control-only 后台服务；远程语音仍关闭。由于计划明确不测 root/Magisk，本轮不再重复 call 注入或开启语音诊断。`DOCKER-USER` 没有本轮规则；G2 的真实 outage/恢复测试需等非 root 约束下可用的 call-control runtime。Sol 没有判定 G2、D1、F、C2/C3、E2/E3 等项目本质上做不到；当前明确的产品缺陷仍是 B3 和 C1。长观察保持暂停。
+
+### C1 复测前 SIM 映射恢复风险与前置检查（2026-10-30）
+
+本次 C1 端到端重测尝试无效：2026-10-30T03:59:11Z 的真实模拟器 GSM 来电进入 Homura modem，`GsmCallManager` 检测到来电，但随后因本地 SIM 映射为 `UNVERIFIED` 而在 Telecom offer 前结束；SoulGem 没有新 session，Madoka 没有收到 call push。它不构成 C1 修复的通过或失败，旧报告中的 C1 FAIL 仍保留。脱敏逐层证据见 `c1-retest-sim-precondition-20261030.txt`。
+
+为验证修复，下一步只使用已有 `GatewayJointInstrumentation` 的 `reconfirm_retained_emulator_sim` 路径：保留当前 gateway pairing 和原 SIM UUID，调用生产 SIM propose/confirm API，并要求 `same_sim_verified=true`；不直接写 SQL，不清应用数据、不卸载、不重启模拟器、不更换 SIM、不重新配对。操作会推进节点 A 的 SIM mapping revision，并改变该 AVD 的本地 SIM 身份状态；若服务端向 B/C 同步，revision 也会随之更新。它不会删除 pairing、设备、会话或短信数据。操作成功后不能无损恢复到之前的 `UNVERIFIED` 状态，只能通过同一保留 SIM 的生产确认流程再次校正；因此先保存配套本地快照、核对当前无 modem/Telecom/Host 活动呼叫，并验证 SIM UUID、slot 和 subscription 一致。任一不一致、确认后仍 `UNVERIFIED`、revision 不一致或 PhoneAccount 正反向关联不唯一时立即停止，不再注入来电。此操作不启用 root/Magisk/CAPTURE_AUDIO_OUTPUT，也不改变语音开关。
