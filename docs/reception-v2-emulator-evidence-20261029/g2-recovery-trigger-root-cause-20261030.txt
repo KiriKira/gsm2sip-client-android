@@ -1,0 +1,9 @@
+G2 restored-call no-new-modem-event root-cause review — 2026-10-30 UTC
+
+The first G2 recovery injection (2026-10-29 22:32:50Z) returned `OK` but produced no new modem callback, SoulGem call session, or push. The earlier `adb emu gsm list=OK` check was not a reliable idle signal: private RILJ/Gateway logs still showed the same prior test call in `INCOMING` state through 22:33:36.424Z, with the underlying connection unchanged. The stale modem call had not been released, so a second `gsm call` could not create a fresh incoming edge. This is the root cause of the missing modem event in that recovery attempt.
+
+A later cleanup attempt canceled the retained test call and verified radio/Telecom idle. At 03:06:45.278Z a fresh Telecom incoming record and at 03:06:45.469Z a new `GsmCallManager` callback appeared, confirming the edge was restored. That attempt still produced no offer because Homura's call-control `GatewayService` was stopped (`autoconnect=false`, `background_user_stopped=true`, `background_service_running=false`), as separately documented in `b6-call-retry-setup-state-20261030.txt`; it is not counted as a G2 recovery pass.
+
+The scored G2 retry then used an idle modem and a running GatewayService. With the relay-egress rule removed, the fresh 08:09:47Z GSM call reached H1 through real FCM, and endpoint `call_failures` returned to zero. See `g2-retest-20261030.txt` for the scored outage/recovery evidence. No further injection was made for diagnosis. No synthetic push, API-created call, SQL edit, product-code change, or root/Magisk action was used.
+
+Private source logs remain only on the test host. SHA-256 for the relevant archived files: `g2-gw.log` `159b12e85a4b769e8ac190946a55a0953406177fb0a5b50bca6845fb7de9aebc`; `b6-call-gw-after.log` `32f41746071d2369a2864fc9737ffee531fd0457a97e41e920be83ebe9f8ff60`. They are not uploaded because raw logs contain private device/call identifiers.

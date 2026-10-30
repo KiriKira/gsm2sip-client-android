@@ -194,3 +194,7 @@ Sol 复核了 C1 复测后的状态差异：普通 `MainActivity` 调用 `SimReg
 ### B6 清理旧 Telecom 状态后的来电确认（2026-10-30 11:39Z）
 
 先取消 D3 前一轮遗留的精确测试呼叫，确认 GW、H1、H2 的 modem 均 idle、H1/H2 无活动 Telecom 呼叫，并将 H2 旧的已结束来电页退出。H1 设置页确认“后台来电接收”开启、“后台短信同步”关闭。随后只注入一通真实 GSM 来电：GW 于 11:39:39.868Z 检测到 modem 来电；H1 于 11:39:40.959Z/11:39:41.122Z 收到真实 FCM `wire=2 kind=call`，11:39:42.104Z 记录 `Incoming call ringing`，11:39:45Z 前台为 `CallActionActivity`。确认响铃后取消该测试来电，modem 恢复 idle、活动 Telecom ringing 归零。此项确认 B6 的“短信同步关闭时电话照常响铃”断言；不声称接听、媒体或蜂窝 HAL 音频通过。返回应用后短信同步恢复开启，H1 原设置恢复。脱敏证据见 `b6-call-clean-telecom-retest-20261030.txt`；使用真实 FCM，未用模拟推送。
+
+### G2 恢复阶段未产生新 modem event 的根因（2026-10-30）
+
+Sol 对私有 RILJ/Gateway 日志做只读复核后确认：第一次恢复注入前 `adb emu gsm list=OK` 造成了错误的 idle 判断；日志直到 22:33:36.424Z 仍显示同一旧测试来电处于 `INCOMING` 且 connection 未变化，因此后续 `gsm call` 没有产生新 edge。03:06 的清理验证了 `cancel` 后 radio/Telecom 才真正 idle，并出现新 incoming 与 `GsmCallManager` callback；但当时 Homura 的 call-control `GatewayService` 已停止，所以那次没有 offer，也不计入通过。随后 08:09 的正式 G2 重测在 modem idle、GatewayService running 前置下通过真实 FCM 恢复送达，相关 `call_failures` 归零。该项按原 G2 结果 **PASS**，根因和各次尝试区分见 `g2-recovery-trigger-root-cause-20261030.txt`、`b6-call-retry-setup-state-20261030.txt` 与 `g2-retest-20261030.txt`。
