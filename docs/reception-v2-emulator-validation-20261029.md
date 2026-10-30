@@ -268,7 +268,7 @@ Sol 明确复核后，F1 的 `UNVERIFIED` **不是产品缺陷证据，也不是
 | D2 | **PASS**：A/B 双节点单一 Telecom 来电与 `answered_elsewhere` 断言已有证据。 |
 | D3 | **FAIL（产品行为，已有复现）**：A 停止后 B participant 以 `reception_disabled` 结束且没有响铃。原因写入端尚未由原始异常栈证实；此前授权修复范围只含 B3/C1，故本轮没有改 D3 产品代码。 |
 | C2 | **PASS**：接听/拒接竞态四次均完成。 |
-| C3 | **未完成但可继续**：已有私网到测试机 VPC 地址的连通证据；当前 Node A 宣告公网 TURN 地址，现有公网 relay 不可达。先准备隔离私网 relay，再需 Node A 宣告该地址及一通有效 RTC 呼叫；呼叫仍受 F1 SIM 映射前置影响。 |
+| C3 | **未完成，可继续的私网 TURN 前置已验证**：临时私网 sidecar 在 VPC `172.31.15.170` 上完成两次 authenticated allocation smoke，验证了共享密钥和 relay 端口范围；它不是 AVD 呼叫/媒体测试，随后已清理。端到端仍需一通真实 RTC 呼叫及 Node A 宣告可达 TURN 地址，当前呼叫受 F1 SIM 映射约束。详见 `c3-private-turn-preflight-20261031.txt` 与风险记录。 |
 | D1/D2/D3 runner | **D1 runner 缺失已解决**：runner 已在 H1。D2 已 PASS；D3 为实际 FAIL，不是 runner/环境阻塞。 |
 | E2 | **当前硬环境阻塞**：H3 无法启动，缺少约 1.94 GiB 预检空间；测试机扩盘至少 8 GiB 后才能按计划熄屏来电。 |
 | E3 | **当前硬环境阻塞**：同一 H3 启动空间限制；另外原 API 34 AVD 没有 Wi-Fi transport，换机需在扩盘后按计划镜像重建，不能以不同用例替代。 |

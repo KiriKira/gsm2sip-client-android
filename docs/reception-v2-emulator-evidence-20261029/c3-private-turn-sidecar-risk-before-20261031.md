@@ -19,3 +19,9 @@ This preparation does not change Node A's `RTC_TURN_URLS`, recreate any SoulGem 
 ## Stop conditions
 
 Stop without changing Node A if the candidate ports become occupied, coturn cannot bind exclusively to `172.31.15.170`, an authenticated private allocation fails, the container restarts/exits, or the machine shows resource pressure. Any later change to Node A's advertised TURN URL is a separate action and requires a fresh pre-change DB/config snapshot and an explicit rollback plan. Do not use this listener to claim a call or media test passed.
+
+## Result and cleanup
+
+The initial default-user container could not read the mode-0600 mounted config; a second invocation with `cap-drop ALL` could not execute the image binary. Both instances were removed. The working instance ran as UID 1000 with `no-new-privileges`, a 128 MiB memory limit, and a 0.5 CPU limit; `ss` showed only the VPC address on port 13478, with no CLI listener. An authenticated REST allocation smoke test succeeded and allocated a relay port from the configured range. This verified host-to-sidecar TURN authentication/allocation only, not AVD reachability or C3 media.
+
+After the smoke test, the sidecar was removed to release its temporary relay allocations, the secret-bearing config was securely unlinked, and checks found no container, listener, or relay socket remaining. Node A's settings and databases were untouched. Detailed redacted measurements are in `c3-private-turn-preflight-20261031.txt`.
