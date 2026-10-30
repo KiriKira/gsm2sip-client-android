@@ -1,0 +1,18 @@
+B6 incoming-call retry trigger assessment — 2026-10-30
+
+Result: BLOCKED (trigger method; no product verdict).
+
+At 2026-10-30T05:53:59.645Z the remote shell issued:
+  adb -s emulator-5554 emu gsm call +15550100200
+
+The command consumed the remainder of its enclosing shell input. Its exit status and emulator-console response were not preserved, so this is not accepted as a verified call injection or a reproducible product failure. This exact trigger was not repeated.
+
+Post-attempt observations:
+- `adb emu gsm list` returned `OK` with no active call.
+- `dumpsys telephony.registry` reported `mCallState=0`.
+- The captured follow-up window had no new GW incoming callback, RTC offer, SoulGem call session, HostPush call event, or Madoka ringing event.
+- The GatewayJointInstrumentation fixture had reached READY with the retained SIM mapping at revision 13. It was stopped through its `stop` mailbox; the runner wrote `status=PASS, stage=commands`. No incoming call was handled by that runner.
+
+Sol's review identified Android Emulator Extended Controls → Phone → Call Device as a distinct supported trigger. The existing GW emulator is running with `-no-window`; the remote shell has no `DISPLAY`, X server, or VNC session, so that UI path is unavailable in the current environment. Directly opening the emulator TCP console would still invoke the same `gsm call` mechanism and is not treated as an alternate path. No emulator restart or additional AVD was attempted.
+
+Conclusion: B6's incoming-call assertion remains unverified and blocked at the trigger-tool boundary. No push was simulated, no product failure was recorded, and no server/app data was edited to manufacture an event.

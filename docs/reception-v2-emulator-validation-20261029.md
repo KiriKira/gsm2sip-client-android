@@ -11,7 +11,7 @@
 | Homura | `KiriKira/gsm2sip#26` | `a41dd196aa4caa279cc28c688469c70ca4ba59f4` |
 | Madoka | `KiriKira/gsm2sip-client-android#38` | `770fb716517aa7d4aa26b7ee32b297ea0a4c3c01` |
 
-2026-10-30 product follow-up commits: Madoka `d60e3c9` (B3 outgoing-call dispatch fix) and `299213b` (C1 incoming Telecom UI fix). Details and separate regression evidence are below; simulator end-to-end retests remain tracked separately.
+2026-10-30 commits in this continuation: Madoka `d60e3c9cac80389a42137e4da21c46420f27c13f` (B3 outgoing-call dispatch fix), Madoka `299213b3d9f8e12b16d309f9e87093030e436fa4` (C1 incoming Telecom UI fix), and Madoka test-only runner `5b6db6baedbcff637bfdf33d70feb9aab9fd6494`. Details and separate regression evidence are below; simulator end-to-end retests remain tracked separately.
 
 2026-10-30 continuation commit heads: SoulGem `152821079f87af7958d30cebf0cf8c0c316ed8e0`, Kyubey `1bb9a2bc976ace3ccedb3a95315e01713559bddf`, Homura `a41dd196aa4caa279cc28c688469c70ca4ba59f4`, Madoka `7696b8a3e125c3392d209cd427325dbf3e771d80`. The H1 product APK has not yet been rebuilt from this Madoka head; the current `0.4.2` install is unchanged. The D1 test-only runner was installed separately and is recorded below.
 
@@ -102,6 +102,12 @@ G2 恢复阶段最初未出现新 modem edge 的原因已查明：旧 GSM 来电
 H1's API 35 Google Play AVD now has the test-only `MeshSetupInstrumentation` and `HostJointInstrumentation` registered. The installation used the existing R1 debug certificate (`2c613d…845f28`) and left the product app/data untouched; evidence and the exact test APK hash are in `d1-runner-install-20261030.txt`. This clears the missing-runner tool issue only. D1 still has not run: its required topology is not established, and no pairing code or call has been consumed. The previous ANR path remains unused.
 
 The 04:37Z B6 follow-up was not a valid fresh-call attempt: Sol's read-only radio timeline showed incoming/ringing markers throughout the preceding minute, while Telecom call handles in that window were first seen at 04:25Z. Cleanup afterward left modem and live Telecom idle. The runner is now installed on H1, but the product APK remains the older `0.4.2` install and Homura call-control readiness must be freshly established before a single B6 call retry. No retry is counted yet. D1 and B6 remain pending with their environment/method prerequisites identified, rather than marked impossible.
+
+### B6 retry trigger review (2026-10-30 05:53Z)
+
+The later one-shot `adb emu gsm call` command did not preserve its command result because the remote shell consumed the remaining script input. It therefore is not a verified modem-call attempt and is not a product FAIL. The emulator was subsequently idle (`gsm list=OK`, `mCallState=0`), with no new gateway callback or downstream call event in the captured window. Sol advised using Extended Controls → Phone → Call Device as a distinct supported trigger; the existing GW AVD is headless (`-no-window`) and the remote session has no display server, so that path cannot be used without restarting/reconfiguring the emulator. The same GSM console command was not repeated. B6's call assertion remains BLOCKED (method/tool), with the sanitized evidence in `b6-call-retry-trigger-20261030.txt`.
+
+The D1 H1 instrumentation runner installation is complete, but D1 itself has not run and no join code or topology change was made. The gateway-side joint runner was stopped cleanly after the idle check; its result was `PASS` at stage `commands`, which records only orderly runner shutdown, not a call-test pass.
 
 ### C1 复测前 SIM 映射恢复风险与前置检查（2026-10-30）
 
