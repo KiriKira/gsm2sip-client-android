@@ -1,0 +1,16 @@
+R1 multi-node eligibility snapshot — 2026-10-30T06:09:36Z
+
+Read-only SQL snapshot; no rows or settings were changed. Each node has one owner and one gateway session with an unexpired refresh token.
+
+| Node | Active client sessions | Active v2 incoming subscribers | Those subscribers with a push endpoint |
+| --- | ---: | ---: | ---: |
+| A | 3 | 3 | 2 |
+| B | 0 | 0 | 0 |
+| C | 0 | 0 | 0 |
+
+The three A-side clients were previously inventoried as H1, H2, and H3; all three retain incoming enabled. H3 being powered off does not revoke its unexpired server refresh session. Reception v2 call selection uses `incoming_enabled` plus a non-expired refresh session (`server/internal/httpapi/reception.go`, `server/internal/httpapi/rtc_control.go`); the push endpoint is not the eligibility gate. Thus the stopped H3 still counts as an eligible A subscriber. No supported admin revoke path was identified, and H3 cannot be started within the current disk budget: root has 6.3 GiB available while the existing H3 AVD requires about 7.37 GiB. No additional cleanup or disk modification was attempted.
+
+Consequences:
+- Exact D1 topology is not present: A still has eligible H1/H2/H3 clients, while B and C have no client sessions. The installed H1 runner does not change this topology by itself.
+- Adding B to H1 while retaining A would only prepare the A+B setup for D2; it would consume a one-time B pairing code, add a pairing, catch up message history, and register push. This stateful setup was deferred because a fresh real incoming call cannot currently be triggered and D1's A/C subscriber precondition cannot be met.
+- D2 and D3 still require a fresh call edge for Telecom de-duplication/answered-elsewhere and delivery via B after stopping A. Static node health or an old call session cannot prove those assertions. No node was stopped.
