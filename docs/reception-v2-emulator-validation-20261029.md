@@ -13,6 +13,8 @@
 
 2026-10-30 product follow-up commits: Madoka `d60e3c9` (B3 outgoing-call dispatch fix) and `299213b` (C1 incoming Telecom UI fix). Details and separate regression evidence are below; simulator end-to-end retests remain tracked separately.
 
+2026-10-30 continuation commit heads: SoulGem `152821079f87af7958d30cebf0cf8c0c316ed8e0`, Kyubey `1bb9a2bc976ace3ccedb3a95315e01713559bddf`, Homura `a41dd196aa4caa279cc28c688469c70ca4ba59f4`, Madoka `7696b8a3e125c3392d209cd427325dbf3e771d80`. The H1 product APK has not yet been rebuilt from this Madoka head; the current `0.4.2` install is unchanged. The D1 test-only runner was installed separately and is recorded below.
+
 实验机为 2 vCPU、约 8 GiB RAM、64 GiB 磁盘的 KVM 主机。GW 是 API 34 普通镜像；H1/H2 是 API 35 Google Play 镜像；H3 是 API 34 普通镜像。H1/H2 未登录 Google 账号，未执行 Magisk/root 测试。SoulGem A 使用 PR #33 镜像；A/B/C 有各自数据库，但 B/C 仍是旧 joint-0.4 镜像，不符合本轮多节点测试要求。Kyubey 使用本地 Wrangler 和临时 HTTPS 隧道；本地 redacted worker 日志可用，但没有 Cloudflare `wrangler tail`。A1/A3 的 H1 收到真实 FCM 推送唤醒；本轮 G1 来电未到达 SoulGem，未触发 FCM，不能据此评价推送交付。H3 首次启动时因测试机根盘剩余 5.5G（AVD 要求约 7.37G）退出。清理三个历史、未运行的旧 AVD 后，H3 用原 userdata 成功启动；清理前后的 `df -h`/`du` 和资源数据见证据目录 `disk-space-cleanup-20261029.txt`。
 
 证据目录为 `docs/reception-v2-emulator-evidence-20261029/`。脱敏执行记录在 `run-observations-20261029.md`；新增 B3–B6、G1 证据在 `b3-call-readiness-20261029.txt`、`b4-reboot-status.txt`、`b4-reboot-retest-20261029.txt`、`b5-offline-sync-20261029.txt`、`b6-sms-sync-20261029.txt` 和 `g1-restart-20261029.txt`。H3 清理与补测数据见 `disk-space-cleanup-20261029.txt`、`h3-e1-diagnostics.json`、`h3-e4-segment.json`、`h3-e4-diagnostics.json` 和 `h3-recovery-20261029.md`。认证头、设备/会话标识、推送 endpoint、手机号和 Firebase 凭据没有放进仓库；本地 Kyubey redacted 日志留在 `/tmp`，只提交计数和结果摘要。
@@ -94,6 +96,12 @@ A1–A4、B1–B2 和 B4 在模拟器上通过；B5 的离线设置同步子项�
 | H3 一小时 stream | 方法/时间限制：之前 43 分 21 秒不可外推；QEMU `-icount` 或 guest clock 倍速会让 Android timer 与真实网络、服务器和 FCM 脱节。 | **未重跑，等待用户决定是否真等**：必须 fresh、连续 60 分钟墙钟；diagnostics/deviceidle/alarm/logcat/ping-pong 只能佐证实际墙钟时长。H3 需重新启动并确认 stream live、屏幕关闭、deep idle。H1 与 H3 可在短用例结束后共享一段 60 分钟窗口，另需约 10–15 分钟准备和前后导出。 |
 
 G2 恢复阶段最初未出现新 modem edge 的原因已查明：旧 GSM 来电仍在 modem `INCOMING` 与 Telecom `RINGING`，而非 relay 恢复失败。旧来电已明确取消并验证空闲。其后 B6 清理后注入产生了新 modem edge，但该时刻 Homura 的 call-control runtime、SIM 绑定和后台启动均未就绪，不能把旧的 G2 session 当成本次证据。随后仅通过普通 UI 确认 AVD SIM 并启用 control-only 后台服务；远程语音仍关闭。由于计划明确不测 root/Magisk，本轮不再重复 call 注入或开启语音诊断。`DOCKER-USER` 没有本轮规则；G2 的真实 outage/恢复测试需等非 root 约束下可用的 call-control runtime。Sol 没有判定 G2、D1、F、C2/C3、E2/E3 等项目本质上做不到；当前明确的产品缺陷仍是 B3 和 C1。长观察保持暂停。
+
+### 2026-10-30 follow-up — D1 runner installed; short retests pending
+
+H1's API 35 Google Play AVD now has the test-only `MeshSetupInstrumentation` and `HostJointInstrumentation` registered. The installation used the existing R1 debug certificate (`2c613d…845f28`) and left the product app/data untouched; evidence and the exact test APK hash are in `d1-runner-install-20261030.txt`. This clears the missing-runner tool issue only. D1 still has not run: its required topology is not established, and no pairing code or call has been consumed. The previous ANR path remains unused.
+
+The 04:37Z B6 follow-up was not a valid fresh-call attempt: Sol's read-only radio timeline showed incoming/ringing markers throughout the preceding minute, while Telecom call handles in that window were first seen at 04:25Z. Cleanup afterward left modem and live Telecom idle. The runner is now installed on H1, but the product APK remains the older `0.4.2` install and Homura call-control readiness must be freshly established before a single B6 call retry. No retry is counted yet. D1 and B6 remain pending with their environment/method prerequisites identified, rather than marked impossible.
 
 ### C1 复测前 SIM 映射恢复风险与前置检查（2026-10-30）
 

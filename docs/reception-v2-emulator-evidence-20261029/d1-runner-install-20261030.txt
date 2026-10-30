@@ -1,0 +1,7 @@
+D1 runner installation checkpoint — 2026-10-30 05:15 UTC
+
+H1 is the API 35 Google Play AVD `emulator-5556`. The test-only package was installed with `adb install -r` without replacing `com.callagent.host` or clearing app data. The installed test APK SHA-256 is `9fd7b0971910901a536fad7c5045075761ebea836b8457a445f82f5ca0a177ee`; its signing certificate SHA-256 is `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28`, matching the existing R1 debug certificate.
+
+`pm list instrumentation com.callagent.host` lists both `com.callagent.lab.MeshSetupInstrumentation` and `com.callagent.lab.HostJointInstrumentation`. The package install and instrumentation discovery succeeded. H1's product package remains version `0.4.2`; this runner installation did not rebuild or replace the product APK. At collection, H1's telephony call state was idle (`mCallState=0`).
+
+This is only the D1 control-path/tool prerequisite. No pairing code was consumed, no node was added, no call was injected, and D1 is not scored PASS. The one-time pairing code, Firebase values, phone numbers, raw logcat, and screenshots are excluded.
