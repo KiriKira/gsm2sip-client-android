@@ -1,0 +1,13 @@
+C1 reject/global-stop retest — 2026-10-30 UTC
+
+H1/H2 reception remained incoming=true. H2 API 35 Google Play Madoka was in airplane mode with Wi-Fi disabled and no default network while the incoming calls were tested. GW was the ordinary API 34 Homura AVD with the control-only GatewayService; no root/Magisk or synthetic push was used.
+
+An earlier 07:41Z incoming trigger displayed the H1 incoming page, but the reject action was not sent before the ringing window expired. This was an unscored operator-timing attempt, not a product failure. Two subsequent calls were explicitly rejected from H1's visible UI. The final run captured the complete UI sequence.
+
+Final run: H1 Telecom recorded `SET_RINGING` at 07:48:50.771Z. Madoka displayed `来电`, `拒接`, and `接听`. The visible reject control was tapped at 07:49:04.905Z. At 07:49:09.051Z the call page showed `已拒接，正在等待网关让其他主机停止响铃…`; later it showed `通话已结束` and `已拒接，所有主机已停止响铃。`
+
+Homura recorded `declined_for_every_host` at 07:49:05.406Z and `DISCONNECTED` at 07:49:05.810Z, 0.905 seconds after the tap. The emulator GSM call list was empty. SoulGem's latest call was `incoming/ended/declined`; all three participant records were `ended/declined`.
+
+H2 was returned online after the call. Wi-Fi was enabled and an active default network returned. Across an 8-second post-restore window, H2's `HostPush kind=call` count did not increase, Telecom had no `RINGING` call, and MainActivity remained foreground. H1's final rejection text and H2's no-late-ring state were checked after restoration.
+
+Only sanitized timestamps, visible UI text, call status/reason, and aggregate participant counts are recorded. Raw logs, screenshots, phone numbers, device/call IDs, endpoints, and credentials are excluded.
