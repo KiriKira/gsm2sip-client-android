@@ -13,6 +13,8 @@
 
 本轮分支均为 `claude/vibrant-babbage-ye0ey3`。2026-10-30 续测所用代码提交：SoulGem `152821079f87af7958d30cebf0cf8c0c316ed8e0`；Kyubey `1bb9a2bc976ace3ccedb3a95315e01713559bddf`；Homura `a41dd196aa4caa279cc28c688469c70ca4ba59f4`；Madoka 最新分支 HEAD `e25d9436c05f79d1e49cfb65360aea039a0846d7`。本轮 Madoka 产品提交为 B3 修复 `d60e3c9cac80389a42137e4da21c46420f27c13f`、C1 修复 `299213b3d9f8e12b16d309f9e87093030e436fa4`；测试 runner 提交 `5b6db6baedbcff637bfdf33d70feb9aab9fd6494`。B3、B6、C1 已完成模拟器端到端复测。
 
+2026-10-30 F1 基线尝试也实际使用了以下代码提交：F1 基线 SoulGem `152821079f87af7958d30cebf0cf8c0c316ed8e0`、Kyubey `1bb9a2bc976ace3ccedb3a95315e01713559bddf`、Homura `31f65a7d5aa7fbca7df575d73a87fcf3b018b254`、Madoka `5b721c3b80763264a73dbe128364529e11801c97`。因此本报告记录的全部产品/测试代码提交为：SoulGem `1528210`；Kyubey `1bb9a2b`；Homura `a41dd19`、F1 基线 `31f65a7`；Madoka `e25d943`、B3 `d60e3c9`、C1 `299213b`、测试 runner `5b6db6b`、F1 基线 `5b721c3`。本次文档更新不含产品代码改动。
+
 H1/H2 当前安装的是 `GSM_RELEASE_VERSION_CODE=1000000000` 的同签名 debug APK，APK SHA-256 `05d6cb74d8bd5e2f30edf6927679182218fbc17e8dcf8cf40fcb584ce0d91530`，使用当前真实 relay 地址构建；通过 `adb install -r` 覆盖安装并保留 app data。产品代码包含 `d60e3c9` 与 `299213b`；`5b6db6b` 只增加测试 instrumentation。Gateway runner 通过单独测试包运行。A/B/C 当前均为同一 PR #33 镜像 tag `soulgem-aio:reception-r1-1528210`，本机镜像 config ID 为 `sha256:1f6fd76b942af40b751ede535ade03604de858ca4a40054406d4afb56fa5c1d4`。H3 当前未运行：测试机根盘只剩 6.0 GiB，而启动 H3 约需 7.37 GiB；按磁盘约束没有继续清理。
 
 首轮（10-29）环境记录保留其当时状态：2 vCPU、约 8 GiB RAM、64 GiB 磁盘；GW API 34 普通镜像，H1/H2 API 35 Google Play 镜像，H3 API 34 普通镜像；H1/H2 未登录 Google 账号，未执行 Magisk/root 测试。Kyubey 使用本地 Wrangler 和临时 HTTPS 隧道，没有 Cloudflare `wrangler tail`。H3 清理前后磁盘证据仍见 `disk-space-cleanup-20261029.txt`。10-30 续测时 A/B/C 已全部使用上述 PR #33 同一镜像，Kyubey 当前仍由本地 Worker 和 HTTPS 隧道提供真实 FCM 路径；H3 因当前剩余空间不足而关闭。
@@ -45,9 +47,9 @@ H1/H2 当前安装的是 `GSM_RELEASE_VERSION_CODE=1000000000` 的同签名 debu
 | E2 | 阻塞（环境） | `h3-recovery-20261029.md`：GW 无 root/Magisk 语音能力；注入未形成 modem call、服务器 session 或 H3 ringing |
 | E3 | 阻塞（环境） | `h3-recovery-20261029.md`：API 34 AVD 没有已连接 Wi-Fi 传输；开关 Wi-Fi 未形成计划要求的双向网络切换 |
 | E4 | 仅记录 | `h3-e4-segment.json`、`h3-e4-diagnostics.json`、`h3-recovery-20261029.md`：14:44:32–15:14:32 UTC；15:16 快照心跳 270 秒、无当前持锁；15:22 观察后导出仍为 `wss_live=true`；累计 `wss_open/closed` 从 E3 末的 9/8 增至 14/13（五组重连），仅记录不判定 |
-| F1 | 阻塞（环境） | 本轮未执行；当前 GW 远程通话未就绪，无法完成计划要求的通话顺序。10 月 28 日旧目标上的 FAIL 仍只保留在旧报告 |
-| F2 | 阻塞（环境） | 同上；不以不完整通话替代计划用例 |
-| F3 | 阻塞（环境） | 同上；H1 当前稳定，但升级后的通话验收仍依赖未就绪的 GW |
+| F1 | 阻塞（前置失败） | 2026-10-30 已重建 main 起点并启动 F1；Madoka 的真实推送登记预检反复 `UnknownHostException`，Node C 没有该设备 endpoint，因此没有执行来电、去电、短信或 wire1 断言。详见本报告 F1 追加记录及 `f1-preflight-20261030.md` |
+| F2 | 未运行（依赖 F1） | F1 的业务前置未通过，按顺序停止；没有升级 Homura 或宣称测试通过 |
+| F3 | 未运行（依赖 F1/F2） | 没有进行该步骤升级；已恢复原 APK 与应用备份，但备份内会话凭据已不被 A/B/C 当前会话表或恢复窗口接受，详见 F1 追加记录 |
 | G1 | 阻塞（环境；服务恢复子项通过） | `g1-restart-20261029.txt`：节点 A 重启后健康，三台设备仍为 v2 且设置保留；Homura 的计划 ADB 来电命令没有产生 modem call、新的 `call_sessions` 或 H1 推送/响铃日志，停在模拟器蜂窝/Telecom 注入层 |
 | G2 | 阻塞（环境/前置未满足） | G1 未到达 SoulGem，且本地 Kyubey 未收到本轮 wake 请求，未执行不可达注入 |
 | H1 一小时 push 观察 | 阻塞（环境；本轮未开始） | `push-environment-status-20261029.txt`：两条 push endpoint 的失败计数均为 8、事件游标仍为 4；本地 Kyubey 在 G1/B6 期间没有新 wake 请求，push 环境尚未恢复 |
@@ -137,7 +139,7 @@ E2/E3 were not run because their H3 prerequisite is unavailable under the disk c
 
 ### F1–F3 artifact re-audit (2026-10-30)
 
-The earlier “missing baseline artifacts” assessment is corrected. The required exact `main` source commits, remote APKs, and source archives were found; both main APKs verify against the shared debug certificate. Historical 0.4/0.4.1 APKs and image archives were also located, but they are not substitutes for the plan's `main` start or current R1 server. The archived main Madoka APK embeds a temporary relay hostname that no longer resolves, so a real F1 push run needs a same-source/same-key rebuild with the active relay and a new recorded hash. No v2 app data has been cleared and no F1 version transition has run. F1–F3 remain unexecuted pending a valid incoming-call trigger and a recoverable v1 pairing baseline; provenance and exact hashes are in `f-baseline-artifact-audit-20261030.md`.
+The earlier “missing baseline artifacts” assessment is corrected. The required exact `main` source commits, APKs, and source archives were found; both main APKs verify against the shared debug certificate. Historical 0.4/0.4.1 APKs and image archives were also located, but they are not substitutes for the plan's `main` start or current R1 server. The archived main Madoka APK embeds an expired temporary relay hostname, so the F1 attempt rebuilt the exact source with the active relay and same signer. F1 then cleared/rebased only the designated GW/H1 test apps, created an isolated owner on C, and paired the two test devices. The real Madoka push-registration preflight failed before any F1 business assertion; the current attempt and restoration are documented below. Artifact provenance and hashes remain in `f-baseline-artifact-audit-20261030.md`.
 
 ### C1 复测前 SIM 映射恢复风险与前置检查（2026-10-30）
 
@@ -204,3 +206,13 @@ Sol 对私有 RILJ/Gateway 日志做只读复核后确认：第一次恢复注�
 D3 第二次尝试满足有效前置：此前先停掉并清理了一个因延迟旧设置更新而无效的尝试；重试前 A/B/C、A/B reception 和 endpoints 健康，设置 UI 未触碰，未启动 instrumentation runner，Homura 旧 modem call 已显式 cancel。停止 A、保留 B/C 后只注入一通真实 GSM 来电。H1 于 11:30:30.687Z 收到真实 `wire=2 kind=call` FCM，Android 允许 call-listening foreground service 启动；但没有 `Incoming call ringing` 或来电页。B 的 participant 于 11:30:30.851777Z 以 `reception_disabled` 结束，B 的 reception 行在 11:30:30.853859Z 短暂变成 `incoming=false` revision 11，随后 11:30:31.878468Z 恢复为 true revision 12，已经结束的 participant 没有复活。无操作员在该窗口切换设置。故 D3 **FAIL（产品行为）**：A 不可达时，B 分支未能保持接收并响铃。
 
 代码中 `HostCallService.setForegroundListening()` 的启动异常处理会调用 `CallRuntime.onListeningFailed()`，后者持久化关闭当前来电接收；这与观察到的短暂 false update 相符，但本次原始日志没有异常栈把该呼叫直接绑定到这一 catch，故具体异常来源仍属有代码依据的假设。用户当前授权的产品修复范围只包括 B3/C1，本轮未改这条额外产品路径，也未重复 D3。A 已恢复健康，旧 modem call 已清理，GW/H1/H2 modem idle。脱敏证据和私有日志哈希见 `d3-stop-a-retry-result-20261030.txt`；未使用模拟推送、API 造呼叫、手改 SQL 或 root/Magisk。
+
+### F1 main 基线真实推送预检与回滚（2026-10-30）
+
+**结果：F1 阻塞（前置失败）；F2/F3 未运行。** 按计划用 main 版本启动 F1：Homura 源码 `31f65a7`，Madoka 源码 `5b721c3`（使用有效 relay 地址重新构建），SoulGem 镜像仍为 PR #33 的 `soulgem-aio:reception-r1-1528210`（image config `sha256:1f6fd76b942af40b751ede535ade03604de858ca4a40054406d4afb56fa5c1d4`），Kyubey 为 `1bb9a2b`。Homura 是 API 34 普通镜像；H1 是 API 35 Google Play 镜像。APK 与原 debug keystore signer 一致，release version code 为 `1000000000`。
+
+H1 的真实 push 注册预检多次失败，Madoka 日志报告 `UnknownHostException`；即便 shell 与 app UID 对同一 relay hostname 的解析得到相同地址，应用注册仍失败。诊断导出隐藏了更深层错误，Node C 的 `push_endpoints` 中没有 H1 endpoint。一次进程重启后的受控 UI 重试仍失败。按“正常使用失败即停止”规则，在 F1 任何业务断言前停止：没有触发来电、去电或 SMS，也没有验证 `wire=1`。没有模拟推送或 API 造呼叫。F2/F3 依赖 F1 基线业务正常，故未启动。
+
+停止后恢复了原安装 APK、Homura 与 H1 的加密 full-app 备份、H1 原记录的运行时权限以及默认拨号角色；A/B/C 均健康，GW/H1/H2 modem idle。备份解密检查表明 Homura 备份 manifest 为 `0.4.2-dev`、3 个配对，H1 为 `0.4.2`、2 个配对。**应用数据文件已恢复，但认证状态没有恢复成功**：Homura 设置页提示“配对会话已过期或被撤销，请重新配对此手机。”；只读地将备份中的两个 H1 refresh-token 指纹与 A/B/C 的当前 session hash 和有效 recovery hash 比较，均无匹配。未打印或提交 token/fingerprint，也未手改数据库或重新配对。H1 权限恢复为 `POST_NOTIFICATIONS=true`、`RECORD_AUDIO=true`、`READ_CONTACTS=false`，默认拨号应用仍为 `com.callagent.gateway`。
+
+本轮在 Node C 创建的隔离测试 owner/临时 gateway pairing 未通过受支持的 Homura UI 撤销：Homura 没有主配对移除入口，恢复应用备份后本地临时会话不再可用，但服务端临时 owner/session 可能仍存在。没有直接删除 SQL 行。私有加密备份和原始日志留在测试机权限受限目录；一次性 refresh-token 指纹临时文件已删除。脱敏证据和摘要见 `f1-preflight-20261030.md`。这次回滚恢复了安装包及应用数据，但由于会话认证已失效，不能声称原配对可正常工作。
