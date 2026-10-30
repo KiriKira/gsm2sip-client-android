@@ -172,3 +172,9 @@ Sol 复核了 C1 复测后的状态差异：普通 `MainActivity` 调用 `SimReg
 前两次顺序中，两次最终均由 H1 成为唯一赢家：H1 `ACTIVE`、H2 `ENDED/answered_elsewhere`，Homura modem 保持 `mCallState=2`；随后由 H1 测试挂断，两端及服务器会话都结束。反向顺序中，两次都以整通 `ended/declined` 收尾，H1/H2 均为 `ENDED`，Homura `mCallState=0`。没有出现“主机仍在通话而网关已挂断”。服务器控制事件显示两次接听优先的 `accept→decline_all` 间隔为 0.845 秒和 0.905 秒；两次拒接优先的 `decline_all→accept` 间隔为 0.272 秒和 0.479 秒。脚本每次目标间隔约 0.5 秒，考虑了 runner 200 ms 轮询和 H2 ADB 触发耗时；反向第二次将目标调至 0.75 秒，使服务端实际控制间隔回到约 0.5 秒。该数据验证的是竞态顺序和稳定终局，不把异步控制提交时间误称为精确 UI 点击时间。
 
 早期测时方法较宽的额外来电保留为未计分记录，没有替代四次有效复测。首次使用 Telecom 历史计数的误判也没有执行任何动作；已在前置风险记录中更正。逐次结果、脱敏服务端事件和 harness 见证据目录中的 `c2-result-summary-20261030.md`、`c2-trial-2b.txt`、`c2-trial-2c.txt`、`c2-trial-3a.txt`、`c2-trial-3b.txt`、`c2-server-control-events-20261030.txt`、`c2-four-trials-20261030.py`。本项没有产品代码改动或产品 commit。
+
+### C3 接收切换与媒体路径复核（2026-10-30）
+
+**结果：未通过；媒体路径受测试环境 TURN 可达性限制。** H1 关闭接收后停止振铃；H2 继续振铃，runner 应答后 Android Telecom 进入 `ACTIVE`（09:16:52.982Z）。但 H2 的两次 WebRTC 统计均为 `selected_pair=null/null`、收发包为 0、候选仅为 host；Homura 有 `answer_committed` 与 `cellular_answer_requested`，没有进入 `cellular_active`。来电在正常振铃窗口结束时结束，因此不把 Telecom 接听动作当作已接通，也不判 C3 完整通过。
+
+对 TURN 的只读检查发现，Node A 使用外部 TURN 配置；测试机 3478 和 UDP relay 端口确有监听/转发，但对应的是仍在运行的旧容器，不能证明它使用 Node A 的共享密钥。从开发机到测试机的 TCP/22 成功，而 TCP/3478 超时；有效 UDP STUN Binding 请求也没有响应。测试机本机输入策略为 accept 且有本地转发规则，故问题位于外部入口路径或其后端目标。当前没有 AWS CLI/凭据读取云安全组，未改任何防火墙、容器、节点配置或产品代码。完成媒体复测需要可从 H2 网络到达、并与 Node A 共享 TURN 密钥的 listener，以及 UDP 49160–49259 relay 可达；现有旧容器占用相同端口，不能未经评估直接覆盖。证据摘要见 `c3-followup-20261030.md`。
