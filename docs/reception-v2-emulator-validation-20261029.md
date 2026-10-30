@@ -278,3 +278,7 @@ Sol 明确复核后，F1 的 `UNVERIFIED` **不是产品缺陷证据，也不是
 | F3 | **尚未通过，不等于无法继续**：当前 H1 的 server reception 已是 v2，不能证明 v1→v2 迁移。需要保留有效 pairing/session 的 main/v1 server state 快照，或建立独立的 main/v1 Host 基线；不能把已是 v2 的状态当成迁移验证。 |
 
 在制作一致性备份时，Homura 与 H1 进程曾被 force-stop；备份完成后已重新打开两端，复核 GW/H1 modem 均 idle、Homura `GatewayService` 与 Madoka `HostCallService` 均运行。没有更改应用数据、配对、数据库或产品代码。Sol 的完整路径/风险评审保留在会话交接记录；磁盘数字与 H3 启动证据见 `followup-20261031-precondition-audit.txt`。
+
+### D1 H2 替代拓扑风险登记（2026-10-31）
+
+Sol 复核后，D1 不需要等待 H3 启动：保留 H1，改用已运行的 API 35 Google Play AVD H2 作为唯一测试主机，并为 A/B/C 建立隔离测试 owner，可避开旧 owner 下 H3 仍有效订阅的问题。此替代需要通过支持的管理/配对/SIM API 创建隔离测试记录，不改现有 owner 的 SQL 行，也不直接写 SQL。执行前置条件、备份方案、回滚边界与停止条件已记录在 `d1-h2-owner-risk-before-20261031.md`；本记录只登记方案，**尚未改变配对、SIM 映射或 reception 状态，也不代表 D1 已运行**。
