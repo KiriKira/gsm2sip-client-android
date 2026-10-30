@@ -1,0 +1,13 @@
+B6 incoming-call and SMS-sync retest — 2026-10-30 UTC
+
+H1 API 35 Google Play Madoka, H2 API 35 Google Play Madoka, GW API 34 ordinary Homura. Product APK is the same-signature debug build with GSM_RELEASE_VERSION_CODE=1000000000 and the B3/C1 fixes; no root/Magisk was used. Gateway call control was available in control-only mode. No synthetic push was used.
+
+Initial H1 state: Reception v2 incoming=true, sms=false, revision=37. Its push endpoint generation was 6, failures=0, call_failures=0, pushed_event_cursor=8. The H1 SMS switch was disabled in Settings before the test. H2 remained independently configured.
+
+At approximately 07:22Z, one real Android Emulator SMS was sent through the Homura AVD using `adb emu sms send`. SoulGem stored exactly one inbound/received message. While H1 SMS sync was disabled, its pushed_event_cursor remained 8 and H1 had no `HostPush received ... kind=sms` event.
+
+At 07:23:26.748Z, a real emulator GSM call was started with `adb emu gsm call`. Homura logged `GsmCallService: Call added`, `GsmCallManager: Incoming GSM call detected`, and `CallOrchestrator: Incoming GSM call detected`; the call was offered to hosts. H1 received `HostPush: received wire=2 kind=call priority=1 original=1` at 07:23:29.294Z. Android Telecom logged a successful incoming call with state RINGING at 07:23:26.630Z. `ActivityTaskManager` started `CallActionActivity` at 07:23:31.312Z and reported it displayed at 07:23:32.171Z. The call was not answered; Homura logged `Leaving the GSM call unanswered` at 07:23:51.762Z and tore down the bridge after the ring window. This is a delivery/ringing check, not an answer/media check.
+
+After the ended-call screen was closed and Madoka returned to its main activity, background sync resumed. At 07:26:28.545Z H1 logged one `kind=sms` push. Final SoulGem state for H1: incoming=true, sms=true, revision=38; endpoint generation=6, failures=0, call_failures=0, pushed_event_cursor=9. The cursor therefore advanced once, 8→9. SQL counted one `inbound/received` server message for the marker; a read-only local Room DB check counted exactly one matching `messages` row. Android notification state contained the single message item and its group summary (not two SMS deliveries).
+
+The relay was the local Wrangler Worker over the temporary HTTPS tunnel, not a Cloudflare deployment; a hosted `wrangler tail` was unavailable. No raw logs, credentials, phone numbers, endpoint/device IDs, or screenshots are included. The resulting evidence is the sanitized HostPush/Gateway/Telecom timeline plus the server cursor and local message-row counts.
