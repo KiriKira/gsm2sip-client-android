@@ -198,3 +198,9 @@ Sol 复核了 C1 复测后的状态差异：普通 `MainActivity` 调用 `SimReg
 ### G2 恢复阶段未产生新 modem event 的根因（2026-10-30）
 
 Sol 对私有 RILJ/Gateway 日志做只读复核后确认：第一次恢复注入前 `adb emu gsm list=OK` 造成了错误的 idle 判断；日志直到 22:33:36.424Z 仍显示同一旧测试来电处于 `INCOMING` 且 connection 未变化，因此后续 `gsm call` 没有产生新 edge。03:06 的清理验证了 `cancel` 后 radio/Telecom 才真正 idle，并出现新 incoming 与 `GsmCallManager` callback；但当时 Homura 的 call-control `GatewayService` 已停止，所以那次没有 offer，也不计入通过。随后 08:09 的正式 G2 重测在 modem idle、GatewayService running 前置下通过真实 FCM 恢复送达，相关 `call_failures` 归零。该项按原 G2 结果 **PASS**，根因和各次尝试区分见 `g2-recovery-trigger-root-cause-20261030.txt`、`b6-call-retry-setup-state-20261030.txt` 与 `g2-retest-20261030.txt`。
+
+### D3 stop-A failover retry（2026-10-30 11:30Z）
+
+D3 第二次尝试满足有效前置：此前先停掉并清理了一个因延迟旧设置更新而无效的尝试；重试前 A/B/C、A/B reception 和 endpoints 健康，设置 UI 未触碰，未启动 instrumentation runner，Homura 旧 modem call 已显式 cancel。停止 A、保留 B/C 后只注入一通真实 GSM 来电。H1 于 11:30:30.687Z 收到真实 `wire=2 kind=call` FCM，Android 允许 call-listening foreground service 启动；但没有 `Incoming call ringing` 或来电页。B 的 participant 于 11:30:30.851777Z 以 `reception_disabled` 结束，B 的 reception 行在 11:30:30.853859Z 短暂变成 `incoming=false` revision 11，随后 11:30:31.878468Z 恢复为 true revision 12，已经结束的 participant 没有复活。无操作员在该窗口切换设置。故 D3 **FAIL（产品行为）**：A 不可达时，B 分支未能保持接收并响铃。
+
+代码中 `HostCallService.setForegroundListening()` 的启动异常处理会调用 `CallRuntime.onListeningFailed()`，后者持久化关闭当前来电接收；这与观察到的短暂 false update 相符，但本次原始日志没有异常栈把该呼叫直接绑定到这一 catch，故具体异常来源仍属有代码依据的假设。用户当前授权的产品修复范围只包括 B3/C1，本轮未改这条额外产品路径，也未重复 D3。A 已恢复健康，旧 modem call 已清理，GW/H1/H2 modem idle。脱敏证据和私有日志哈希见 `d3-stop-a-retry-result-20261030.txt`；未使用模拟推送、API 造呼叫、手改 SQL 或 root/Magisk。
