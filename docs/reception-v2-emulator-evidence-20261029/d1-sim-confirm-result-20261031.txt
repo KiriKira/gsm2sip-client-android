@@ -1,0 +1,13 @@
+Retained-SIM local confirmation used by D1
+Result: PASS
+Existing SIM UUID retained: yes
+Slot/subscription observed: slot 0 / subscription 1
+Local SIM mapping revision: 1 before and after
+Final local status: LOCAL_CONFIRMED
+Server mapping already active and identity_verified before test: yes
+Production SIM API called for local confirmation: no
+SQL written for local confirmation: no
+Pairing recreated or changed: no
+Application data cleared, uninstalled, or restored: no
+Gateway service started as part of local confirmation: no
+The confirmation was a test-only app-UID instrumentation call to the existing SimRegistry.confirmMapping path; it changed only the local verification state and preserved the UUID and revision.

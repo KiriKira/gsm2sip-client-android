@@ -279,6 +279,32 @@ Sol 明确复核后，F1 的 `UNVERIFIED` **不是产品缺陷证据，也不是
 
 在制作一致性备份时，Homura 与 H1 进程曾被 force-stop；备份完成后已重新打开两端，复核 GW/H1 modem 均 idle、Homura `GatewayService` 与 Madoka `HostCallService` 均运行。没有更改应用数据、配对、数据库或产品代码。Sol 的完整路径/风险评审保留在会话交接记录；磁盘数字与 H3 启动证据见 `followup-20261031-precondition-audit.txt`。
 
+### D1 用 H2 替代 H1 完成端到端复测（2026-10-31）
+
+计划中的 H1 当前无法与保留的 Homura owner 组成无额外配对的 A/B/C 拓扑，因此按 Sol 复核的最小替代路径，使用同为 API 35、已登录 Google Play 的 H2 作为唯一接收主机；该角色偏差已明确保留。开始前保留原 SIM UUID、配对和数据，仅对测试设备 UID 的本地 `SimRegistry` 做受控 `LOCAL_CONFIRMED` 修正；本地 revision 仍为 1，未调用服务器 API、未改 SQL、未清数据或重新配对。Homura、SoulGem A/B/C 与 H2 的 FCM endpoint 均通过前置检查，隔离 owner 拓扑为 A=0、B=1、C=0，无活动呼叫。
+
+通过真实模拟器 GSM 来电、Homura RTC/Gateway、SoulGem 和真实 FCM/Kyubey，H2 收到正常 Telecom 来电界面并由可见“接听”按钮接听。脚本记录的注入时刻为 23:05:46.144Z，接听点击为 23:05:55.746Z；随后同时观察到服务端 `active`、蜂窝模拟器 `ACTIVE`、Host Telecom `ACTIVE` 和 Homura modem `OFFHOOK`。再由正常 UI 挂断，服务端终态为 `ended/cellular_ended`。未使用模拟推送。音频仍由测试 PCM 后端提供，因此本项不证明蜂窝 HAL 音频。首次尝试因 H2 尚停留在 Android USB 调试授权对话框而在注入前停止，不计为测试失败；授权仅加入测试机的 ADB key，可从开发者选项撤销。
+
+**D1：通过（H2 替代 H1，按已披露偏差判定）**。来电和状态机断言满足；不声明 H1 本机结果或真实蜂窝音频结果。完成后 Node B 原 TURN 配置已恢复，A/B/C 健康、owner 拓扑未变、活动呼叫为 0；临时私网 TURN sidecar、停止的临时 B 容器和仅供 D1 更新/回滚的密钥、inspect、数据库转储已删除。全程未修改产品代码。脱敏计时、状态、日志哈希与清理证据见 `d1-result-summary-20261031.txt`、`d1-sim-confirm-result-20261031.txt`、`d1-cleanup-result-20261031.txt`；端到端执行脚本为 `d1-ui-call-20261031.py`。原始日志与截图只保留在测试机私有证据目录，不进入仓库。
+
+### 2026-10-31 当前未完成项逐项状态（取代更早的暂缓结论）
+
+| 项目 | 当前状态；硬阻塞与下一步 |
+| --- | --- |
+| B6 | **PASS**；无剩余工作。 |
+| G2 | **PASS**；旧来电状态是首次没有新 modem edge 的原因，relay 恢复后真实下一通已送达。 |
+| D1 | **PASS（H2 替代 H1）**；计划角色偏差与合成 PCM 限定已记录。 |
+| D2 | **PASS**；无剩余工作。 |
+| D3 | **FAIL（可复现产品行为）**；停止 A 后 B 分支为 `reception_disabled` 且未响铃。本轮获准的代码修复范围不含该缺陷；保留复现证据，不扩大修改范围。 |
+| C2 | **PASS**；无剩余工作。 |
+| C3 | **可继续，尚未跑接收切换断言**；TURN 数据通道已通过。下一步只读核对 H1 是否已有与 H2 同节点、同 owner 的有效身份/session；若有则经普通 UI 开启接收并跑 C3。若没有匹配身份且禁止重配对/改库，才构成该约束下的具体硬阻塞。 |
+| E2 | **硬阻塞（测试机磁盘）**；远端 `/` 为 61 GiB 总量、57 GiB 已用、4.1 GiB 可用；H3 AVD 启动预检需约 7.37 GiB，短约 3.3 GiB。按 Kiri 的停止规则不再清理；需要把 `18.119.132.34` 根盘扩至少 8 GiB 后重试。 |
+| E3 | **硬阻塞（同一磁盘前置）**；需要启动带移动数据 transport 的 H3，当前空间不足；扩盘后继续切换与来电复测。 |
+| E4 | **仅记录**；30 分钟现象已记录；一小时长观察依 Kiri 指示暂缓，不阻塞任何其他用例。 |
+| F1 | **部分通过，可继续**；短信/真实 FCM 已通过。D1 的 retained-SIM 本地确认证明同类 UUID 可保留，但它只适用于 D1 隔离 owner；F1 原 main pairing 的来电/去电是否能在不写映射的条件下恢复，继续查对应 AVD/配对快照和同签名旧版 app 状态，并由 Sol 评估是否应对隔离节点执行受支持的 SIM 确认 API。 |
+| F2 | **可独立继续其升级断言**；旧 Gateway main APK 与同签名 PR APK 均已找到。先验证覆盖安装、数据/设置保留及 `remaining_ring_ms` 日志；重复 F1 的通话断言单独标注其 SIM 前置，不以此暂停安装与非通话断言。 |
+| F3 | **可独立继续其迁移断言**；先从归档恢复或建立 main/v1 Host 的有效测试状态，再覆盖安装 PR APK，验证版本 2、接收开关保留与短信去重。当前 H1 已是 v2，不能把现状冒充 v1 升级结果；旧 main APK、签名和主源代码已齐，继续检查可恢复的完整状态快照。 |
+
 ### D1 H2 替代拓扑风险登记（2026-10-31）
 
 Sol 复核后，D1 不需要等待 H3 启动：保留 H1，改用已运行的 API 35 Google Play AVD H2 作为唯一测试主机，并为 A/B/C 建立隔离测试 owner，可避开旧 owner 下 H3 仍有效订阅的问题。此替代需要通过支持的管理/配对/SIM API 创建隔离测试记录，不改现有 owner 的 SQL 行，也不直接写 SQL。执行前置条件、备份方案、回滚边界与停止条件已记录在 `d1-h2-owner-risk-before-20261031.md`；本记录只登记方案，**尚未改变配对、SIM 映射或 reception 状态，也不代表 D1 已运行**。
