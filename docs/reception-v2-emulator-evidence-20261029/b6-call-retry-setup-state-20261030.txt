@@ -1,0 +1,20 @@
+B6 call assertion retry — 2026-10-30
+
+The retry began only after the stale GSM/Telecom call from the previous G2 attempt was explicitly cancelled. Before the injection, the GW modem was idle and Telecom had no active call. `adb emu gsm call` then produced a real modem `INCOMING` state and one `GsmCallManager: Incoming GSM call detected` event. After 18 seconds there was still no new `GatewayService`/`CallOrchestrator`/`GsmRtc` offer, no new SoulGem call session, and no H1/H2 `HostPush kind=call` delta. The caller was explicitly cancelled; the GW modem returned to idle.
+
+The apparent call ID `734201fb` was initially misattributed to this retry. Sol compared the ID and timestamps against the raw logs and SQL: it belongs to the prior G2 outage session created at 2026-10-29 22:32:24Z and ended at 22:32:49Z. Node A still had 66 sessions with that same latest timestamp after the 2026-10-30 03:06:45Z retry; B/C had no session for the retry. The old ID and row are not evidence that this B6 injection reached SoulGem.
+
+The retry did not meet the GW call-control precondition. Before the attempt, `gateway.xml` showed `autoconnect=false`, `background_user_stopped=true`, `background_service_running=false`, and `background_voice_enabled=false`; the Homura UI showed “未运行”, SIM “尚未绑定到服务器”, and a disabled remote-call runtime. The only Android service record was a transient `STATUS_REQUEST` with `startForegroundCount=0`. The preference file and last A heartbeat/capability update predate the retry. This explains why the modem callback had no active `CallOrchestrator` listener. No inference about Kyubey, FCM, or a Madoka product defect is made from this attempt.
+
+After the failed attempt, Homura's normal UI was used to confirm the emulator SIM mapping and enable background control. Current state is `autoconnect=true`, `background_opted_in=true`, `background_user_stopped=false`, `background_service_running=true`, but `background_voice_enabled=false`. The plan forbids Magisk/root tests; no diagnostic/start-voice action or privileged permission change was made. No new call was injected after discovering that the voice runtime remains unavailable.
+
+Result: B6 SMS suppression/backfill remains partially verified by `b6-sms-independence-20261030.txt`; the call assertion is **BLOCKED (GW runtime/setup)** with the reproducible state above. It cannot be classified as a relay failure or pass until a call-control runtime can be enabled within the no-root test constraints.
+
+Private raw evidence remains on the test host in `/tmp/reception-r1-private-20261030/`; it is not committed. SHA-256:
+
+- GW log after injection: `32f41746071d2369a2864fc9737ffee531fd0457a97e41e920be83ebe9f8ff60`
+- GW radio snapshot during call: `77304cfe0192c40b268d5976d78479cb88b3da6c86f6ed25730204208f043005`
+- H1 log after injection: `2fb01c369abe33cbf65501639d2a5214dfa43c41e1a536958f2e9d710ffb436a`
+- H2 log after injection: `9dfaeffa008186db7b02c89a7da809e71d3cea0b16dd88ffc6daf9bf92e40618`
+
+No phone number, push endpoint, auth token, raw log, screenshot, or database identifier is included here.
