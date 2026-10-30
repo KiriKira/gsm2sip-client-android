@@ -106,3 +106,7 @@ G2 恢复阶段最初未出现新 modem edge 的原因已查明：旧 GSM 来电
 通过上述 guarded retained-SIM 路径完成生产确认。相同 SIM UUID 保留；revision 由本地/服务器 12 一致推进到 13，本地身份为 `FINGERPRINT_VERIFIED`，服务器行是 `active/identity_verified=true`，slot 匹配。Telecom 预检中只有一个 call-capable SIM PhoneAccount；其反查 subscription ID 匹配该 SIM，`createForSubscriptionId(subId).phoneAccountHandle` 也回指同一账户。当前 mapping 没有保存单独的 PhoneAccount handle pin；`SimRegistry` 允许该字段为空并在运行时按已验证 SIM 的 subscription 解析，因此真实来电 offer 仍需实测。操作没有清数据、卸载、重启 AVD、重新配对、手改 SQL 或注入电话；结束时 modem 空闲、SoulGem 活动 session 数为 0。
 
 Instrumentation 返回 `READY` 并完成受控确认；首次启动时旧 `stop` mailbox 命令仍在，因此 runner 随后按该命令正常结束。它没有执行来电，也未影响数据。发起 C1 前会先写入新的 `status` mailbox，再启动 runner。脱敏证据和本地私有快照哈希见 `c1-sim-reconfirm-20261030.txt`。
+
+### C1 修复后即时来电复测（2026-10-30 04:37Z）
+
+本次 `adb emu gsm call` 返回 `OK`，但 8.222 秒后 GW modem 已空闲；该窗口内没有新的 Homura `GsmCallService.onCallAdded`/incoming callback，也没有 RTC offer、Madoka 新 call push 或 `CallActionActivity`。按停止规则在 8 秒处取消，没有点击拒接。H2 当时处于飞行模式；恢复网络后观察 8 秒无迟到响铃。故这次不能判定 C1 接听/拒接 UI 修复通过或失败，C1 的端到端拒接断言仍未完成，停止在 GW 注入/回调边界。脱敏记录与原始日志哈希见 `c1-fast-real-ui-20261030.txt`；原始日志和截图未上传。
