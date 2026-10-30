@@ -164,3 +164,11 @@ Sol 复核了 C1 复测后的状态差异：普通 `MainActivity` 调用 `SimReg
 ### G2 中继隔离与恢复来电复测（2026-10-30）
 
 按操作前风险记录只临时阻断 Node A 到 relay 的 TCP/443，使用真实 GSM modem 来电。Homura 于 08:08:18.243Z 检测并编排来电；拦截期间 H1/H2 没有收到 call push，generation 6 的 `call_failures` 在单个响铃窗口内由 0 增至 4。删除规则后检查标签规则数为 0，再发一通真实来电；H1 于 08:09:50.149Z 收到真实 FCM，Telecom 于 08:09:49.022Z 进入 `RINGING`，服务端该 endpoint 的 `call_failures` 回到 0。来电在正常响铃窗口结束时未接听，因此只判定计划要求的恢复送达和计数重置，不宣称通话接通或音频通过。最终 modem idle、无活动 GSM call、无临时规则，A/B/C 全部健康。脱敏证据见 `g2-retest-20261030.txt`；没有模拟推送、API 造呼叫、root/Magisk 或产品代码修改。
+
+### C2 多主机接听/拒接竞争复测（2026-10-30）
+
+**结果：通过。** 按计划各完成两次顺序：H1 接听后 H2 拒接，以及 H2 拒接后 H1 接听。每次都先确认 H1/H2 runner 返回同一个新 call ID、均为 `INCOMING_RINGING`，并在各自本轮 logcat 中确认 `HostCall: Incoming call ringing`；服务端最新会话 ID 与两端一致。所有呼叫都由 Homura `adb emu gsm call` 产生，推送走真实 FCM，未用 API 造呼叫或模拟推送。
+
+前两次顺序中，两次最终均由 H1 成为唯一赢家：H1 `ACTIVE`、H2 `ENDED/answered_elsewhere`，Homura modem 保持 `mCallState=2`；随后由 H1 测试挂断，两端及服务器会话都结束。反向顺序中，两次都以整通 `ended/declined` 收尾，H1/H2 均为 `ENDED`，Homura `mCallState=0`。没有出现“主机仍在通话而网关已挂断”。服务器控制事件显示两次接听优先的 `accept→decline_all` 间隔为 0.845 秒和 0.905 秒；两次拒接优先的 `decline_all→accept` 间隔为 0.272 秒和 0.479 秒。脚本每次目标间隔约 0.5 秒，考虑了 runner 200 ms 轮询和 H2 ADB 触发耗时；反向第二次将目标调至 0.75 秒，使服务端实际控制间隔回到约 0.5 秒。该数据验证的是竞态顺序和稳定终局，不把异步控制提交时间误称为精确 UI 点击时间。
+
+早期测时方法较宽的额外来电保留为未计分记录，没有替代四次有效复测。首次使用 Telecom 历史计数的误判也没有执行任何动作；已在前置风险记录中更正。逐次结果、脱敏服务端事件和 harness 见证据目录中的 `c2-result-summary-20261030.md`、`c2-trial-2b.txt`、`c2-trial-2c.txt`、`c2-trial-3a.txt`、`c2-trial-3b.txt`、`c2-server-control-events-20261030.txt`、`c2-four-trials-20261030.py`。本项没有产品代码改动或产品 commit。

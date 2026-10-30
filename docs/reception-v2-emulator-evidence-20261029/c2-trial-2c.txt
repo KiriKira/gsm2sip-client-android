@@ -1,0 +1,24 @@
+case=C2 trial=2c order=answer-first preflight=idle_listening
+gsm_call_command=OK host_utc_ns=1793350403904846642
+h1_fresh_hostcall_ringing_epoch=1793350404.855
+h2_fresh_hostcall_ringing_epoch=1793350395.334
+fresh_call_id_short=0ff1db99 server_created_utc=2026-10-30 08:53:24.620 server_state=ringing
+h1_phase=INCOMING_RINGING h2_phase=INCOMING_RINGING same_call_id=yes
+clock_calibration_emulator-5556_rtt_ms=16.9 intersection_width_ms=16.8
+clock_calibration_127.0.0.1:15559_rtt_ms=235.2 intersection_width_ms=228.0
+action_h1=answer reply=OK phase=ANSWERING trigger_window_ms=16.2 handler_window_ms=2100.0
+action_h2=reject reply=OK phase=DISCONNECTING trigger_window_ms=258.0 handler_window_ms=2048.0
+clock_calibration_emulator-5556_rtt_ms=30.0 intersection_width_ms=28.9
+clock_calibration_127.0.0.1:15559_rtt_ms=286.8 intersection_width_ms=280.0
+command_commit_host_monotonic_bounds_seconds=[0.484,0.758]
+runner_poll_interval_ms=200 handler_start_bounds_seconds=[0.284,0.958] target=0.500
+final_phases={'h1': 'ACTIVE', 'h2': 'ENDED'} gateway_modem_call_state=2
+server_call_short=0ff1db99 state=active reason= winner=True
+server_participant_states=["accepted||1","ended|answered_elsewhere|2"]
+server_control_events=["2026-10-30T08:53:32.569114805Z accept revision=2","2026-10-30T08:53:33.474314803Z decline_all revision=2","2026-10-30T08:53:33.631815401Z winner revision=3","2026-10-30T08:53:34.755225502Z active revision=4"]
+outcome=CONNECTED_STABLE winner_host=h1
+test_hangup_reply=OK
+after_test_hangup_phases={'h1': 'ENDED', 'h2': 'ENDED'}
+h1_fresh_control_incoming=True fresh_disconnect=True
+h2_fresh_control_incoming=True fresh_disconnect=True
+trial_result=PASS

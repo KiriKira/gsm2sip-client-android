@@ -1,0 +1,23 @@
+case=C2 trial=2a order=answer-first preflight=idle_listening
+gsm_call_command=OK host_utc_ns=1793349977573766253
+h1_fresh_hostcall_ringing_epoch=1793349978.691
+h2_fresh_hostcall_ringing_epoch=1793349969.113
+fresh_call_id_short=c5d7700c server_created_utc=2026-10-30 08:46:18.432 server_state=ringing
+h1_phase=INCOMING_RINGING h2_phase=INCOMING_RINGING same_call_id=yes
+clock_calibration_emulator-5556_rtt_ms=19.9 intersection_width_ms=18.7
+clock_calibration_127.0.0.1:15559_rtt_ms=261.4 intersection_width_ms=261.4
+action_h1=answer reply=OK phase=ANSWERING trigger_window_ms=18.1 handler_window_ms=2016.0
+action_h2=reject reply=OK phase=DISCONNECTING trigger_window_ms=258.9 handler_window_ms=2008.0
+clock_calibration_emulator-5556_rtt_ms=45.8 intersection_width_ms=43.9
+clock_calibration_127.0.0.1:15559_rtt_ms=265.1 intersection_width_ms=258.8
+command_commit_separation_seconds=[0.404,0.714]
+action_handler_separation_seconds=[-1.612,2.722] uncertainty_width=4.334 target=0.500
+final_phases={'h1': 'ACTIVE', 'h2': 'ENDED'} gateway_modem_call_state=2
+server_call_short=c5d7700c state=active reason= winner=True
+server_participant_states=["accepted||1","ended|answered_elsewhere|2"]
+outcome=CONNECTED_STABLE winner_host=h1
+test_hangup_reply=OK
+after_test_hangup_phases={'h1': 'ENDED', 'h2': 'ENDED'}
+h1_fresh_control_incoming=True fresh_disconnect=True
+h2_fresh_control_incoming=True fresh_disconnect=True
+trial_result=PASS
