@@ -190,3 +190,7 @@ Sol 复核了 C1 复测后的状态差异：普通 `MainActivity` 调用 `SimReg
 通过 `HostJointInstrumentation` 的生产 `answer` action 接听后，Madoka 为 `ACTIVE`、GW 为 `mCallState=2`，A session 为 `active/winner=true`；B 的同一 call 为 `ended/answered_elsewhere`，跨节点共有 3 个 participant 记录为 `answered_elsewhere`。这满足 D2 的单次 Telecom 来电合并与接听后其他分支结束断言。
 
 脚本随后因额外、未列入计划的 `active_participant_count` 检查误报，使用 GSM caller cancel 清理该测试通话；该检查不影响已满足的 D2 计划断言。清理后 A 为 `ended/cellular_ended`，B 保持 `ended/answered_elsewhere`，Telecom 与 GSM 均空闲。本次不声称真实蜂窝 HAL 音频通过。脱敏证据见 [d2-multinode-retest-20261030.txt](reception-v2-emulator-evidence-20261029/d2-multinode-retest-20261030.txt)；不包含号码、call ID、Worker URL、凭据或原始日志／截图。
+
+### B6 清理旧 Telecom 状态后的来电确认（2026-10-30 11:39Z）
+
+先取消 D3 前一轮遗留的精确测试呼叫，确认 GW、H1、H2 的 modem 均 idle、H1/H2 无活动 Telecom 呼叫，并将 H2 旧的已结束来电页退出。H1 设置页确认“后台来电接收”开启、“后台短信同步”关闭。随后只注入一通真实 GSM 来电：GW 于 11:39:39.868Z 检测到 modem 来电；H1 于 11:39:40.959Z/11:39:41.122Z 收到真实 FCM `wire=2 kind=call`，11:39:42.104Z 记录 `Incoming call ringing`，11:39:45Z 前台为 `CallActionActivity`。确认响铃后取消该测试来电，modem 恢复 idle、活动 Telecom ringing 归零。此项确认 B6 的“短信同步关闭时电话照常响铃”断言；不声称接听、媒体或蜂窝 HAL 音频通过。返回应用后短信同步恢复开启，H1 原设置恢复。脱敏证据见 `b6-call-clean-telecom-retest-20261030.txt`；使用真实 FCM，未用模拟推送。

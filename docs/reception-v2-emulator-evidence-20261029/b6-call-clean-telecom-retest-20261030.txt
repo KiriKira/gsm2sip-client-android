@@ -1,0 +1,7 @@
+B6 incoming-call assertion retest after clearing prior call state — 2026-10-30 UTC
+
+Preflight at 11:39:38Z: the Homura, H1, and H2 modem call states were idle; no active H1/H2 Telecom call was present. The previous D3 test call had been canceled by its reserved test caller, and the gateway modem returned to state 0. The old ended CallActionActivity on H2 was dismissed to MainActivity. H1 remained in the production Settings UI with “后台来电接收” enabled and “后台短信同步” disabled. Nodes A/B/C were healthy. No app data, pairing, or server rows were changed for cleanup.
+
+One real emulator GSM call was injected at 11:39:38Z. Homura logged `Incoming GSM call detected` at 11:39:39.868Z. H1 received real FCM `wire=2 kind=call` at 11:39:40.959Z and 11:39:41.122Z, then logged `Incoming call ringing` at 11:39:42.104Z; `CallActionActivity` was the foreground activity at 11:39:45Z. The caller was canceled after confirming the ringing path; modem state returned to 0 and the active Telecom ringing count returned to 0. This confirms the B6 call assertion with SMS sync disabled; it does not claim answer, cellular HAL audio, or an additional SMS delivery assertion.
+
+After the call screen was dismissed, the production app resumed background sync and the SMS switch displayed enabled again, restoring the prior H1 settings. The successful call used the real SoulGem → Kyubey → FCM route; no synthetic push was used. Private raw logcat remains only on the test server under `/tmp/reception-r1-private-20261030/` and was not committed.
