@@ -76,14 +76,14 @@ A1–A4、B1–B2 和 B4 在模拟器上通过；B5 的离线设置同步子项�
 
 ## 2026-10-30 Sol 复核与续测补充
 
-本节追加在首轮报告之后，首轮表格与 2026-10-28 的 F1/F2 FAIL 历史原样保留。GPT-6.1 Sol 阅读了本报告、测试计划、协议、2026-10-28 升级报告及归档证据，并根据后续现场状态修正了初始判断。复核与更正分别存于 `sol-report-review-20261030.md`、`sol-review-actions-20261030.md` 和 `sol-final-followup-20261030.md`。本轮没有修改产品代码、手工改数据库或用模拟推送代替 FCM。
+本节追加在首轮报告之后，首轮表格与 2026-10-28 的 F1/F2 FAIL 历史原样保留。GPT-6.1 Sol 阅读了本报告、测试计划、协议、2026-10-28 升级报告及归档证据，并根据后续现场状态修正了初始判断。复核与更正分别存于 `sol-report-review-20261030.md`、`sol-review-actions-20261030.md` 和 `sol-final-followup-20261030.md`。B3/C1 两个已授权产品缺陷分别由 `d60e3c9`、`299213b` 修复并完成代码回归；SIM 恢复通过生产 API 完成，没有手工改数据库或用模拟推送代替 FCM。
 
 | 项目 | Sol 对可执行性/限制的判断 | 本轮最终处置与证据 |
 | --- | --- | --- |
 | B3 去电 | 初始拨号页提示本身不足以判环境阻塞；后续有效尝试定位为 Madoka 出站控制逻辑未能 dispatch。 | **产品缺陷已修复；相关回归 PASS，模拟器端到端复测待补**：提交 `d60e3c9` 绕过 incoming-disabled 时等待 `READY` 的死锁，同时保持接收关闭。主线程相关 5 类 25/25 通过；代理全量 258/258、lint 0 errors、debug assemble 成功。失败证据、根因、改动范围和验证详情见 `b3-fix-regression-20261030.md`。 |
 | B5 剩余来电断言 | 通过真实 modem→SoulGem→真实 FCM→H2 Telecom 的一次路径可执行。 | **PASS（H1/H2 断言）**：H1 `incoming=false`，H2 唯一在线手机进入 Telecom `RINGING`；H3 仍是离线但有效的服务器注册，作为拓扑偏差记录，不算第二台响铃手机。见 `b5-call-only-h2-20261030.txt`。 |
 | B6 剩余断言 | SMS 开关/游标子项已可由真实模拟器 SMS 与真实 FCM 验证；来电必须有活动的 Homura call-control runtime。 | **SMS 子项部分通过；来电 BLOCKED（GW runtime/setup）**：清除旧 modem/Telecom 状态后，新的 ADB GSM 注入确实进入 GW modem 并触发 `GsmCallManager`，但没有 `GatewayService`/`CallOrchestrator`/`GsmRtc` offer、SoulGem 新 session 或 H1/H2 call push。Sol 核对确认此前引用的 `734201fb` 是上一晚 G2 的历史 session。Homura 当时 `autoconnect=false`、`background_user_stopped=true`、`background_service_running=false`、`background_voice_enabled=false`、SIM 未绑定；该 attempt 不能评价 relay/FCM。后来通过普通 UI 确认 SIM 并启用 control-only 后台服务；语音 runtime 仍关闭。按计划不做 Magisk/root 测试，因此本项不重复注入。见 `b6-sms-independence-20261030.txt`、`b6-call-retry-setup-state-20261030.txt`。 |
-| C1 | 来电已到 Telecom，但此前未响应 self-managed Telecom 的 UI 请求。 | **产品缺陷已修复；相关回归 PASS，模拟器端到端复测待补**：提交 `299213b` 仅在当前有效的 incoming/ringing 调用上启动既有接听/拒接界面，不会自动接听。主线程相关 5 类 27/27 通过；代理全量 260/260、lint 0 errors、debug assemble 成功。失败证据、根因和影响范围见 `c1-fix-regression-20261030.md`。 |
+| C1 | 来电已到 Telecom，但此前未响应 self-managed Telecom 的 UI 请求。 | **产品缺陷已修复；代码回归 PASS；SIM 前置已恢复，端到端复测待补**：提交 `299213b` 仅在当前有效的 incoming/ringing 调用上启动既有接听/拒接界面，不会自动接听。主线程相关 5 类 27/27 通过；代理全量 260/260、lint 0 errors、debug assemble 成功。保留同一 SIM UUID 的生产确认已将本地与服务器 mapping revision 从 12 一致推进到 13 并 verified；未清数据或重配对。详见 `c1-fix-regression-20261030.md` 和 `c1-sim-reconfirm-20261030.txt`。 |
 | C2/C3 | C2 可用设备端 runner 做协议层竞争验证，必须量取两动作约 0.5 秒间隔；C3 必须通过 Madoka Settings 实际关闭接收，runner 的 reject/hangup 不能代替。完整可见 UI 结论依赖 C1。 | **未完成（停止条件）**：Sol 认为协议层路径可执行，但 G2 恢复来电未进入 modem/GW 后按正常使用失败规则停止，本轮未继续触发 C2/C3。它们不是已证明不可做，也不记环境 PASS。 |
 | D1–D3 多节点 | 复核确认 B/C 的当前 Homura 优先级 1/2 行健康；`SIM_ID_CONFLICT` 只留在已移除的历史优先级 3/4 行。可用 H1 端 `HostJointInstrumentation mesh_add` 调用生产 `HostNodes.add()`，保留 H1 的 A 会话，但须先有 H1 runner。 | **D1 BLOCKED（工具本轮不可用），D2/D3 未运行**：只读检查发现 H1 仅装有 `R1DiagnosticInstrumentation`，H2 没有 instrumentation；没有 H1 的 `HostJointInstrumentation` 控制入口。此前 Settings/加入链接入口已触发 ANR，按要求未重复。ANR 截图含测试号码，留在本地未上传。未来可先构建/安装受控的 test-only runner 或修复可见加入路径；没有删除节点、改 SQL 或恢复旧快照。见 `d1-control-path-status-20261030.txt` 及 `d-multinode-current-baseline-20261030.md`。 |
 | F1–F3 升级顺序 | 属于起始状态和 APK provenance 前置，不是证明产品做不到。将旧 APK 覆盖安装到当前 v2 数据不会生成真实 v1 起点。 | **BLOCKED（缺有效基线）**：归档中没有可验证的 pre-R1 server/device snapshot 和对应同签名旧版 APK。需先取得真实快照，或用旧 main 与已验证签名重新建立计划要求的初态，再按原顺序覆盖升级；不临时降级/改状态。10 月 28 日 FAIL 行不变。 |
@@ -100,3 +100,9 @@ G2 恢复阶段最初未出现新 modem edge 的原因已查明：旧 GSM 来电
 本次 C1 端到端重测尝试无效：2026-10-30T03:59:11Z 的真实模拟器 GSM 来电进入 Homura modem，`GsmCallManager` 检测到来电，但随后因本地 SIM 映射为 `UNVERIFIED` 而在 Telecom offer 前结束；SoulGem 没有新 session，Madoka 没有收到 call push。它不构成 C1 修复的通过或失败，旧报告中的 C1 FAIL 仍保留。脱敏逐层证据见 `c1-retest-sim-precondition-20261030.txt`。
 
 为验证修复，下一步只使用已有 `GatewayJointInstrumentation` 的 `reconfirm_retained_emulator_sim` 路径：保留当前 gateway pairing 和原 SIM UUID，调用生产 SIM propose/confirm API，并要求 `same_sim_verified=true`；不直接写 SQL，不清应用数据、不卸载、不重启模拟器、不更换 SIM、不重新配对。操作会推进节点 A 的 SIM mapping revision，并改变该 AVD 的本地 SIM 身份状态；若服务端向 B/C 同步，revision 也会随之更新。它不会删除 pairing、设备、会话或短信数据。操作成功后不能无损恢复到之前的 `UNVERIFIED` 状态，只能通过同一保留 SIM 的生产确认流程再次校正；因此先保存配套本地快照、核对当前无 modem/Telecom/Host 活动呼叫，并验证 SIM UUID、slot 和 subscription 一致。任一不一致、确认后仍 `UNVERIFIED`、revision 不一致或 PhoneAccount 正反向关联不唯一时立即停止，不再注入来电。此操作不启用 root/Magisk/CAPTURE_AUDIO_OUTPUT，也不改变语音开关。
+
+### C1 SIM 前置恢复结果（2026-10-30）
+
+通过上述 guarded retained-SIM 路径完成生产确认。相同 SIM UUID 保留；revision 由本地/服务器 12 一致推进到 13，本地身份为 `FINGERPRINT_VERIFIED`，服务器行是 `active/identity_verified=true`，slot 匹配。Telecom 预检中只有一个 call-capable SIM PhoneAccount；其反查 subscription ID 匹配该 SIM，`createForSubscriptionId(subId).phoneAccountHandle` 也回指同一账户。当前 mapping 没有保存单独的 PhoneAccount handle pin；`SimRegistry` 允许该字段为空并在运行时按已验证 SIM 的 subscription 解析，因此真实来电 offer 仍需实测。操作没有清数据、卸载、重启 AVD、重新配对、手改 SQL 或注入电话；结束时 modem 空闲、SoulGem 活动 session 数为 0。
+
+Instrumentation 返回 `READY` 并完成受控确认；首次启动时旧 `stop` mailbox 命令仍在，因此 runner 随后按该命令正常结束。它没有执行来电，也未影响数据。发起 C1 前会先写入新的 `status` mailbox，再启动 runner。脱敏证据和本地私有快照哈希见 `c1-sim-reconfirm-20261030.txt`。

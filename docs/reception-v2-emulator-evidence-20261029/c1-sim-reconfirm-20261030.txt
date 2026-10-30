@@ -1,0 +1,37 @@
+C1 SIM identity precondition recovery (sanitized)
+Date: 2026-10-30
+Operation: existing GatewayJointInstrumentation retained-SIM path; production
+propose/confirm API; no direct database writes.
+
+Before confirmation, the retained A mapping was `UNVERIFIED`, local revision 12;
+the matching SoulGem row was `unverified`, `identity_verified=false`, revision
+12. The current modem was idle, Gateway runner bridge was IDLE with Telecom
+state DISCONNECTED, Host runner was listening with no call, and SoulGem had no
+active call session. Pairing owner and API origin matched the retained Gateway
+configuration. Private pre-operation copies were saved outside the repository.
+
+The runner validated the existing SIM UUID, subscription and slot before its
+production API request. After confirmation, the same SIM UUID remained in use;
+local and server mapping revisions both became 13. Local identity is
+`FINGERPRINT_VERIFIED`; the server row is `active/identity_verified=true`.
+Telecom preflight found exactly one call-capable SIM PhoneAccount, and the
+account/subscription round trip matched the retained SIM. The local mapping
+does not store a separate PhoneAccount handle pin; the implementation permits
+an absent pin and resolves using the verified subscription. The app removed
+the one-shot retained-confirmation fixture fields only after the confirmation
+and local verification path succeeded. The runner reported `READY` and
+`PASS`; it then exited on the previous `stop` mailbox command. No call was
+injected during this step, and there are still zero active call sessions.
+
+Private trace material is kept under
+`/tmp/reception-r1-private-20261030/c1-sim-reconfirm-pre/`; it contains the
+SIM UUID and owner identifiers and was not uploaded. Snapshot hashes:
+
+- Local SIM registry before: `661406c98d12d880f793b0ae61818c374134dd20af6b37e1963263dcd4ad33ac`
+- Local SIM registry after: `cc1cb481d98d8c91ad230f84bd9b7e4a71460b0d4814bd4dee845b55429b60e5`
+- SoulGem SIM row before: `17f3e5f0af4c25309283b57aa310a065dcc3ef494ec8765550a10b6149723fba`
+- SoulGem SIM row after: `9cb1cdb671dbd1d66b9e3a5e6afab80807e43bc300443e1f2540f05b000b5b31`
+
+The confirmation advanced mapping metadata only. It did not clear app data,
+uninstall or reboot the AVD, replace the pairing, alter other node/device
+records manually, or create a call/session.
