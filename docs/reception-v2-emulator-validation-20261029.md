@@ -136,3 +136,9 @@ Instrumentation 返回 `READY` 并完成受控确认；首次启动时旧 `stop`
 ### C1 修复后即时来电复测（2026-10-30 04:37Z）
 
 本次 `adb emu gsm call` 返回 `OK`，但 8.222 秒后 GW modem 已空闲；该窗口内没有新的 Homura `GsmCallService.onCallAdded`/incoming callback，也没有 RTC offer、Madoka 新 call push 或 `CallActionActivity`。按停止规则在 8 秒处取消，没有点击拒接。H2 当时处于飞行模式；恢复网络后观察 8 秒无迟到响铃。故这次不能判定 C1 接听/拒接 UI 修复通过或失败，C1 的端到端拒接断言仍未完成，停止在 GW 注入/回调边界。脱敏记录与原始日志哈希见 `c1-fast-real-ui-20261030.txt`；原始日志和截图未上传。
+
+### Homura retained-SIM 与后台状态恢复（2026-10-30）
+
+Sol 复核了 C1 复测后的状态差异：普通 `MainActivity` 调用 `SimRegistry.snapshot()` 时，Android app UID 读不到 ICCID fingerprint，会按保护逻辑把 `FINGERPRINT_VERIFIED` 本地映射改为 `UNVERIFIED`；runner 的 `finally` 调用 `GatewayService.stop()`，会把后台开关持久化为关闭并保留 `voice=false`。本次恢复前只读核对了本地与 Node A 的活动 SIM UUID，一致；两边 revision 均为 13、slot 均为 0，本地 subscription 为 1；Node A 行仍是 `active/identity_verified=true`，modem 空闲且 Telecom 无响铃。
+
+为保留原 UUID 且不产生新服务器 revision，使用一次性 test-only instrumentation（目标 app UID，无 shell permission adoption）调用现有生产 `SimRegistry.confirmMapping()`。结果 `PASS`：本地状态成为 `LOCAL_CONFIRMED`，SIM 映射与 revision 13 保持不变；没有调用 server API、手改偏好或写 SQL。临时 helper 源文件在使用后已从远端构建目录删除，原 `GatewayJointInstrumentation` 测试 APK 已恢复。随后通过普通 UI 的“启用后台运行”恢复 control/sync：`autoconnect=true`、`background_opted_in=true`、`background_user_stopped=false`、`background_task_manager_stopped=false`、服务运行、`background_voice_enabled=false`。没有执行语音诊断、root/Magisk 或系统权限改动。脱敏证据：`gw-local-sim-recovery-20261030.txt`。这只恢复测试前置状态，不构成 B6、G1、G2 或 C1 来电断言通过；后续短用例待继续。
