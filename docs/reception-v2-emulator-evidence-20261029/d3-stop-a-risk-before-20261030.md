@@ -1,0 +1,9 @@
+# D3 stop-node-A risk and rollback — before change (2026-10-30)
+
+Read-only preflight immediately before the planned action found nodes A, B, and C running the same PR #33 `reception-r1` image and reporting healthy. Node A's Docker restart policy is `unless-stopped`; its persistent `/data` bind mount remains attached while the container is stopped. B and C remain independent running nodes. The operator rollback is `sudo docker start reception-r1-a`, followed by a health check. Manual stop suppresses automatic restart until explicitly started, so restore is part of this procedure.
+
+H1 remains paired to A and B; the immediately preceding D2 run proved fresh sessions on both nodes, a healthy B push endpoint, one merged Telecom incoming call, and `answered_elsewhere` on the other branch. Homura's current A/B mesh was unchanged after D2. Homura and H1 radio call state are idle; no call is active. No SQL/database edits, pairing changes, SIM changes, image updates, firewall rules, root/Magisk, or product changes are planned.
+
+Stopping A temporarily makes A's API and its clients unavailable. Calls during that interval can only succeed through the still-healthy B/C nodes; A-side traffic may fail until restoration. The test uses one real ADB GSM incoming call after A is confirmed stopped. If B does not deliver it, do not issue another call; start A immediately and record the failed attempt. After the test, start A and verify A/B/C health and both emulator call states before continuing.
+
+The action is reversible at the container level and does not remove or rewrite the persistent database. The container inspection showed a persistent bind mount and `unless-stopped`; exact host storage paths and runtime identifiers remain in private terminal evidence and are not copied into this repository.
