@@ -178,3 +178,15 @@ Sol 复核了 C1 复测后的状态差异：普通 `MainActivity` 调用 `SimReg
 **结果：未通过；媒体路径受测试环境 TURN 可达性限制。** H1 关闭接收后停止振铃；H2 继续振铃，runner 应答后 Android Telecom 进入 `ACTIVE`（09:16:52.982Z）。但 H2 的两次 WebRTC 统计均为 `selected_pair=null/null`、收发包为 0、候选仅为 host；Homura 有 `answer_committed` 与 `cellular_answer_requested`，没有进入 `cellular_active`。来电在正常振铃窗口结束时结束，因此不把 Telecom 接听动作当作已接通，也不判 C3 完整通过。
 
 对 TURN 的只读检查发现，Node A 使用外部 TURN 配置；测试机 3478 和 UDP relay 端口确有监听/转发，但对应的是仍在运行的旧容器，不能证明它使用 Node A 的共享密钥。从开发机到测试机的 TCP/22 成功，而 TCP/3478 超时；有效 UDP STUN Binding 请求也没有响应。测试机本机输入策略为 accept 且有本地转发规则，故问题位于外部入口路径或其后端目标。当前没有 AWS CLI/凭据读取云安全组，未改任何防火墙、容器、节点配置或产品代码。完成媒体复测需要可从 H2 网络到达、并与 Node A 共享 TURN 密钥的 listener，以及 UDP 49160–49259 relay 可达；现有旧容器占用相同端口，不能未经评估直接覆盖。证据摘要见 `c3-followup-20261030.md`。
+
+### D2 多节点复测（2026-10-30）
+
+**最终结果：PASS。** 本节覆盖旧矩阵中 D2 的 BLOCKED／未运行状态；旧矩阵、首轮 FAIL 及其他历史原文保留，D1、D3 不因本次 D2 通过而改变结论。H1 保留 A 配对并增加 B，节点数为 2。复测前 A、B 的健康 push endpoint 分别为 2/2、1/1；v2 reception 的 incoming 与 sms 均开启，A 为 3/3，B 为 1/1。
+
+10:58:22.790Z 的首次真实 GSM 注入未计分：runner 先报告 `INCOMING_RINGING`，脚本随即检查 Telecom 得到 0 个 connection 并取消来电；后续 Telecom history 中可见 10:58:27.643Z 的 `SET_RINGING`。Sol 核对源码与时序后确认为状态观察竞态：本地 phase 先更新，Telecom connection 随后异步创建。该次是测试方法误差，不作产品 FAIL。离线验证日志 parser 后才进行下一次复测。
+
+11:02:03.533Z 通过真实 `adb emu gsm call` 再次注入来电，同一个 fresh call 在 A、B 均产生 session。H1 实时日志中，首条 `HostPush: received wire=2 kind=call` 为 11:02:05.205Z，本次窗口共 5 条；首条 `HostCall: Incoming call ringing` 为 11:02:05.903Z，共 1 条。Telecom 仅有 1 个属于 `HostCallConnectionService` 的 `RINGING` connection。推送经过真实 FCM；日志条数仅按实记录，不将 5 条消息解读为 5 通来电或逐条归因到节点。A 的 2/2 个端点、B 的 1/1 个端点的 call cursor 均前进。
+
+通过 `HostJointInstrumentation` 的生产 `answer` action 接听后，Madoka 为 `ACTIVE`、GW 为 `mCallState=2`，A session 为 `active/winner=true`；B 的同一 call 为 `ended/answered_elsewhere`，跨节点共有 3 个 participant 记录为 `answered_elsewhere`。这满足 D2 的单次 Telecom 来电合并与接听后其他分支结束断言。
+
+脚本随后因额外、未列入计划的 `active_participant_count` 检查误报，使用 GSM caller cancel 清理该测试通话；该检查不影响已满足的 D2 计划断言。清理后 A 为 `ended/cellular_ended`，B 保持 `ended/answered_elsewhere`，Telecom 与 GSM 均空闲。本次不声称真实蜂窝 HAL 音频通过。脱敏证据见 [d2-multinode-retest-20261030.txt](reception-v2-emulator-evidence-20261029/d2-multinode-retest-20261030.txt)；不包含号码、call ID、Worker URL、凭据或原始日志／截图。

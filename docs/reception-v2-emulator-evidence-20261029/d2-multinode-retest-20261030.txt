@@ -1,0 +1,44 @@
+D2 多节点复测 — 2026-10-30
+最终结果：PASS
+时间均为 UTC。
+
+范围与前置
+- H1 保留 A 配对并增加 B，节点数为 2；未为本用例删除 A。
+- A 健康 push endpoint：2/2；B：1/1。
+- v2 reception incoming 与 sms 均开启：A 3/3，B 1/1。
+- 本记录覆盖旧矩阵中 D2 的 BLOCKED／未运行状态；首轮 FAIL 与历史报告原文保留。D1、D3 不在本次通过结论内。
+
+未计分的方法误差
+- 10:58:22.790Z：首次真实 ADB GSM 注入。
+- HostJoint runner 先报告 INCOMING_RINGING；脚本立即检查 Telecom 得到 0 个 connection，随后取消来电，未接听。
+- 后续 Telecom history 可见 10:58:27.643Z SET_RINGING。
+- Sol 核对后确认这是本地 phase 更新先于异步 Telecom 创建的观察竞态，不作产品 FAIL。
+- 第二次复测前已离线验证日志 parser。
+
+有效复测
+- 11:02:03.533Z：第二次真实 adb emu gsm call 注入。
+- 同一个 fresh call 在 A、B 均出现 session；原始标识仅在私有现场用于关联，不在本文件保留。
+- H1 HostPush 首条 received wire=2 kind=call：11:02:05.205Z；本次窗口共 5 条。
+- H1 HostCall 首条 Incoming call ringing：11:02:05.903Z；本次窗口共 1 条。
+- H1 Telecom 仅有 1 个 HostCallConnectionService RINGING connection。
+- 推送使用真实 FCM；5 条接收日志不等同于 5 通来电，也不单凭条数逐条归因到 A/B。
+- A 的 2/2 个端点、B 的 1/1 个端点的 call cursor 均前进。
+
+接听与分支终局
+- 使用 HostJointInstrumentation 的生产 answer action 接听。
+- Madoka：ACTIVE。
+- GW：mCallState=2。
+- A session：active，winner=true。
+- B 同一 call：ended/answered_elsewhere。
+- 跨节点共有 3 个 participant 记录 answered_elsewhere。
+- 单次 Telecom 来电合并与接听后其他分支结束的 D2 计划断言均已满足。
+
+清理与结果解释
+- 脚本在计划断言满足后，因额外的 active_participant_count 检查误报，使用 GSM caller cancel 清理通话。
+- active_participant_count 不是 D2 计划断言；该额外检查不改变 D2 PASS。
+- 服务端最终：A ended/cellular_ended；B ended/answered_elsewhere。
+- 清理后 Telecom 与 GSM 均空闲。
+- 不声称真实蜂窝 HAL 音频通过。
+
+脱敏边界
+- 本文件不含号码、call ID、Worker URL、凭据、原始日志或截图。
