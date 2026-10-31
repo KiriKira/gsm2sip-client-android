@@ -1,5 +1,33 @@
 # Reception v2 模拟器验收（2026-10-29）
 
+## 2026-10-31 扩容后续测：当前结论与提交索引
+
+本节优先于后文历史判断。以下列出本轮证据/测试成果提交；纯报告索引更新不递归列入：
+
+| 提交 | 成果 |
+| --- | --- |
+| `0c8efeb` | APK 来源、密钥/SIM 轮次审计与扩容后 H3 启动证据（密钥轮次说明在本节进一步纠正） |
+
+测试机 `18.119.132.34` 的 `/dev/root` 实测为 **92G 总量、58G 已用、35G 可用、63% 使用率**；按字节查询可用 `37,474,652,160`，即 **34.90 GiB**，比 H3 的 7.37 GiB 启动门槛多约 27.53 GiB。不需要清理，原 H3 API 34 已在不 wipe 的情况下启动并完成开机。后续 E2/E3、F1–F3、D3 与 C3 的实际业务结果逐项追加；本次启动本身不算 E2/E3 通过。一小时观察继续按 Kiri 指示暂缓。
+
+### A：APK 来源和两种 keystore 的明确纠正
+
+旧版 Homura `31f65a7` 和旧版 Madoka `5b721c3` 的 APK 是**测试机本地 Gradle debug 构建**，不是 GitHub Actions artifact 下载。留存的日志包含 `:app:packageDebug`、`:app:assembleDebug` 和成功结果（分别 1 分 24 秒、1 分 40 秒）；没有留存完整原始 shell 命令，因此不将复现命令冒充历史命令。复现构建命令为 `GSM_RELEASE_VERSION_CODE=1000000000 ./gradlew --no-daemon :app:assembleDebug`，Host 另使用已核验的真实 HTTPS relay 环境变量。具体 APK 路径、SHA-256、源归档逐文件比对和日志 SHA-256 见 `f123-fresh-baseline-decision-20261031.md`。两包均为 `versionCode=1000000000`，签名证书 SHA-256 均为 `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28`。
+
+构建机的 `debug.keystore` 保存 **APK 签名私钥**，目前仍可用。Homura 配对会话使用的是 **AVD 内 Android Keystore 的 AES SecretKey**（alias `gsm2sip.control.session.v1`），以 AES/GCM 加解密应用保存的 session blob；它不是 APK 签名 key，也不准确地称为“Android Keystore 私钥”。源码显示正常清会话只删 blob，正常重新配对复用 alias；异常取 key/加密才有重建分支。本轮没有该异常分支实际发生的证据，**无法指出某一步丢 key，也不能断言由于换 AVD 或重建 data 分区而丢失**。
+
+`0245714` 把 10 月 21 日 API 36 的历史 AVD 恢复问题与 10 月 30 日 API 34 F1 尝试混淆，相关“原 F1 API 36 Keystore 缺失”推断撤回。10 月 30 日使用的同名 API 34 AVD 仍在，当前会话可用；身份变化不证明设备 AES key 变化。原始 app-data tar 没有导出 key 也不证明当前 AVD 不能解开旧 blob。即使某次旧会话确实不能恢复，新配对会正常生成/使用自己的密钥，**不影响从干净身份执行 F1**。
+
+### B：SIM UUID、UNVERIFIED 与 revision 2
+
+SIM UUID 是 SoulGem 在某个 gateway 的 SIM 配对流程中分配的稳定服务端标识，用于把通话/短信命令绑定到具体映射；它不是 ICCID、IMSI 或 Android subscription ID。Homura 本地 `SimRegistry.identityState=UNVERIFIED` 与服务端映射的 `state`/`identity_verified` 是两层检查，不能把本地状态名称直接称作服务端 `VERIFIED/UNVERIFIED` 枚举。
+
+本次争议的 **revision 2** 来自 **2026-10-30 Node C 隔离 F1 尝试**：其本地映射为 `UNVERIFIED`、mapping revision 2，服务端对应记录 revision 2、`identity_verified=false`。它不同于 10 月 21 日历史 revision-1 映射，也不同于 10 月 31 日 D1 当前 gateway 的 revision-1、`LOCAL_CONFIRMED` 映射。正式重新确认会推进该 gateway 的映射 revision，旧 revision 的命令/本地解析需随之同步，不能用把数字改小来回退；支持的后续确认可以继续推进，撤销会话可以禁用访问，但历史 owner/SIM/revision 审计不是无痕可删。此影响限于对应测试身份，**无需为保护这条历史状态而阻塞新身份测试**。
+
+### C：F1 的正确基线与写入边界
+
+F1 的目标是旧版 Homura/Madoka 在本批 SoulGem/Kyubey 下完成真实来电、去电、短信和 legacy wire1 路径，**不要求复用某次旧配对**。已创建独立干净 F AVD 配置（GW API 34、Host API 35 Play），不会清当前 C3 设备数据；旧 APK 确实存在。本轮重新构建只用于更新真实 relay 配置和提供 x86_64 原生库，源代码与对应版本逐文件核验，保留原 debug 签名和 versionCode。新隔离 owner、设备配对、SIM propose/confirm、接收和 endpoint 记录均经支持的管理/生产 API 建立；它们的会话/endpoint 可正式撤销，审计记录不可无痕回滚。历史 owner、SIM 与数据不改，未用手工 SQL 写入。F1 通过后立即同一身份覆盖升级 GW 跑 F2，再覆盖升级 Host 跑 F3；不以旧 Keystore 恢复作前置。
+
 ## 被测提交与环境
 
 2026-10-29 首轮结果对应以下仓库提交；后续代码复测使用的提交见下方 2026-10-30 清单：
