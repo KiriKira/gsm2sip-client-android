@@ -1,0 +1,15 @@
+focus_before=ResumedActivity: ActivityRecord{68739f1 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t45}
+wake_before=mWakefulness=Awake
+inject_utc=2026-10-31T17:06:56.777+00:00
+shade_action_after_s=5.44
+fullscreen_seen=False
+notification_lines=android.title=String (<number>) ;; android.text=String (来电 · SIM1) ;; android.title=String (来电) ;; android.text=String (远程 SIM 通话) ;; android.title=String (短信同步运行中) ;; android.text=String (正在通过服务器接收远程 SIM 的短信)
+decline_button=[28, 298, 240, 346]
+decline_tap_utc=2026-10-31T17:07:04.487+00:00
+decline_after_inject_s=7.71
+notif_after_7s=android.title=String (短信同步运行中) ;; android.text=String (正在通过服务器接收远程 SIM 的短信)
+result=declined_from_notification
+log=om (  547): CallsManager: handlePhoneAccountChanged: phoneAccount=[[X] PhoneAccount: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0} Capabilities: SelfManaged  Audio Routes: BESW Schemes: gsm2sip  Extras: null GroupId: *** SC Restrictions: [NONE]]: TSI.rPA(cch)@Af0 || 10-31 17:07:07.682 I/HostPush( 1409): received wire=1 kind=sms priority=1 original=1 || 10-31 17:07:07.760 I/HostCall( 1409): Call control idle; the next call arrives by push
+finished_utc=2026-10-31T17:07:11.991+00:00
+server_call=61e6f47d-ea5f-4d08-a888-07dc2bdd7cf3 state=ended reason=declined
+participants=2, both ended/declined at 17:07:05.779 (tap 17:07:04.487 -> 1.29 s)
