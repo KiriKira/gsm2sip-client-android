@@ -15,7 +15,8 @@
 | `b1-summary.txt` | B1 | H1 关闭后只有 H2 响铃、两台节点的 `incoming` 与 revision |
 | `b4-summary.txt` | B4 | 划掉应用与重启后本地偏好与节点侧状态 |
 | `c3-summary.txt` | C3 | 两台同时响铃、关闭后 H1 停止（`reception_disabled`）、H2 继续响铃并可接听 |
-| `a1-summary.txt` | A1 | force-idle 时长、响铃时延、接听后的参与者状态（`answered_elsewhere`） |
+| `a1-summary.txt` | A1 | force-idle 时长、响铃时延、接听后的参与者状态（判定见报告正文：接听走的是另一台节点） |
+| `c1c-fix-summary.txt` | C1-c（文案修复后复测） | 注入→界面打开、点击→服务器 `declined`、两段文案各自出现的时间 |
 
 每条记录的 `*_utc` 是测试机时钟；主机侧的 `HostPush`/`HostCall` 行是模拟器时钟，两者不混用，
 跨设备时延用测试机时钟的轮询值（粒度约 0.5 s）。

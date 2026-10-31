@@ -15,6 +15,7 @@ FILES = [
     'd3-1-summary.txt', 'd3-2-summary.txt',
     'c1-a-summary.txt', 'c1-b-summary.txt', 'c1-c-summary.txt', 'c1-perm-summary.txt',
     'b1-summary.txt', 'b4-summary.txt', 'c3-summary.txt', 'a1-summary.txt',
+    'c1c-fix-summary.txt',
 ]
 
 RULES = [
