@@ -16,6 +16,11 @@
   接听/拒接按钮在通知栏，先唤醒屏幕并 `expand-notifications`，再按固定坐标点。
 - `b5.py` — B5：飞行模式下关闭来电接收，联网后 9.5 s 完成提交，之后只响 H2。
 - `b6.py` — B6：关闭后台短信同步后不再收 sms 推送但来电照响，重开后积压短信补发一次。
+- `mknode.py` — 从节点 B 克隆出新的 all-in-one 节点容器（自带网络/子网/端口）。
+- `addnode.py` — 在网关 App 里「添加节点」（只用 UI，不 force-stop，避免 SIM 身份重估）。
+- `f123-reconfirm.py` — 网关冷启动后若 `sim_bindings` 变 unverified，用 fixture 重新确认保留的 SIM。
+- `d13.py` — D1/D3：三节点下 host-less 节点返回 `NO_INCOMING_SUBSCRIBER` 后继续 offer；
+  停掉 D/E 后来电仍经 B 送达并接通。
 - `f1-probe.py` — 单次取证的只读探针（1 Hz 采样 DB + Host Telecom）。
 - `labq.py` — 在节点 B 上执行只读 SQL 的小工具（SQL 走 stdin）。
 
