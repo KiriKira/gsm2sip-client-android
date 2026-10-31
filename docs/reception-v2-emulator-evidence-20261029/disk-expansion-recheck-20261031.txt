@@ -1,0 +1,21 @@
+Remote test-machine disk expansion recheck — 2026-10-31
+
+Machine: ubuntu@18.119.132.34, /dev/root mounted on /.
+Initial df -h: 92G total, 58G used, 35G available, 63% used.
+Initial df -B1: 98,727,608,320 bytes total; 61,236,178,944 used;
+37,474,652,160 available (34.90 GiB).
+H3 startup preflight requirement: 7.37 GiB; headroom about 27.53 GiB.
+
+No deletion or cleanup was necessary. The existing reception-r1-h3-api34
+AVD was started without wipe-data or snapshots on emulator-5560, KVM,
+1024 MiB RAM and one vCPU. It completed boot (sys.boot_completed=1).
+After boot df -h remained 92G total, 58G used, 35G available, 63% used.
+
+Private launcher evidence:
+/home/ubuntu/gsm-webrtc-validation/reception-v2-r1/private/e23-20261031/h3-launch.raw
+
+To reduce memory pressure, all A/B/C call_sessions were first checked idle
+(0 active each), then H1's stale Telecom state was archived, its Host app
+was force-stopped and its emulator shut down normally. H1 userdata and
+pairing were retained. With GW/H3 only, MemAvailable returned to about
+2.2 GiB. This is a resource/setup action, not an E2/E3 business PASS.
