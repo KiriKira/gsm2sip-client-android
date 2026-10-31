@@ -8,6 +8,7 @@
 | --- | --- |
 | `0c8efeb` | APK 来源、密钥/SIM 轮次审计与扩容后 H3 启动证据（密钥轮次说明在本节进一步纠正） |
 | `ccbe3e9` | 明确撤回两轮 Keystore 混淆，纠正 F1 基线与 SIM/revision 判断 |
+| `d02b94f` | 同签名、真实新 relay 的旧版/当前版 x86_64 Host 标准 Gradle 构建证据 |
 
 测试机 `18.119.132.34` 的 `/dev/root` 实测为 **92G 总量、58G 已用、35G 可用、63% 使用率**；按字节查询可用 `37,474,652,160`，即 **34.90 GiB**，比 H3 的 7.37 GiB 启动门槛多约 27.53 GiB。不需要清理，原 H3 API 34 已在不 wipe 的情况下启动并完成开机。后续 E2/E3、F1–F3、D3 与 C3 的实际业务结果逐项追加；本次启动本身不算 E2/E3 通过。一小时观察继续按 Kiri 指示暂缓。
 
@@ -30,6 +31,14 @@ SIM UUID 是 SoulGem 在某个 gateway 的 SIM 配对流程中分配的稳定服
 F1 的目标是旧版 Homura/Madoka 在本批 SoulGem/Kyubey 下完成真实来电、去电、短信和 legacy wire1 路径，**不要求复用某次旧配对**。已创建独立干净 F AVD 配置（GW API 34、Host API 35 Play），不会清当前 C3 设备数据；旧 APK 确实存在。本轮重新构建只用于更新真实 relay 配置和提供 x86_64 原生库，源代码与对应版本逐文件核验，保留原 debug 签名和 versionCode。新隔离 owner、设备配对、SIM propose/confirm、接收和 endpoint 记录均经支持的管理/生产 API 建立；它们的会话/endpoint 可正式撤销，审计记录不可无痕回滚。历史 owner、SIM 与数据不改，未用手工 SQL 写入。F1 各断言记录后，同一身份覆盖升级 GW 跑 F2，再覆盖升级 Host 跑 F3；若旧 main 的已知业务缺陷复现，保留该子项 FAIL，不改旧 main、不把它重写为环境阻塞，也不因此跳过后续升级验证。不以旧 Keystore 恢复作前置。
 
 本轮标准 Gradle 构建已完成：旧 Host `host-main-f1.apk` SHA-256 `fae4ffd5d777416a81315e1987eba8539e83cd74e7f91c1d15f9663c123b4ee5`，当前 Host `host-pr-f3.apk` SHA-256 `66e15ee3f1bc40cf47a22b81e7ef502da3fba1db37c5efe32c79d68e08f03e10`；均为原签名、versionCode 1000000000、真实新 relay 配置、x86_64 原生库和 16 KiB 对齐。真实构建命令、外部 ABI init 脚本、源树比对和日志哈希见 `f123-fresh-build-artifacts-20261031.md`；构建成功不冒充真实 FCM 或业务通过。
+
+### D3：产品失败的根因层级及未授权修复范围
+
+**D3 保持 FAIL（产品行为），不改记环境阻塞。** 只读复核补齐了全 buffer 历史证据：真实 call FCM 到达后，Host 前台服务确实启动，在 54 ms 后执行 `STOP_FOREGROUND`；B 随后收到 `incoming=false`/revision 11，使该设备 participant 以 `reception_disabled` 结束。约 1 秒后恢复 true/revision 12 不会复活已经结束的 participant。期间没有操作员切换接收设置。
+
+已确认的故障机制是临时关闭被同步到健康 B 并撤出了来电；**最强上游假设**是 Madoka 将一次控制启动失败写成持久 incoming 关闭。源码 `HostCallService` 的启动 catch 调用 `CallRuntime.onListeningFailed`，后者写 `setEnabled(false)`；另有启动返回 false 的自动关闭入口。现有 catch 不输出异常栈，因此不能进一步声称已证实是某个网络异常、Android 禁止 FGS，或 session 切换竞态。原日志在采集后继续追加，原快照哈希已通过精确字节前缀复现；完整时间线、源码路径和哈希见 `d3-root-cause-review-20261031.md`。
+
+尚未改产品代码。建议的最小修复范围限于 Madoka 的 `CallRuntime`/`HostCallService` 与偏好边界：临时启动失败保留用户 incoming opt-in，错误结果绑定原 session/profile/generation，并加入脱敏原因记录；用户明确关闭仍应正常 PUT false、立即撤出 participant。无证据要求改 SoulGem/Homura。主要风险是误引入无限 FGS/重连耗电、旧任务影响新节点，或破坏用户关闭/C3 语义；需相应有界调度、代际取消和回归。**按 Kiri 要求，D3 修复等待单独授权**，不阻塞 E/F/C3 验收。
 
 ## 被测提交与环境
 
