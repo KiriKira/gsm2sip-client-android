@@ -21,6 +21,8 @@
 - `f123-reconfirm.py` — 网关冷启动后若 `sim_bindings` 变 unverified，用 fixture 重新确认保留的 SIM。
 - `d13.py` — D1/D3：三节点下 host-less 节点返回 `NO_INCOMING_SUBSCRIBER` 后继续 offer；
   停掉 D/E 后来电仍经 B 送达并接通。
+- `d2-multinode-host.py` — D2：主机同时配两个节点，两个节点各有一通 ringing，
+  主手机只有 `TC@…` 一个来电，接听后另一节点 `answered_elsewhere`。
 - `f1-probe.py` — 单次取证的只读探针（1 Hz 采样 DB + Host Telecom）。
 - `labq.py` — 在节点 B 上执行只读 SQL 的小工具（SQL 走 stdin）。
 
