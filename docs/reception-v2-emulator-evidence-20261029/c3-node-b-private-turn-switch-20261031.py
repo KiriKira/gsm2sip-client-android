@@ -176,6 +176,16 @@ def verify_runtime(obj, expected_env, old):
     for value in (new_config, old_config):
         value.pop("Env", None)
         value.pop("Image", None)
+    # Docker CLI `create` sets these client-attach defaults to true. The
+    # existing compose-created B has them false; they do not alter container
+    # runtime or the json-file log driver. Normalize only false -> true.
+    for key in ("AttachStdout", "AttachStderr"):
+        if old_config.get(key) is False and new_config.get(key) is True:
+            new_config[key] = False
+    # CLI create emits false where the compose-created container records null;
+    # both mean the OOM killer is not disabled. Never normalize true.
+    if old_host.get("OomKillDisable") is None and new_host.get("OomKillDisable") is False:
+        new_host["OomKillDisable"] = None
     return (
         obj.get("Image") == IMAGE
         and environment(obj) == expected_env
@@ -516,7 +526,7 @@ def main():
 
     print("node_b_private_turn_update=PASS")
     print("only_environment_difference=RTC_TURN_URLS")
-    print("full_config_and_hostconfig_except_bind_representation=PASS")
+    print("runtime_config_equivalent_except_bind_attach_and_default_null_representation=PASS")
     print("image_mount_network_port_restart_health=PASS")
     print("exact_h1_h2_active_sessions_v2_reception_and_fcm=PASS")
     print("gateway_install_identity_and_verified_sim_match=PASS")

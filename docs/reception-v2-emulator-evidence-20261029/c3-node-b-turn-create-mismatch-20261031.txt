@@ -1,0 +1,14 @@
+C3 Node B Docker-create equivalence mismatch (sanitized)
+Date: 2026-10-31
+Scope: first controlled replacement attempt, before stopping original B
+
+result=STOPPED_BEFORE_ORIGINAL_B_STOP
+original_B=exact_original_container_id; healthy=true; original_env_match=true
+replacement_state=created; running=false; started=false; exact_image=true; exact_data_mount=true
+config_differences_only=Config.AttachStdout_false_to_true,Config.AttachStderr_false_to_true,HostConfig.OomKillDisable_null_to_false
+other_env_difference_only=RTC_TURN_URLS
+active_server_calls_A_B_C=0
+rollback=script rejected the unrecognized CLI-default representation before touching original B; independent check confirmed exact original ID, original environment/config-equivalence, B health, A/B/C health, and zero active calls
+cleanup=exact_created_replacement_removed with plain docker rm; no -f/-v; temporary mode-0600 generated environment file removed; no data volume or database was changed
+Sol_review=Docker CLI sets AttachStdout/AttachStderr true for create; these control attachment metadata, not process/log-driver behavior. OomKillDisable null and false both leave the OOM killer enabled. Normalize only these exact directions; reject true and preserve strict checks for all other fields.
+classification=test_harness_config_representation_mismatch; not a C3 product FAIL
