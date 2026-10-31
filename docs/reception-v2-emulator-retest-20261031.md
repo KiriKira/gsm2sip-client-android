@@ -176,12 +176,21 @@ C1 里发现的那个问题已经修了（同一分支，随本报告提交）�
 - **门禁**：`./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` → BUILD SUCCESSFUL；
   新 APK 已覆盖安装到 H1（数据与配对保留）。
 
-**还没有做的**：这条修复的端到端复测没能跑完。网关侧的呼叫能力依赖网关模拟器上那个测试
-runner（合成 PCM）和它自己的拨号/语音服务状态；今天下午网关进程被模拟器看门狗因
-「主线程停滞 313 s」杀掉之后，网关侧的呼叫链路没有恢复（`device_reception` 仍是
-`incoming=true`、网关心跳正常，但注入的 GSM 呼叫不再产生 `call_sessions`，
-`诊断并启动` 这条恢复路径要求 Magisk/root，本次任务规则不允许走）。所以本节的结论是
-「代码与单测已验证，端到端待网关环境恢复后补一次 C1-c」。
+**还没有做的**：这条修复的端到端复测没能跑完，卡在网关侧而不是客户端。今天下午网关进程被
+模拟器看门狗以「主线程停滞 313 s」杀掉之后，呼叫链路没有自己回来。修复过程与现状：
+
+- 重新拉起网关测试 runner（合成 PCM）：`READY`，网关心跳正常，`device_reception` 仍是
+  `incoming=true`；
+- SIM 重新同步并在服务器确认（`sim_bindings` 新身份 active + `identity_verified=t`，
+  `mapping_revision` 到 6），runner 也读到了新的 `sim_id`；
+- 注入真实 GSM 呼叫后，网关能识别到来电（`Bridge: GSM_RINGING - Incoming GSM call`），但紧接着
+  `Call not offered: SIM account mapping is unavailable` / `Incoming GSM call has no verified SIM
+  account mapping`：`SimRegistry` 里这条映射没有 Telecom 电话账号（`phone_account=""`），而生成
+  电话账号要走网关的语音服务，其「设备诊断」在本机报 `系统通话音频采集: needs Magisk`——这台
+  AVD 只有 userdebug 的 `/system/xbin/su`、没有 Magisk，按任务规则也不做 Magisk 相关操作。
+
+所以本节的结论是「代码与单测已验证，端到端待网关环境（语音服务/电话账号）恢复后补一次 C1-c」。
+C1 的三种界面行为本身在修复前的构建上已经按原判据通过，这条修复只影响第二段文案的出现时机。
 
 ## 结论：真机阶段与待修
 
