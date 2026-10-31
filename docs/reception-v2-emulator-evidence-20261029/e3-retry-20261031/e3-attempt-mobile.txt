@@ -1,0 +1,35 @@
+== utc 2026-10-31T09:04:42Z
+== emu gsm status
+gsm voice state: home
+gsm data state:  home
+OK
+== emu gsm voice on
+OK
+== emu gsm data on
+OK
+== emu gsm signal 4
+OK
+== service state
+    mServiceState={mVoiceRegState=1(OUT_OF_SERVICE), mDataRegState=1(OUT_OF_SERVICE), mChannelNumber=0, duplexMode()=0, mCellBandwidths=[], mOperatorAlphaLong=null, mOperatorAlphaShort=null, isManualNetworkSelection=false(automatic), getRilVoiceRadioTechnology
+    mDataConnectionState=-1
+== data conn detail
+    mDataConnectionState=-1
+    mPreciseDataConnectionStates={}
+== connectivity default
+Active default network: 101
+== wifi disable
+== data enable
+== after: default network
+Active default network: none
+== after: network agents
+== after: ip addr
+dummy0 fe80::f843:6fff:fe10:a23c/64
+== after: route
+== after: telephony
+    mServiceState={mVoiceRegState=1(OUT_OF_SERVICE), mDataRegState=1(OUT_OF_SERVICE), mChannelNumber=0, duplexMode()=0, mCellBandwidths=[], mOperatorAlphaLong=null, mOperatorAlphaShort=null, isManualNetworkSelection=false(automatic), getRilVoiceRadioTechnology
+    mDataConnectionState=-1
+== ping
+connect: Network is unreachable
+== settings
+1
+0

@@ -1,0 +1,15 @@
+== utc 2026-10-31T09:03:57Z
+== gsm data on
+OK
+== telephony after
+    mServiceState={mVoiceRegState=1(OUT_OF_SERVICE), mDataRegState=1(OUT_OF_SERVICE), mChannelNumber=0, duplexMode()=0, mCellBandwidths=[], mOperatorAlphaLong=null, mOperatorAlphaShort=null, isManualNetworkSelection=false(automatic), getRilVoiceRadioTechnology=0(Unknown), getRilDataRadioTechnology=0
+    mDataConnectionState=-1
+== connectivity after (default + networks)
+Active default network: 101
+  NetworkAgentInfo{network{101}  handle{437197393933}  ni{WIFI CONNECTED extra: } created=2026-10-31T09:03:23.387Z Score(Policies : TRANSPORT_PRIMARY&EVER_EVALUATED&IS_UNMETERED&EVER_VALIDATED&IS_VALIDATED ; KeepConnecte
+== ip addr
+2: dummy0    inet6 fe80::f843:6fff:fe10:a23c/64 scope link \       valid_lft forever preferred_lft forever
+16: wlan0    inet 10.0.2.19/24 brd 10.0.2.255 scope global wlan0\       valid_lft forever preferred_lft forever
+16: wlan0    inet6 fec0::998c:3ee4:59c:5e7e/64 scope site temporary dynamic \       valid_lft 86348sec preferred_lft 143
+16: wlan0    inet6 fec0::ddb5:34fe:1232:cc2f/64 scope site dynamic mngtmpaddr stable-privacy \       valid_lft 86348sec 
+16: wlan0    inet6 fe80::21ba:ff3:d906:fc81/64 scope link stable-privacy \       valid_lft forever preferred_lft forever
