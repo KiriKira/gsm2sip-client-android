@@ -369,18 +369,23 @@ class HostCallService : android.app.Service() {
         val app = applicationContext
         val session = runCatching { requireClientSession() }.getOrNull() ?: return
         Thread({
-            var notice = "已拒接本机；网关尚未确认，其他主机可能仍在响铃。"
-            for (wait in longArrayOf(4_000L, 8_000L)) {
+            val unanswered = "已拒接本机；网关尚未确认，其他主机可能仍在响铃。"
+            // The gateway ends the call for the other phones as soon as it can, so poll until it
+            // reports the call over instead of guessing once and leaving the waiting text behind.
+            val deadline = System.currentTimeMillis() + 35_000L
+            var wait = 1_500L
+            while (System.currentTimeMillis() < deadline) {
                 runCatching { Thread.sleep(wait) }
+                wait = 3_000L
                 val call = runCatching {
                     if (SessionStore(app).read()?.sameSessionInstance(session) != true) return@Thread
                     ApiClient(session.apiBaseUrl, SessionStore(app)).rtcCall(callId)
                 }.getOrNull() ?: continue
                 if (call.state != "ended") continue
-                notice = call.localTerminalNotice() ?: "来电已结束。"
-                break
+                CallRuntime.updateEndedNotice(callId, call.localTerminalNotice() ?: "来电已结束。")
+                return@Thread
             }
-            CallRuntime.updateEndedNotice(callId, notice)
+            CallRuntime.updateEndedNotice(callId, unanswered)
         }, "decline-confirm").apply { isDaemon = true }.start()
     }
 

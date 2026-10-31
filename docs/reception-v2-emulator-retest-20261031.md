@@ -26,7 +26,7 @@ Kyubey 中转，网关侧为合成 PCM。两台主机用覆盖安装换成本轮
 | B1（H1 关闭来电） | PASS | 只有 H2 响铃（3.14 s）；两台节点上 H1 的 `incoming=false` |
 | B4（划掉应用 + 重启后仍关闭） | PASS | 两次之后本地开关仍是关闭，节点侧 `incoming=false` 且 revision 未变 |
 | C3（响铃中关闭来电） | PASS | 关闭后 H1 立即停止（`reception_disabled`）、H2 继续响铃并可接听，通话未被挂断 |
-| A1（熄屏 + force-idle 后来电） | 部分通过 | 响铃 4.6 s；接听被判为 `answered_elsewhere`，未拿到 `accepted` |
+| A1（熄屏 + force-idle 后来电） | PASS | 两轮都是 4.3–4.6 s 响铃；接听后服务端 `accept` → 媒体协商 → `cellular media active` → `active`（先前按 A 节点读成 `answered_elsewhere`，见正文更正） |
 
 ## D3：停掉主机所在的节点（验证 0703e88）
 
@@ -126,17 +126,26 @@ H2 关机（等效于「只有 H1 在线」），H1 熄屏后 `cmd deviceidle fo
 （`mState=IDLE`），保持 60 s 再注入真实来电：
 
 ```
-idle 开始 → 注入              60 s（IDLE 保持）
-注入 → H1 RINGING             4.6 s（上一轮同条件 4.34 s）
-force-idle 解除后状态          ACTIVE
+第 1 轮：idle 60 s → 注入 → H1 RINGING 4.34 s → 接听
+第 2 轮：idle 60 s → 注入 → H1 RINGING 4.60 s → 接听
 ```
 
-**判定：部分通过（响铃 PASS，接听未确认）**。两轮都在响铃后点了「接听」，但服务端把参与者记为
-`ended / answered_elsewhere`，最后通话是 `cellular_ended`，没有出现 `accepted`，也没有建立媒体
-会话。同一轮里另一台主机（已关机 / 飞行模式）的参与者一开始就是 `answered_elsewhere`。
-在 C1-c（同一构建、亮屏前台、不 force-idle）点「接听」是能拿到 `accepted` 的，所以差异点在
-「熄屏 + force-idle 状态下接听」这条路径，暂时判断为环境/交互路径问题，需要复核后再定性——不
-作为产品失败记录。
+接听后的服务端控制序列（两轮一致）：
+
+```
+13:41:54.27  RTC call created（节点 B）
+13:42:01.42  control committed event=accept revision=2
+13:42:01.47  call media selected media=webrtc
+13:42:01.68  RTC signal offer / 13:42:01.90 answer
+13:42:01.97  control committed event=winner revision=3
+13:42:02.86  RTC cellular media active
+13:42:02.96  control committed event=active revision=4
+13:42:08.10  control committed event=ended revision=5（脚本主动终止 GSM 呼叫）
+```
+
+**判定：PASS。** 更正先前的记录：那两轮我把节点 A 的参与者读成 `ended/answered_elsewhere` 就判成
+「接听未确认」，实际上答案走的是节点 B（`accept`/`winner`/`active` 都在 B 上），A 上出现
+`answered_elsewhere` 是正确的语义。两轮通话都建立成功，只是脚本 6 s 后自己结束了呼叫。
 
 ## 限制与偏差
 
@@ -145,6 +154,35 @@ force-idle 解除后状态          ACTIVE
 - 网关侧音频是合成 PCM，不证明真实蜂窝 HAL 音频；E3（移动数据切换）与长时待机观察按计划不做，
   留给真机。
 - 每轮设备的屏幕、通知栏、键盘状态由脚本恢复，未清数据、未改节点数据库。
+## 修复：拒接后的第二段文案
+
+C1 里发现的那个问题已经修了（同一分支，随本报告提交）：
+
+- **根因**：`confirmDeclineEverywhere` 的回读线程在呼叫控制服务已经停下之后才拿到结果，
+  而 `CallRuntime.notifyChanged` 只在 `service` 非空时才发状态广播——于是回读结果的
+  `updateEndedNotice` 写进了协调器却没有送到正在显示的通话界面，用户只能看到第一段
+  「正在等待网关…」，要等重新进入界面（`onResume` 重新渲染）才变成第二段。
+- **改动**（3 个文件，约 20 行）：
+  1. `CallRuntime` 增加进程级的 `appContext`（由服务 `attach`、`MainActivity` 的偏好恢复、
+     `CallActionActivity.onCreate` 提供），`notifyChanged` 在没有服务时回退到它，状态更新
+     因此能继续送到还在屏幕上的界面。
+  2. `confirmDeclineEverywhere` 从「4 s / 12 s 各查一次就定稿」改成「先 1.5 s、之后每 3 s
+     复查，最多 35 s」，网关一结束通话就立刻换成终态文案；只有超时才用「网关尚未确认」。
+     这样既不会长期停在等待文案，也不会因为网关还在等别的主机而提前说「尚未确认」。
+  3. `CallActionActivity.onCreate` 把自身 context 交给 `CallRuntime`。
+- **测试**：`CallActionActivityTest.endedNoticeStillReachesTheVisibleScreenAfterTheServiceStops`
+  在没有服务的状态下写两段文案，断言屏幕上的文字随之更新。**修复前该用例失败**
+  （2 个 SDK 变体都挂在第一段断言上），修复后通过。
+- **门禁**：`./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` → BUILD SUCCESSFUL；
+  新 APK 已覆盖安装到 H1（数据与配对保留）。
+
+**还没有做的**：这条修复的端到端复测没能跑完。网关侧的呼叫能力依赖网关模拟器上那个测试
+runner（合成 PCM）和它自己的拨号/语音服务状态；今天下午网关进程被模拟器看门狗因
+「主线程停滞 313 s」杀掉之后，网关侧的呼叫链路没有恢复（`device_reception` 仍是
+`incoming=true`、网关心跳正常，但注入的 GSM 呼叫不再产生 `call_sessions`，
+`诊断并启动` 这条恢复路径要求 Magisk/root，本次任务规则不允许走）。所以本节的结论是
+「代码与单测已验证，端到端待网关环境恢复后补一次 C1-c」。
+
 ## 结论：真机阶段与待修
 
 可以进入真机阶段的：D3（停活动节点后经健康节点响铃，两轮都在 10 s 内、没有再把接收设置写坏）、
@@ -154,9 +192,8 @@ C1 的三种界面形态与「全屏来电」权限项、B1 与 B4（关闭选�
 
 还要先处理的：
 
-1. **A1 的接听路径**（熄屏 + force-idle 状态点接听后服务端记成 `answered_elsewhere`、没有媒体
-   会话）。亮屏前台同样操作是正常的，所以先要复核这是一条状态机分支还是一次时序假象，再决定
-   是否需要改代码。
-2. **C1 第二段文案滞后**：「已拒接，所有主机已停止响铃。」要等一到三分钟才替换「正在等待…」，
-   而服务端早就记为 `declined`。用户看到的是长期停在「等待网关」的提示，属于要修的产品体验问题。
+1. **C1 第二段文案滞后**：已修（见上一节），代码与单测通过，端到端复测待网关环境恢复。
+2. **网关侧的呼叫链路**在本轮最后崩过一次（模拟器 2 vCPU 上网关进程主线程停滞 313 s 被看门狗
+   杀掉后，网关的拨号/语音服务没有自己回来，注入的呼叫不再进入 `call_sessions`）。真机上不会有
+   这个组合，但说明网关侧缺少「进程被杀后自动恢复呼叫能力」的兜底，值得单独确认。
 3. E3（移动数据切换）与全部长时待机观察仍需真机，模拟器上不成立。

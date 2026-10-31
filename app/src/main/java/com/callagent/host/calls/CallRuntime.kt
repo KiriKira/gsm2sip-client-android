@@ -18,6 +18,10 @@ object CallRuntime {
     @Volatile
     private var service: HostCallService? = null
 
+    /** Set by whichever component has a context, so a late state change still reaches a visible screen. */
+    @Volatile
+    private var appContext: Context? = null
+
     @Volatile
     private var appVisible = false
 
@@ -48,6 +52,7 @@ object CallRuntime {
     internal val isAppVisible: Boolean get() = appVisible
 
     fun restoreForegroundPreference(context: Context, session: HostSession?) {
+        adoptContext(context)
         val nextSessionInstance = session?.sessionInstanceId
         val previousSessionInstance = rememberedSessionInstance
         if (previousSessionInstance != null && previousSessionInstance != nextSessionInstance) {
@@ -352,6 +357,12 @@ object CallRuntime {
 
     internal fun attach(hostCallService: HostCallService) {
         service = hostCallService
+        adoptContext(hostCallService)
+    }
+
+    /** A visible screen or the service hands its context over so late updates still reach the UI. */
+    internal fun adoptContext(context: Context) {
+        appContext = context.applicationContext
     }
 
     /** Wake an already-owned call service without starting signaling or another foreground service. */
@@ -414,7 +425,7 @@ object CallRuntime {
     }
 
     internal fun notifyChanged(callId: String?) {
-        val host = service?.applicationContext ?: return
+        val host = service?.applicationContext ?: appContext ?: return
         IncomingRinger.sync(host, coordinator.current)
         ProximityScreenLock.sync(host, coordinator.current)
         host.sendBroadcast(
