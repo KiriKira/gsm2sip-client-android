@@ -19,7 +19,9 @@ PRIVATE = pathlib.Path(
 )
 CONTAINER = "reception-r1-b"
 ORIGINAL = "reception-r1-b-c3-original-20261031"
+REPLACED = "reception-r1-b-c3-private-turn-stopped-20261031"
 IMAGE = "sha256:1f6fd76b942af40b751ede535ade03604de858ca4a40054406d4afb56fa5c1d4"
+OLD_B_ID = "c925cdafaaa4280d79ca2d8440f0aee646102e19fc566aa261d59b558053408e"
 OWNER_HASH = "59fe171b02"
 INSTALL_HASH = "1887710c25"
 SIM_HASH = "ea30615cb2"
@@ -161,6 +163,35 @@ def read_stop_gates():
     return free_kib, mem_kib
 
 
+def read_restore_resource_gates():
+    """Resource stop floor, usable while a node is starting or being recovered."""
+    free_kib = int(output(["df", "-Pk", "/"]).splitlines()[1].split()[3])
+    mem_kib = int(next(line.split()[1] for line in pathlib.Path("/proc/meminfo").read_text().splitlines()
+                       if line.startswith("MemAvailable:")))
+    if free_kib < 3 * 1024 * 1024 or mem_kib < 1024 * 1024:
+        raise RuntimeError("restore_resource_stop_gate_crossed")
+    return free_kib, mem_kib
+
+
+def read_restore_peer_gates():
+    """A/C safety gates; independent of the B container currently warming up."""
+    gates = read_restore_resource_gates()
+    for node in "ac":
+        obj = inspect(f"reception-r1-{node}")
+        if not healthy(obj) or active_calls(node) != 0:
+            raise RuntimeError(f"restore_node_health_or_call_safety_gate:{node}")
+    return gates
+
+
+def read_restore_gates():
+    """Full restore audit gates, independent of test-only TURN/Host readiness."""
+    gates = read_restore_peer_gates()
+    obj = inspect("reception-r1-b")
+    if not healthy(obj) or active_calls("b") != 0:
+        raise RuntimeError("restore_node_health_or_call_safety_gate:b")
+    return gates
+
+
 def verify_runtime(obj, expected_env, old):
     host = obj["HostConfig"]
     old_host = copy.deepcopy(old["HostConfig"])
@@ -270,6 +301,51 @@ def wait_healthy(name, old, expected_env, timeout=120):
     raise RuntimeError("node_b_health_timeout")
 
 
+def wait_healthy_for_restore(expected_id, expected_env, old, timeout=120):
+    """Wait for B without requiring test-only TURN, ADB reverse, or Host push gates."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        read_restore_resource_gates()
+        obj = inspect(CONTAINER)
+        if obj["Id"] != expected_id:
+            raise RuntimeError("restore_wait_primary_container_id_changed")
+        if healthy(obj):
+            if (environment(obj) != expected_env
+                    or not verify_runtime(obj, expected_env, old)
+                    or active_calls("b") != 0):
+                raise RuntimeError("restore_wait_original_identity_config_or_calls_invalid")
+            return obj
+        if not obj.get("State", {}).get("Running"):
+            raise RuntimeError("restore_wait_node_b_exited_before_health")
+        time.sleep(3)
+    raise RuntimeError("restore_wait_node_b_health_timeout")
+
+
+def restore_final_audit(expected_id, expected_env, old):
+    """Independently prove final B identity/config/health and the cluster safety gates."""
+    gates = restore_final_b_audit(expected_id, expected_env, old)
+    read_restore_peer_gates()
+    return gates
+
+
+def restore_b_identity_health_audit(expected_id, expected_env, old):
+    """Audit B itself without resource or peer gates, for non-destructive error handling."""
+    current = inspect(CONTAINER)
+    if (current["Id"] != expected_id or not healthy(current)
+            or environment(current) != expected_env
+            or not verify_runtime(current, expected_env, old)
+            or active_calls("b") != 0):
+        raise RuntimeError("restore_b_identity_config_health_or_calls_unverified")
+    return current
+
+
+def restore_final_b_audit(expected_id, expected_env, old):
+    """Prove B itself even when an unrelated A/C peer check is unavailable."""
+    gates = read_restore_resource_gates()
+    restore_b_identity_health_audit(expected_id, expected_env, old)
+    return gates
+
+
 def rollback(old_id, replacement_id, replacement_env, old_env, old, temp_name):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -338,6 +414,255 @@ def rollback(old_id, replacement_id, replacement_env, old_env, old, temp_name):
         raise RuntimeError("rollback_original_environment_mismatch")
 
 
+def try_restore_original_id(old_id, old_env, replacement_id, replacement_env, old):
+    """Reconcile names by exact IDs, then try original B without test-only gates."""
+    current_names = names()
+    if CONTAINER in current_names:
+        current = inspect(CONTAINER)
+        if current["Id"] == old_id:
+            if healthy(current):
+                return restore_final_audit(old_id, old_env, old)
+            if current.get("State", {}).get("Running"):
+                try:
+                    wait_healthy_for_restore(old_id, old_env, old)
+                    return restore_final_audit(old_id, old_env, old)
+                except RuntimeError as wait_error:
+                    current = inspect(CONTAINER)
+                    if healthy(current):
+                        # B is serving again; leave it in place if only an
+                        # unrelated cluster/resource audit is failing.
+                        restore_b_identity_health_audit(old_id, old_env, old)
+                        raise RuntimeError("restore_original_b_healthy_but_full_audit_incomplete") from wait_error
+                    if active_calls("b") != 0:
+                        raise RuntimeError("restore_reconcile_refused_active_calls_on_original") from wait_error
+                    read_restore_resource_gates()
+                subprocess.run(["sudo", "docker", "stop", "--time", "30", CONTAINER],
+                               check=True, stdout=subprocess.DEVNULL)
+                current = inspect(CONTAINER)
+            if current.get("State", {}).get("Running"):
+                raise RuntimeError("restore_reconcile_original_still_running_unhealthy")
+            disable_restart_for_retained_failure(CONTAINER)
+            failed = f"{ORIGINAL}-failed-{int(time.time())}"
+            if failed in names():
+                raise RuntimeError("restore_reconcile_failed_original_name_collision")
+            subprocess.run(["sudo", "docker", "rename", CONTAINER, failed], check=True)
+        elif current["Id"] == replacement_id:
+            if not verify_runtime(current, replacement_env, old):
+                raise RuntimeError("restore_reconcile_private_turn_config_mismatch")
+            if current.get("State", {}).get("Running"):
+                if active_calls("b") != 0:
+                    raise RuntimeError("restore_reconcile_refused_active_calls_on_private_turn")
+                stop_wait(CONTAINER, require_clean=False)
+                current = inspect(CONTAINER)
+            if current.get("State", {}).get("Running"):
+                raise RuntimeError("restore_reconcile_private_turn_still_running")
+            if REPLACED in names():
+                raise RuntimeError("restore_reconcile_replaced_name_collision")
+            subprocess.run(["sudo", "docker", "rename", CONTAINER, REPLACED], check=True)
+        else:
+            raise RuntimeError("restore_reconcile_refused_unknown_primary_container")
+
+    current_names = names()
+    if CONTAINER in current_names:
+        raise RuntimeError("restore_reconcile_primary_name_not_free")
+    if ORIGINAL not in current_names or inspect(ORIGINAL)["Id"] != old_id:
+        raise RuntimeError("restore_reconcile_exact_original_container_not_available")
+    subprocess.run(["sudo", "docker", "rename", ORIGINAL, CONTAINER], check=True)
+    candidate = inspect(CONTAINER)
+    if candidate["Id"] != old_id or environment(candidate) != old_env:
+        raise RuntimeError("restore_reconcile_original_identity_changed_after_rename")
+    if not candidate.get("State", {}).get("Running"):
+        subprocess.run(["sudo", "docker", "start", CONTAINER], check=True,
+                       stdout=subprocess.DEVNULL)
+    wait_healthy_for_restore(old_id, old_env, old)
+    return restore_final_audit(old_id, old_env, old)
+
+
+def restore_private_turn_fallback(old_id, old_env, replacement_id, replacement_env, old):
+    """Keep the known private-TURN B serving if the original cannot be restored."""
+    current_names = names()
+    if CONTAINER in current_names:
+        current = inspect(CONTAINER)
+        if current["Id"] == replacement_id:
+            if not verify_runtime(current, replacement_env, old):
+                raise RuntimeError("fallback_primary_private_turn_config_mismatch")
+            if not current.get("State", {}).get("Running"):
+                subprocess.run(["sudo", "docker", "start", CONTAINER], check=True,
+                               stdout=subprocess.DEVNULL)
+            wait_healthy_for_restore(replacement_id, replacement_env, old)
+            return restore_final_audit(replacement_id, replacement_env, old)
+        if current["Id"] != old_id:
+            raise RuntimeError("fallback_refused_unknown_primary_container")
+        if current.get("State", {}).get("Running"):
+            if active_calls("b") != 0:
+                raise RuntimeError("fallback_refused_active_calls_on_original")
+            subprocess.run(["sudo", "docker", "stop", "--time", "30", CONTAINER],
+                           check=True, stdout=subprocess.DEVNULL)
+            current = inspect(CONTAINER)
+        if current.get("State", {}).get("Running"):
+            raise RuntimeError("fallback_original_container_could_not_be_stopped")
+        disable_restart_for_retained_failure(CONTAINER)
+        failed = f"{ORIGINAL}-failed-{int(time.time())}"
+        if failed in names():
+            raise RuntimeError("fallback_failed_original_name_collision")
+        subprocess.run(["sudo", "docker", "rename", CONTAINER, failed], check=True)
+
+    current_names = names()
+    replacement_name = None
+    for name in (REPLACED,):
+        if name in current_names and inspect(name)["Id"] == replacement_id:
+            replacement_name = name
+            break
+    if replacement_name is None:
+        raise RuntimeError("fallback_private_turn_container_not_found_by_exact_id")
+    replacement = inspect(replacement_name)
+    if not verify_runtime(replacement, replacement_env, old):
+        raise RuntimeError("fallback_private_turn_retained_config_mismatch")
+    if replacement.get("State", {}).get("Running"):
+        if active_calls("b") != 0:
+            raise RuntimeError("fallback_refused_active_calls_on_retained_private_turn")
+        stop_wait(replacement_name, require_clean=False)
+        replacement = inspect(replacement_name)
+    if replacement.get("State", {}).get("Running"):
+        raise RuntimeError("fallback_private_turn_container_could_not_be_stopped")
+    if CONTAINER in names():
+        raise RuntimeError("fallback_primary_name_occupied_before_private_turn_rename")
+    subprocess.run(["sudo", "docker", "rename", replacement_name, CONTAINER], check=True)
+    subprocess.run(["sudo", "docker", "start", CONTAINER], check=True,
+                   stdout=subprocess.DEVNULL)
+    wait_healthy_for_restore(replacement_id, replacement_env, old)
+    return restore_final_audit(replacement_id, replacement_env, old)
+
+
+def restore_original():
+    # The recovery path ignores terminal disconnect/termination and finishes
+    # with an exact-ID health and zero-call audit before returning.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    gates = read_restore_gates()
+    current_names = names()
+    if ORIGINAL not in current_names or CONTAINER not in current_names or REPLACED in current_names:
+        raise RuntimeError("unexpected_names_for_original_node_b_restore")
+    old_env_path = PRIVATE / "node-b-env-before"
+    if not old_env_path.is_file() or old_env_path.stat().st_mode & 0o077:
+        raise RuntimeError("private_node_b_original_env_missing_or_permissions_too_open")
+    old_env = environment_file(old_env_path)
+    original = inspect(ORIGINAL)
+    current = inspect(CONTAINER)
+    if (original["Id"] != OLD_B_ID or original.get("State", {}).get("Running")
+            or not verify_runtime(original, old_env, original)
+            or environment(original) != old_env):
+        raise RuntimeError("retained_original_node_b_does_not_match_saved_identity_config_or_env")
+    replacement_env = dict(old_env)
+    replacement_env["RTC_TURN_URLS"] = TURN_URLS
+    if (not healthy(current) or not verify_runtime(current, replacement_env, original)
+            or environment(current) != replacement_env or active_calls("b") != 0):
+        raise RuntimeError("current_private_turn_node_b_not_healthy_or_exactly_identified")
+    replaced_id = current["Id"]
+    old_id = original["Id"]
+    recovery_path_used = False
+
+    try:
+        if active_calls("b") != 0:
+            raise RuntimeError("restore_refused_active_calls_before_node_b_stop")
+        stop_wait(CONTAINER)
+        stopped_private = inspect(CONTAINER)
+        if stopped_private["Id"] != replaced_id or stopped_private.get("State", {}).get("Running"):
+            raise RuntimeError("restore_private_turn_stop_identity_or_state_mismatch")
+        if REPLACED in names():
+            raise RuntimeError("restore_private_turn_name_collision")
+        subprocess.run(["sudo", "docker", "rename", CONTAINER, REPLACED], check=True)
+        subprocess.run(["sudo", "docker", "rename", ORIGINAL, CONTAINER], check=True)
+        subprocess.run(["sudo", "docker", "start", CONTAINER], check=True,
+                       stdout=subprocess.DEVNULL)
+        restored = wait_healthy_for_restore(old_id, old_env, original)
+        if (restored["Id"] != old_id or environment(restored) != old_env
+                or not verify_runtime(restored, old_env, original)
+                or any(active_calls(node) != 0 for node in "abc")):
+            raise RuntimeError("restored_original_node_b_postcheck_failed")
+        gates = restore_final_audit(old_id, old_env, original)
+    except BaseException as restore_error:
+        # If original B is already healthy with the exact saved identity, never
+        # switch away from it just because a resource/peer audit failed.
+        current_names = names()
+        if CONTAINER in current_names and inspect(CONTAINER)["Id"] == old_id:
+            try:
+                restore_b_identity_health_audit(old_id, old_env, original)
+            except BaseException:
+                pass
+            else:
+                try:
+                    gates = restore_final_audit(old_id, old_env, original)
+                except BaseException as audit_error:
+                    raise RuntimeError(
+                        "original_node_b_restored_and_healthy;cluster_or_resource_audit_incomplete;"
+                        f"audit_error={type(audit_error).__name__}"
+                    ) from audit_error
+                recovery_path_used = True
+
+        if recovery_path_used:
+            pass
+        else:
+            try:
+                gates = try_restore_original_id(
+                    old_id, old_env, replaced_id, replacement_env, original)
+            except BaseException as original_recovery_error:
+                current_names = names()
+                if CONTAINER in current_names and inspect(CONTAINER)["Id"] == old_id:
+                    try:
+                        restore_b_identity_health_audit(old_id, old_env, original)
+                    except BaseException:
+                        pass
+                    else:
+                        try:
+                            gates = restore_final_audit(old_id, old_env, original)
+                        except BaseException as audit_error:
+                            raise RuntimeError(
+                                "original_node_b_restored_and_healthy;cluster_or_resource_audit_incomplete;"
+                                f"audit_error={type(audit_error).__name__}"
+                            ) from audit_error
+                        recovery_path_used = True
+
+                if not recovery_path_used:
+                    try:
+                        fallback_gates = restore_private_turn_fallback(
+                            old_id, old_env, replaced_id, replacement_env, original)
+                    except BaseException as recovery_error:
+                        state = []
+                        try:
+                            current_names = names()
+                            for name in sorted(current_names.intersection({CONTAINER, ORIGINAL, REPLACED})):
+                                obj = inspect(name)
+                                state.append(f"{name}:{obj['Id'][:12]}:{obj['State'].get('Status')}"
+                                             f":healthy={healthy(obj)}")
+                        except BaseException:
+                            state = ["final_state_inspection_failed"]
+                        raise RuntimeError(
+                            "restore_recovery_unverified;" + ",".join(state)
+                            + f";primary_error={type(restore_error).__name__}"
+                            + f";original_recovery_error={type(original_recovery_error).__name__}"
+                            + f";fallback_error={type(recovery_error).__name__}"
+                        ) from recovery_error
+                    raise RuntimeError(
+                        "original_restore_failed;private_turn_fallback_independently_verified;"
+                        f"root_free_kib={fallback_gates[0]};mem_available_kib={fallback_gates[1]}"
+                    ) from original_recovery_error
+                recovery_path_used = True
+
+    disable_restart_for_retained_failure(REPLACED)
+    retained = inspect(REPLACED)
+    if (retained["Id"] != replaced_id or retained.get("State", {}).get("Running")
+            or retained["HostConfig"].get("RestartPolicy", {}).get("Name") != "no"):
+        raise RuntimeError("retained_private_turn_container_final_state_not_verified")
+    print(f"original_node_b_restored=PASS;recovery_path_used={recovery_path_used}")
+    print("original_node_b_id_and_env=PASS")
+    print("original_node_b_config_equivalent=PASS")
+    print("a_b_c_healthy_and_zero_active_calls=PASS")
+    print(f"retained_private_turn_container_id={replaced_id};restart_policy=no")
+    print(f"restore_root_free_kib={gates[0]};mem_available_kib={gates[1]}")
+
+
 def write_private(path, content):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -386,11 +711,16 @@ def supported_host_config(host):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--preflight-only", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--preflight-only", action="store_true")
+    mode.add_argument("--restore-original", action="store_true")
     args = parser.parse_args()
     lock_path = PRIVATE / "node-b-c3-switch.lock"
     lock_fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o600)
     fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    if args.restore_original:
+        restore_original()
+        return
     if ORIGINAL in names() or CONTAINER not in names():
         raise RuntimeError("unexpected_node_b_container_names")
     gates = read_stop_gates()

@@ -318,3 +318,11 @@ Homura API 34 与 H2 API 35 Google Play 均已通过应用内全量备份导出�
 ### C3 双端私网 TURN 数据通道预检（2026-10-30 21:46Z）
 
 Sol 复核认为上一轮 `wait_answer` 结果同时可能代表答案文件缺失或 SDP 应用失败，不能判成产品缺陷。只读核对发现 H1 已生成答案，而 H2 没有收到相同答案文件；上一轮未完成独立 AVD 之间的 SDP 搬运，故该次不计分。修正搬运并校验两端文件字节一致后，H1/H2 均收集到一个私网 relay candidate，TURN/TCP/UDP 握手和双向数据通道通过：H1 收发 `4/4` 条，H2 收发 `5/4` 条。测试只用 instrumentation 数据通道，没有真实来电、FCM 或 C3 的接收切换断言，因此 **C3 仍未完成**；本次证明的是私网 TURN relay media route 可用。脱敏证据见 `c3-turn-data-probe-20261031.txt`。H1/H2 临时探针配置与 SDP、工作站 loopback proxy 和 SSH forward 已清理；私网 TURN sidecar 按 D1 恢复路径保留。
+
+### C3 Node B TURN 切换安全检查续记（2026-10-31）
+
+本轮继续前的远端只读核对显示：Node B 仍是原容器且健康，Node A/C、三个 AVD 均在线；根盘可用 `4,219,984 KiB`、`MemAvailable=1,968,548 KiB`。私网 TURN sidecar 运行约 37 分钟、未重启。首次替换容器创建因 Docker inspect 的 CLI 默认字段表示差异被安全护栏拦截，**原 B 未停止**；仅移除了精确名称的未启动临时容器，无 `-f/-v`，原 `/data` 与数据库未改。脱敏记录见 `c3-node-b-turn-create-mismatch-20261031.txt`。
+
+随后修正并加强恢复状态机：恢复命令与只读预检参数互斥；恢复期间屏蔽终端断连信号；恢复门槛不依赖 sidecar、ADB reverse、Host endpoint 或 H1/H2 在线状态；新 B 有有界启动等待；停止/改名任一步异常后按不可变容器 ID 对账，先尝试恢复原 B，再只在原 B 未健康时考虑私网配置回退。原 B 已健康而 A/C 或资源审计不完整时会保留原 B、明确报告审计未完成，不会为追求绿灯切回测试配置。最终 PASS 前验证原容器 ID/配置/健康、A/B/C 全部零活动呼叫，以及保留的私网容器已停止且 `restart=no`。GPT-6.1 Sol 对当前脚本做了只读复核并接受恢复路径；本地 `py_compile`、CLI 冲突参数检查及 `git diff --check` 通过。风险边界与停止条件见 `c3-node-b-turn-switch-risk-before-20261031.md`。
+
+这一步只是安全护栏修正，不是 C3 用例结果，也尚未切换 Node B。下一步按该风险记录运行远端只读预检，满足全部条件后再换 B 的 TURN URL；C3 仍需真实 GSM→RTC→FCM/Telecom 路径完成 H1 关闭接收、H2 继续响铃并接听的断言。真实蜂窝 HAL 音频不在模拟器结论内。
