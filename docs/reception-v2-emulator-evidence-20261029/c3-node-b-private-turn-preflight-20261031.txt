@@ -1,0 +1,29 @@
+C3 Node B private TURN switch preflight (sanitized)
+Date: 2026-10-31
+Scope: read-only preflight only; no Docker or database mutation
+
+Attempt 1:
+result=STOPPED_BEFORE_MUTATION
+reason=the test script mistakenly required gateways.protocol_version=2
+observed=Node B GW is active; same-owner SIM UUID is active, identity_verified=true, mapping revision matches, slot_index=0; H1/H2 have reception protocol_version=2
+correction=gateways.protocol_version is the Gateway heartbeat API field, whose OpenAPI contract is const 1; Gateway sends 1 and server stores 1. Reception v2 remains checked on device_reception.
+source=server/openapi/openapi.yaml HeartbeatRequest; gateway/app/src/main/java/com/callagent/gateway/net/ControlApiClient.kt heartbeatBody; server/internal/httpapi/devices.go heartbeat persistence
+Sol_review=confirmed harness assertion error; retain protocol 1 for gateway and protocol 2 for H1/H2 reception rows
+effect=none; Node B container/configuration and database were unchanged
+
+Attempt 2:
+result=PASS
+script_sha256=c51e24dd030f082ccebdb0d3752eb1ca26cf2dc13e4c1429a0ede87788d7bd67
+original_node_b_container_id=c925cdafaaa4280d79ca2d8440f0aee646102e19fc566aa261d59b558053408e
+image_digest=sha256:1f6fd76b942af40b751ede535ade03604de858ca4a40054406d4afb56fa5c1d4
+nodes_a_b_c=healthy
+active_server_calls_a_b_c=0
+H1_H2=exact_same_active_owner; reception_protocol=2; incoming_enabled=true; active_sessions=true; push_endpoints_healthy=true
+gateway_sim=active; identity_verified=true; matching_mapping_revision=true; slot=0; gateway_heartbeat_protocol=1
+root_free_kib=4220728
+mem_available_kib=1855148
+private_turn=running; restart_count=0; listeners=VPC_172.31.15.170:13478_TCP_UDP
+host_forward=127.0.0.1:13479_only
+H2_adb_reverse=tcp:13479_to_tcp:13479
+result_scope=preconditions_only; no scored call/media result
+mutations=none

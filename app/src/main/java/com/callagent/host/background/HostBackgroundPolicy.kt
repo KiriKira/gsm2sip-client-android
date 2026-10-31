@@ -12,9 +12,13 @@ internal object HostBackgroundPolicy {
     const val INITIAL_BACKOFF_MS = 1_000L
     const val MAX_BACKOFF_MS = 5 * 60_000L
 
+    /** With push from a reception v2 node, HTTPS only backs up a lost wake-up. */
+    const val PUSH_COVERED_SYNC_MS = 15 * 60_000L
+
     /** WSS backs up delivery independently of FCM. Legacy argument retained for callers. */
-    fun syncDelay(socketLive: Boolean, failures: Int, experiments: Boolean, stableNetwork: Boolean = false): Long {
+    fun syncDelay(socketLive: Boolean, failures: Int, experiments: Boolean, stableNetwork: Boolean = false, pushCovered: Boolean = false): Long {
         if (failures > 0 && com.callagent.host.BuildConfig.STANDBY_FAILURE_BACKOFF) return (30_000L shl failures.coerceAtMost(4)).coerceAtMost(300_000L)
+        if (pushCovered) return PUSH_COVERED_SYNC_MS
         if (!socketLive) return 30_000L
         val normal = com.callagent.host.BuildConfig.STANDBY_SMS_LIVE_MS
         return if (stableNetwork) maxOf(normal, 300_000L) else normal

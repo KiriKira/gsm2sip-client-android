@@ -1,0 +1,3 @@
+Homura test-runner cleanup — 2026-10-29 UTC
+
+After the G2 recovery attempt was stopped, the existing GatewayJointInstrumentation received a unique mailbox `stop` command. `joint-finished.json` reported `status=PASS` at 22:39:28Z. The regular Homura app was reopened. Android's service dump contained `com.callagent.gateway/.service.GatewayService`, and `adb emu gsm list` returned an empty call list (`OK`). The runner did not change the default-dialer role or SIM/pairing state. No root, Magisk, app-data clearing, or source change was used.

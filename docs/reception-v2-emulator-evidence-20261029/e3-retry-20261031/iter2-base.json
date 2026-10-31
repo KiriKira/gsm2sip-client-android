@@ -1,0 +1,363 @@
+{
+  "segments": [
+    {
+      "version": "0.4.2",
+      "segment_started_at": 1793419586661,
+      "sampled_at": 1793426115957,
+      "http": {
+        "network:read:events:node-2": {
+          "requests": 2,
+          "failures": 0,
+          "elapsed_ns": 13761158,
+          "sent_bytes": 0,
+          "received_bytes": 112
+        },
+        "other:read:rtc_control:node-2": {
+          "requests": 23,
+          "failures": 0,
+          "elapsed_ns": 2700583530,
+          "sent_bytes": 0,
+          "received_bytes": 14432
+        },
+        "other:read:capabilities:node-2": {
+          "requests": 5,
+          "failures": 1,
+          "elapsed_ns": 1885360865,
+          "sent_bytes": 0,
+          "received_bytes": 744
+        },
+        "other:write:other:node-1": {
+          "requests": 1,
+          "failures": 1,
+          "elapsed_ns": 2275528933,
+          "sent_bytes": 0,
+          "received_bytes": 0
+        },
+        "other:write:other:node-2": {
+          "requests": 43,
+          "failures": 1,
+          "elapsed_ns": 4272766818,
+          "sent_bytes": 20018,
+          "received_bytes": 7563
+        },
+        "periodic:read:events:node-2": {
+          "requests": 51,
+          "failures": 0,
+          "elapsed_ns": 434493820,
+          "sent_bytes": 0,
+          "received_bytes": 2856
+        },
+        "other:read:events:node-2": {
+          "requests": 7,
+          "failures": 0,
+          "elapsed_ns": 517760856,
+          "sent_bytes": 0,
+          "received_bytes": 392
+        },
+        "periodic:read:metadata:node-2": {
+          "requests": 30,
+          "failures": 0,
+          "elapsed_ns": 209476289,
+          "sent_bytes": 0,
+          "received_bytes": 11893
+        },
+        "websocket:read:events:node-2": {
+          "requests": 8,
+          "failures": 0,
+          "elapsed_ns": 59749659,
+          "sent_bytes": 0,
+          "received_bytes": 448
+        },
+        "websocket:read:other:node-2": {
+          "requests": 8,
+          "failures": 0,
+          "elapsed_ns": 51367228,
+          "sent_bytes": 0,
+          "received_bytes": 256
+        },
+        "other:write:rtc_control:node-2": {
+          "requests": 18,
+          "failures": 9,
+          "elapsed_ns": 1051245343,
+          "sent_bytes": 1660,
+          "received_bytes": 6817
+        },
+        "other:read:other:node-2": {
+          "requests": 75,
+          "failures": 0,
+          "elapsed_ns": 4970245990,
+          "sent_bytes": 0,
+          "received_bytes": 149374
+        },
+        "periodic:write:other:node-2": {
+          "requests": 7,
+          "failures": 0,
+          "elapsed_ns": 3073167372,
+          "sent_bytes": 441,
+          "received_bytes": 1620
+        },
+        "network:read:other:node-2": {
+          "requests": 2,
+          "failures": 0,
+          "elapsed_ns": 60880469,
+          "sent_bytes": 0,
+          "received_bytes": 64
+        },
+        "other:read:metadata:node-2": {
+          "requests": 21,
+          "failures": 1,
+          "elapsed_ns": 1337685422,
+          "sent_bytes": 0,
+          "received_bytes": 8016
+        },
+        "periodic:read:other:node-2": {
+          "requests": 51,
+          "failures": 0,
+          "elapsed_ns": 15483958711,
+          "sent_bytes": 0,
+          "received_bytes": 1632
+        },
+        "rtc:read:rtc_control:node-2": {
+          "requests": 178,
+          "failures": 1,
+          "elapsed_ns": 21601106386,
+          "sent_bytes": 0,
+          "received_bytes": 377459
+        },
+        "network:read:metadata:node-2": {
+          "requests": 2,
+          "failures": 0,
+          "elapsed_ns": 11535547,
+          "sent_bytes": 0,
+          "received_bytes": 793
+        }
+      },
+      "wake_locks": {
+        "node-maintain": {
+          "acquisitions": 59,
+          "held_ms": 1801,
+          "longest_ms": 809,
+          "currently_held": false
+        },
+        "rtc-signaling": {
+          "acquisitions": 85,
+          "held_ms": 134338,
+          "longest_ms": 29891,
+          "currently_held": false
+        },
+        "host-sync": {
+          "acquisitions": 61,
+          "held_ms": 24773,
+          "longest_ms": 2117,
+          "currently_held": false
+        },
+        "push-handoff": {
+          "acquisitions": 9,
+          "held_ms": 1189,
+          "longest_ms": 1112,
+          "currently_held": false
+        }
+      },
+      "work_and_owner_ms": {
+        "push-registration": 308,
+        "rtc-control-work": 43789,
+        "host-sync-data": 24088,
+        "push-sync-handoff": 1219,
+        "rtc-ringing": 51543,
+        "rtc-live-call": 74561
+      },
+      "owner_note": "Owners may overlap; never sum owner durations as physical wake-lock time.",
+      "events": {
+        "rtc_poll_idle": 35,
+        "wss_open": 9,
+        "rtc_poll_succeeded": 177,
+        "rtc_poll_failed": 1,
+        "rtc_poll_live": 143,
+        "wss_closed": 9,
+        "network_changed": 10
+      },
+      "wss_connected_ms": 6132306,
+      "last_fcm_received_at": 0,
+      "fcm_priority": 0,
+      "fcm_original_priority": 0,
+      "push_by_node": {},
+      "scope": "process segment; wake intervals capped at lease expiry; application HTTP only"
+    },
+    {
+      "version": "0.4.2",
+      "segment_started_at": 1793437410144,
+      "sampled_at": 1793437940130,
+      "http": {
+        "other:read:capabilities:node-1": {
+          "requests": 6,
+          "failures": 2,
+          "elapsed_ns": 864132286,
+          "sent_bytes": 0,
+          "received_bytes": 744
+        },
+        "periodic:read:events:node-1": {
+          "requests": 3,
+          "failures": 0,
+          "elapsed_ns": 13445494,
+          "sent_bytes": 0,
+          "received_bytes": 168
+        },
+        "other:read:events:node-1": {
+          "requests": 8,
+          "failures": 0,
+          "elapsed_ns": 298521406,
+          "sent_bytes": 0,
+          "received_bytes": 448
+        },
+        "network:write:other:node-1": {
+          "requests": 1,
+          "failures": 0,
+          "elapsed_ns": 51938511,
+          "sent_bytes": 63,
+          "received_bytes": 232
+        },
+        "websocket:read:events:node-1": {
+          "requests": 5,
+          "failures": 0,
+          "elapsed_ns": 48483660,
+          "sent_bytes": 0,
+          "received_bytes": 280
+        },
+        "websocket:read:other:node-1": {
+          "requests": 5,
+          "failures": 0,
+          "elapsed_ns": 59035860,
+          "sent_bytes": 0,
+          "received_bytes": 160
+        },
+        "other:read:other:node-1": {
+          "requests": 24,
+          "failures": 0,
+          "elapsed_ns": 928540334,
+          "sent_bytes": 0,
+          "received_bytes": 27080
+        },
+        "other:write:rtc_control:node-1": {
+          "requests": 1,
+          "failures": 0,
+          "elapsed_ns": 1063710934,
+          "sent_bytes": 28,
+          "received_bytes": 50
+        },
+        "websocket:read:metadata:node-1": {
+          "requests": 2,
+          "failures": 0,
+          "elapsed_ns": 8854554,
+          "sent_bytes": 0,
+          "received_bytes": 793
+        },
+        "network:read:other:node-1": {
+          "requests": 5,
+          "failures": 0,
+          "elapsed_ns": 414481304,
+          "sent_bytes": 0,
+          "received_bytes": 160
+        },
+        "other:read:metadata:node-1": {
+          "requests": 20,
+          "failures": 4,
+          "elapsed_ns": 2150849361,
+          "sent_bytes": 0,
+          "received_bytes": 6344
+        },
+        "periodic:read:other:node-1": {
+          "requests": 3,
+          "failures": 0,
+          "elapsed_ns": 18374918,
+          "sent_bytes": 0,
+          "received_bytes": 96
+        },
+        "network:read:metadata:node-1": {
+          "requests": 6,
+          "failures": 0,
+          "elapsed_ns": 101283386,
+          "sent_bytes": 0,
+          "received_bytes": 2379
+        },
+        "network:read:events:node-1": {
+          "requests": 5,
+          "failures": 0,
+          "elapsed_ns": 61566292,
+          "sent_bytes": 0,
+          "received_bytes": 280
+        },
+        "rtc:read:rtc_control:node-1": {
+          "requests": 7,
+          "failures": 0,
+          "elapsed_ns": 281721072,
+          "sent_bytes": 0,
+          "received_bytes": 5432
+        }
+      },
+      "wake_locks": {
+        "node-maintain": {
+          "acquisitions": 6,
+          "held_ms": 1154,
+          "longest_ms": 875,
+          "currently_held": false
+        },
+        "host-sync": {
+          "acquisitions": 13,
+          "held_ms": 3954,
+          "longest_ms": 1619,
+          "currently_held": false
+        },
+        "push-handoff": {
+          "acquisitions": 4,
+          "held_ms": 60,
+          "longest_ms": 36,
+          "currently_held": false
+        },
+        "rtc-signaling": {
+          "acquisitions": 17,
+          "held_ms": 4638,
+          "longest_ms": 3886,
+          "currently_held": false
+        }
+      },
+      "work_and_owner_ms": {
+        "host-sync-data": 3875,
+        "push-registration": 4,
+        "push-sync-handoff": 80,
+        "rtc-control-work": 4690
+      },
+      "owner_note": "Owners may overlap; never sum owner durations as physical wake-lock time.",
+      "events": {
+        "rtc_poll_idle": 7,
+        "wss_open": 4,
+        "rtc_poll_succeeded": 7,
+        "wss_closed": 5,
+        "network_changed": 17
+      },
+      "wss_connected_ms": 319027,
+      "last_fcm_received_at": 0,
+      "fcm_priority": 0,
+      "fcm_original_priority": 0,
+      "push_by_node": {},
+      "scope": "process segment; wake intervals capped at lease expiry; application HTTP only"
+    }
+  ],
+  "history_note": "Cache may be cleared. Earlier segments end at last checkpoint; abrupt endings are incomplete.",
+  "node_count": 1,
+  "listening_requested": true,
+  "wss_live": true,
+  "release_failed_idle_experiment": false,
+  "stable_network": false,
+  "reception": [
+    {
+      "node": 1,
+      "version": 2,
+      "incoming": true,
+      "sms": true,
+      "revision": 2,
+      "pending": false,
+      "mode": "stream",
+      "heartbeat_s": 270
+    }
+  ]
+}

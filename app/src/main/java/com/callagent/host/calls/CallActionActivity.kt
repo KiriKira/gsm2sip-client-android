@@ -74,6 +74,7 @@ class CallActionActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CallRuntime.adoptContext(this)
         WindowCompat.setDecorFitsSystemWindows(window, false)
         applyLockScreenFlags()
         callId = savedInstanceState?.getString("callId") ?: intent.getStringExtra(EXTRA_CALL_ID)

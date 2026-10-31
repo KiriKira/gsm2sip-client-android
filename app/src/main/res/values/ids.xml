@@ -64,6 +64,9 @@
     <item name="settings_nodes_probe" type="id" />
     <item name="settings_node_push" type="id" />
     <item name="settings_sleepy_listening" type="id" />
+    <item name="settings_incoming_calls" type="id" />
+    <item name="settings_background_sync" type="id" />
+    <item name="settings_full_screen_calls" type="id" />
     <item name="settings_nodes_add" type="id" />
     <item name="settings_auto_copy_codes" type="id" />
     <item name="settings_otp_autofill" type="id" />

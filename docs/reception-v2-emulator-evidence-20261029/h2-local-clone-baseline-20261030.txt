@@ -1,0 +1,17 @@
+Local H2 clone baseline — 2026-10-30 UTC
+
+The remote H2 API 35 Google Play AVD was confirmed stopped before copying. The copied AVD is running on the local KVM host, API 35 Google Play, emulator 37.2.13.0; its system image SHA-256 is `aea89d76918485c7b3041902682be470f8ee5feed43587cda81719b233d9868a`, matching the source image. `sys.boot_completed=1`. The emulator auto-selected 2560 MiB RAM from its 1024 MiB config; local MemAvailable remained about 14 GiB. Remote test host remained at about 3.3 GiB MemAvailable and SoulGem A healthy.
+
+The local emulator listens on `127.0.0.1` / `::1` ports 5558/5559 only. A temporary SSH reverse tunnel exposes remote loopback `127.0.0.1:15559` to local loopback `127.0.0.1:5559`; remote ADB authenticates using its existing trusted key. No private key was copied. The brief `-skip-adb-auth` attempt did not resolve the copied guest's ADB authorization state, was not used for app testing, and was shut down cleanly; the replacement emulator runs without that option.
+
+The copied Android data was preserved. Before installing the current H1 APK, the copied H2 package was versionCode `1000000000`, versionName `0.4.2`, and base APK SHA-256 `f5a73df1fbcd7caa42d3a46be9b6ee5f3a7fdce0d05ef8a4b6519afe0d5f453c`. The current H1 base APK SHA-256 is `a3478ccec1699a7572f496b91e0fe84bafe9d8a593413cb78b4aa93f52a0e67c`, signed by the same debug certificate SHA-256 `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28`. Both report versionCode `1000000000`; the current H1 package is the intended current branch build and contains the real relay configuration.
+
+Node A SQL baseline before app refresh (device IDs/endpoints omitted):
+
+| Device | Reception version | Incoming/SMS | Revision | Endpoint generation | SMS failures | Call failures | Event/call cursor | Last endpoint update UTC |
+|---|---:|---|---:|---:|---:|---:|---|---|
+| H1 | 2 | true/true | 19 | 4 | 0 | 0 | 7/306 | 2026-10-29 18:36:47Z |
+| H2 | 2 | true/true | 10 | 1 | 57 | 44 | 4/304 | 2026-10-29 06:18:59Z |
+| H3 | 2 | true/true | 2 | none | — | — | — | — |
+
+The H2 endpoint is stale and is not valid real-FCM evidence. No B5/C call has been made with this local clone yet. The next planned step is to install the already-tested current H1 APK with `adb install -r` to the copied H2 only, preserving data, then launch normally and require a new SQL endpoint plus actual device-side FCM evidence before proceeding.

@@ -1,0 +1,17 @@
+B4 evidence — H1, 2026-10-29
+
+After swiping H1's app card out of Recents and reopening Madoka, the Settings UI showed:
+- Background call reception: off.
+- Background SMS sync: on.
+- Main screen: “接收设置已同步到 1 个节点。”
+
+After the planned `adb reboot`:
+- `sys.boot_completed=1`; the package remained installed and the MainActivity intent resolved.
+- Android displayed “Madoka isn't responding”. `dumpsys activity lastanr` reported:
+  `Input dispatching timed out (Application does not have a focused window)`.
+- The UI did not reach Settings for a post-reboot visual switch check. The ANR screenshot is `b4-post-reboot-anr.png`.
+- A read-only `run-as` read of `host-reception-v2` showed protocol v2 with `incoming=false`, `sms=true` (session key omitted).
+- Server `device_reception` still had one device `incoming=false,sms=true` and the other `incoming=true,sms=true`.
+- At the incident, lab host memory reported 409 MiB available and 4.0 GiB swap used.
+
+Assessment: swipe/reopen substep passed. The reboot substep is BLOCKED (environment; attribution unconfirmed): persistent state is intact, but app startup/UI verification stopped at the ANR. No app data was cleared and no reinstall was performed.

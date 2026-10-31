@@ -1,0 +1,12 @@
+== proxy window start 2026-10-31T09:08:44Z
+== base export
+{"file": "proxy-base.json", "sampled_at": 1793437741547, "events": {"rtc_poll_idle": 1, "wss_open": 2, "rtc_poll_succeeded": 1, "wss_closed": 3, "network_changed": 10}, "locks": {"node-maintain": {"acquisitions": 4, "held_ms": 1065, "longest_ms": 875, "currently_held": false}, "host-sync": {"acquisitions": 8, "held_ms": 2869, "longest_ms": 1619, "currently_held": false}, "push-handoff": {"acquisitions": 2, "held_ms": 42, "longest_ms": 36, "currently_held": false}, "rtc-signaling": {"acquisitions": 4, "held_ms": 4311, "longest_ms": 3886, "currently_held": false}}, "listening_requested": true, "wss_live": true, "reception": [{"node": 1, "version": 2, "incoming": true, "sms": true, "revision": 2, "pending": false, "mode": "stream", "heartbeat_s": 270}]}
+== wifi off 2026-10-31T09:09:22Z
+Active default network: none
+== offline export
+{"file": "proxy-offline.json", "sampled_at": 1793437822005, "events": {"rtc_poll_idle": 1, "wss_open": 2, "rtc_poll_succeeded": 1, "wss_closed": 4, "network_changed": 12}, "locks": {"node-maintain": {"acquisitions": 4, "held_ms": 1065, "longest_ms": 875, "currently_held": false}, "host-sync": {"acquisitions": 8, "held_ms": 2869, "longest_ms": 1619, "currently_held": false}, "push-handoff": {"acquisitions": 2, "held_ms": 42, "longest_ms": 36, "currently_held": false}, "rtc-signaling": {"acquisitions": 5, "held_ms": 4322, "longest_ms": 3886, "currently_held": false}}, "listening_requested": true, "wss_live": false, "reception": [{"node": 1, "version": 2, "incoming": true, "sms": true, "revision": 2, "pending": false, "mode": "stream", "heartbeat_s": 270}]}
+== wifi on 2026-10-31T09:10:35Z
+Active default network: 103
+== online export
+{"file": "proxy-online.json", "sampled_at": 1793437892502, "events": {"rtc_poll_idle": 7, "wss_open": 4, "rtc_poll_succeeded": 7, "wss_closed": 5, "network_changed": 17}, "locks": {"node-maintain": {"acquisitions": 6, "held_ms": 1154, "longest_ms": 875, "currently_held": false}, "host-sync": {"acquisitions": 13, "held_ms": 3954, "longest_ms": 1619, "currently_held": false}, "push-handoff": {"acquisitions": 4, "held_ms": 60, "longest_ms": 36, "currently_held": false}, "rtc-signaling": {"acquisitions": 17, "held_ms": 4638, "longest_ms": 3886, "currently_held": false}}, "listening_requested": true, "wss_live": true, "reception": [{"node": 1, "version": 2, "incoming": true, "sms": true, "revision": 2, "pending": false, "mode": "stream", "heartbeat_s": 270}]}
+== done 2026-10-31T09:11:43Z

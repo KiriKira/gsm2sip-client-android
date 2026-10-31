@@ -1,0 +1,7 @@
+# Node B/C startup risk record — before change
+
+Recorded 2026-10-29 19:53 UTC. Read-only inspection found that the old report's image-mismatch assumption is stale: A, B, and C all reference the same immutable image ID `sha256:1f6fd76b942af40b751ede535ade03604de858ca4a40054406d4afb56fa5c1d4`, built as `soulgem-aio:reception-r1-1528210`. B and C are stopped, each with its own bind-mounted data directory (`data-b`, `data-c`, 49 MiB each), its own Docker bridge (`reception-r1-b`, `reception-r1-c`), and distinct loopback-only API ports 18111 and 18112. No container recreate or image update is needed.
+
+Before starting either node, make compressed, mode-0600 copies of both data directories under the private test-host backup directory and record hashes. Starting the existing containers is reversible with `docker stop reception-r1-b reception-r1-c`; it may apply ordinary startup database migrations and will add only node-local pairing/call audit state. Do not touch Node A's data, merge the databases, or expose any environment values. If startup fails or changes a port/network unexpectedly, stop both and restore the corresponding data directory from its pre-start archive before proceeding.
+
+The two archives are rollback points, not evidence to submit. If the nodes pass and are used for D, retain their resulting test state until evidence is captured; do not restore a full database over completed test results.

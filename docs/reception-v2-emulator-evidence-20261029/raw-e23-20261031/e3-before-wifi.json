@@ -1,0 +1,151 @@
+{
+  "segments": [
+    {
+      "version": "0.4.2",
+      "segment_started_at": 1793419586661,
+      "sampled_at": 1793419825320,
+      "http": {
+        "other:write:rtc_control:node-2": {
+          "requests": 1,
+          "failures": 0,
+          "elapsed_ns": 125968929,
+          "sent_bytes": 28,
+          "received_bytes": 50
+        },
+        "other:read:other:node-2": {
+          "requests": 5,
+          "failures": 0,
+          "elapsed_ns": 609613760,
+          "sent_bytes": 0,
+          "received_bytes": 819
+        },
+        "other:read:capabilities:node-2": {
+          "requests": 2,
+          "failures": 0,
+          "elapsed_ns": 241393961,
+          "sent_bytes": 0,
+          "received_bytes": 372
+        },
+        "other:write:other:node-1": {
+          "requests": 1,
+          "failures": 1,
+          "elapsed_ns": 2275528933,
+          "sent_bytes": 0,
+          "received_bytes": 0
+        },
+        "other:write:other:node-2": {
+          "requests": 3,
+          "failures": 0,
+          "elapsed_ns": 1095760676,
+          "sent_bytes": 302,
+          "received_bytes": 490
+        },
+        "other:read:metadata:node-2": {
+          "requests": 2,
+          "failures": 0,
+          "elapsed_ns": 274469205,
+          "sent_bytes": 0,
+          "received_bytes": 793
+        },
+        "periodic:read:events:node-2": {
+          "requests": 3,
+          "failures": 0,
+          "elapsed_ns": 157879601,
+          "sent_bytes": 0,
+          "received_bytes": 168
+        },
+        "other:read:events:node-2": {
+          "requests": 1,
+          "failures": 0,
+          "elapsed_ns": 319160482,
+          "sent_bytes": 0,
+          "received_bytes": 56
+        },
+        "periodic:read:metadata:node-2": {
+          "requests": 2,
+          "failures": 0,
+          "elapsed_ns": 36628277,
+          "sent_bytes": 0,
+          "received_bytes": 793
+        },
+        "periodic:read:other:node-2": {
+          "requests": 3,
+          "failures": 0,
+          "elapsed_ns": 96886840,
+          "sent_bytes": 0,
+          "received_bytes": 96
+        },
+        "rtc:read:rtc_control:node-2": {
+          "requests": 2,
+          "failures": 0,
+          "elapsed_ns": 417599278,
+          "sent_bytes": 0,
+          "received_bytes": 90
+        }
+      },
+      "wake_locks": {
+        "node-maintain": {
+          "acquisitions": 3,
+          "held_ms": 1014,
+          "longest_ms": 809,
+          "currently_held": false
+        },
+        "rtc-signaling": {
+          "acquisitions": 6,
+          "held_ms": 2457,
+          "longest_ms": 1439,
+          "currently_held": false
+        },
+        "host-sync": {
+          "acquisitions": 3,
+          "held_ms": 2327,
+          "longest_ms": 2117,
+          "currently_held": false
+        },
+        "push-handoff": {
+          "acquisitions": 1,
+          "held_ms": 1112,
+          "longest_ms": 1112,
+          "currently_held": false
+        }
+      },
+      "work_and_owner_ms": {
+        "push-registration": 305,
+        "rtc-control-work": 2560,
+        "host-sync-data": 1880,
+        "push-sync-handoff": 1128
+      },
+      "owner_note": "Owners may overlap; never sum owner durations as physical wake-lock time.",
+      "events": {
+        "rtc_poll_idle": 2,
+        "wss_open": 1,
+        "rtc_poll_succeeded": 2,
+        "network_changed": 3
+      },
+      "wss_connected_ms": 68743,
+      "last_fcm_received_at": 0,
+      "fcm_priority": 0,
+      "fcm_original_priority": 0,
+      "push_by_node": {},
+      "scope": "process segment; wake intervals capped at lease expiry; application HTTP only"
+    }
+  ],
+  "history_note": "Cache may be cleared. Earlier segments end at last checkpoint; abrupt endings are incomplete.",
+  "node_count": 1,
+  "listening_requested": true,
+  "wss_live": true,
+  "release_failed_idle_experiment": false,
+  "stable_network": false,
+  "reception": [
+    {
+      "node": 1,
+      "version": 2,
+      "incoming": true,
+      "sms": true,
+      "revision": 2,
+      "pending": false,
+      "mode": "stream",
+      "heartbeat_s": 120
+    }
+  ]
+}

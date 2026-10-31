@@ -1,0 +1,13 @@
+Reception v2 R1 — C3 private TURN preparation — 2026-10-31
+
+Result: environment preflight PASS; C3 end-to-end remains untested.
+
+- The R1 test host VPC address was reachable from the running API 34 GW and API 35 H1 AVDs in the prior read-only check (ICMP RTT 5–8 ms).
+- Pinned image: coturn/coturn digest sha256:c29135c08565810d37053f384584392b7c24b69570fc81a721b878d6fe63e04e.
+- A temporary sidecar bound only to 172.31.15.170 on TCP/UDP 13478 and UDP relay range 49300–49399. It used Node A's existing 64-byte TURN shared secret, held only in a mode-0600 remote config; the value was not logged or committed.
+- `ss` showed four listener sockets on 172.31.15.170:13478, no listener on the CLI port, and no public-interface bind. The running container used about 4.6 MiB of its 128 MiB limit and had zero restarts.
+- `turnutils_uclient` generated a short-lived REST credential using the same HMAC-SHA1 derivation as SoulGem. Two authenticated allocations succeeded and returned relay addresses inside the configured range (ports 49380 and 49388). The test ran from the remote host, not from Android; it did not create a phone call or exercise WebRTC media.
+- The temporary container, credentials/config, listener, and relay allocations were removed after the smoke test. Final checks found zero matching containers, zero 13478 listeners, and zero coturn relay sockets.
+- No SoulGem container, advertised TURN URL, firewall/security group, database, pairing, app data, or product code was changed.
+
+To run C3 end-to-end, a real call still needs a valid retained SIM mapping and Node A must advertise a reachable TURN address. The private sidecar preparation alone is not a C3 pass.

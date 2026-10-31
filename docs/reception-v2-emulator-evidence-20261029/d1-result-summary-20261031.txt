@@ -1,0 +1,20 @@
+Reception v2 D1 normal-UI end-to-end retest
+Result: PASS, with H2 used in place of planned H1 (deviation disclosed)
+Host: API 35 Google Play emulator; real FCM/Kyubey delivery
+Gateway: API 34 ordinary emulator
+Server image: SoulGem R1 digest sha256:1f6fd76b942af40b751ede535ade03604de858ca4a40054406d4afb56fa5c1d4
+Owner eligibility before injection: A=0, B=1, C=0
+Active calls before injection: 0
+Incoming reception switch: enabled in normal Madoka UI
+Push path: real FCM; no synthetic push
+GSM injection UTC: 2026-10-30T23:05:46.144Z
+Visible UI answer tap UTC: 2026-10-30T23:05:55.746Z
+Full-active UTC: 2026-10-30T23:06:08.893Z
+Full-active evidence: SoulGem active; emulator cellular state ACTIVE; Host Telecom ACTIVE; Homura modem OFFHOOK
+Visible UI hangup tap UTC: 2026-10-30T23:06:11.828Z
+Final call state: ended / cellular_ended
+Final owner eligibility: A=0, B=1, C=0; active calls=0
+Audio limitation: synthetic PCM backend exercised the software call path; real cellular HAL audio was not tested.
+Raw GW log SHA-256: 2e00621e6bd2a049055f48e1efb60c2451196caaab3858640efef08784aedc84 (86,086 bytes, private test machine only)
+Raw Host log SHA-256: 84969bda4ca44805bf81f93945af3ad61749d8008e1f79bc59296d29dd748d64 (65,565 bytes, private test machine only)
+Call/session identifiers and raw logs are intentionally omitted from this repository evidence.

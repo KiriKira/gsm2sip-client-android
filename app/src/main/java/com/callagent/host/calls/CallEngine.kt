@@ -5,7 +5,8 @@ enum class EngineConnectionState { STOPPED, CONNECTING, READY, FAILED }
 
 enum class EngineCallState { INCOMING, RINGING, EARLY, CONNECTED, DISCONNECTED, FAILED }
 enum class EngineCallDirection { INBOUND, OUTBOUND }
-enum class CallRejection { DECLINED, EXPIRED }
+/** DECLINED_BY_USER is the user's own decline, which may end the call on every phone. */
+enum class CallRejection { DECLINED, EXPIRED, DECLINED_BY_USER }
 
 /**
  * [callId] is the engine's operation key. [serverCallId] is correlation supplied by the
@@ -29,12 +30,16 @@ interface CallEngine : AutoCloseable {
         fun onConnectionState(state: EngineConnectionState, statusCode: Int? = null, reason: String? = null)
         fun onCallState(snapshot: EngineCallSnapshot)
         fun onEngineError(error: Throwable)
+        /** Call control answered and nothing is ringing or live. */
+        fun onIdle() {}
     }
 
     fun connect()
     fun dial(serverCallId: String, destination: String)
     fun answer(callId: String)
     fun reject(callId: String, reason: CallRejection = CallRejection.DECLINED)
+    /** The user's decline would end this call on every phone (see [CallRejection.DECLINED_BY_USER]). */
+    fun declinesEverywhere(callId: String): Boolean = false
     fun hangup(callId: String)
     fun sendDtmf(callId: String, digits: String)
     fun setMute(callId: String, muted: Boolean)

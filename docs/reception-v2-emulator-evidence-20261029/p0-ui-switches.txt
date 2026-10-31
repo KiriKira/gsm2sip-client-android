@@ -1,0 +1,37 @@
+SQL_INCOMING_OFF
+ protocol_version | incoming_enabled | sms_enabled | count
+------------------+------------------+-------------+-------
+                2 | f                | t           |     1
+                2 | t                | t           |     1
+(2 rows)
+
+UI_INCOMING_RESTORED
+<node index="2" text="" resource-id="com.callagent.host:id/settings_incoming_calls" class="android.widget.Switch" package="com.callagent.host" content-desc="后台来电接收" checkable="true" checked="true" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[396,319][448,367]" />
+SQL_INCOMING_ON
+ protocol_version | incoming_enabled | sms_enabled | count
+------------------+------------------+-------------+-------
+                2 | t                | t           |     2
+(1 row)
+
+UI_SMS_OFF
+<node index="2" text="" resource-id="com.callagent.host:id/settings_background_sync" class="android.widget.Switch" package="com.callagent.host" content-desc="后台短信同步" checkable="true" checked="false" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[396,404][448,452]" />
+SQL_SMS_OFF
+ protocol_version | incoming_enabled | sms_enabled | count
+------------------+------------------+-------------+-------
+                2 | t                | f           |     1
+                2 | t                | t           |     1
+(2 rows)
+
+UI_SMS_ON
+<node index="2" text="" resource-id="com.callagent.host:id/settings_background_sync" class="android.widget.Switch" package="com.callagent.host" content-desc="后台短信同步" checkable="true" checked="true" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[396,404][448,452]" />
+SQL_SMS_ON
+ protocol_version | incoming_enabled | sms_enabled | count
+------------------+------------------+-------------+-------
+                2 | t                | t           |     2
+(1 row)
+
+PUSH_ENDPOINTS
+ endpoint_count | failures | call_failures
+----------------+----------+---------------
+              2 |        0 |             0
+(1 row)

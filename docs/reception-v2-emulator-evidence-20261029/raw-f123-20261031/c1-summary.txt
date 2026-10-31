@@ -1,0 +1,13 @@
+started_utc=2026-10-31T08:01:16.405+00:00
+h1_enabled=True
+h2_airplane=1
+gsm_call_ack=OK
+call_id_hash=3a0207d5
+h1_ringing=True
+decline_tap=(134, 322);utc=2026-10-31T08:01:29.601+00:00
+cellular_ended_after_decline_s=0.74
+call_row=ringing|-
+participants=2d326382-3a88-4b10-9bc0-781b255297cc|ended|declined ; 89ee33a1-da6c-4a61-adc4-59a7fdb3c328|ended|declined
+h2_after_online_participants=2d326382-3a88-4b10-9bc0-781b255297cc|ended|declined ; 89ee33a1-da6c-4a61-adc4-59a7fdb3c328|ended|declined
+c1=PASS;utc=2026-10-31T08:01:39.612+00:00
+finished_utc=2026-10-31T08:01:39.613+00:00

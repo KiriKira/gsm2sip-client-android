@@ -1,0 +1,7 @@
+D1 safe-path availability check — 2026-10-30 local
+
+The retained Homura mesh rows at priorities 1 and 2 were confirmed active, revision 2, with empty `last_error`; B/C heartbeats were fresh. `SIM_ID_CONFLICT` remained only on the already removed priority 3/4 historical rows. The current Homura logcat sample contained no new mesh conflict. No database row was edited and no node was removed or re-paired.
+
+The earlier H1 Settings/join-link attempt displayed Android's “Madoka isn't responding” dialog. Its screenshot is retained locally because it also shows the reserved test telephone number; it is intentionally not uploaded. Sol rejected repeating that same entry path. Sol's different proposed path was the installed `HostJointInstrumentation` mailbox invoking production `HostNodes.add()` with a B-owner client pairing code, but only if that runner is available on H1.
+
+Read-only `pm list instrumentation` showed that H1 has `R1DiagnosticInstrumentation` only; H2 has no installed instrumentation component. Neither has `HostJointInstrumentation`, so the proposed alternate control path was unavailable in this round. D1 was not attempted again. Sol's conclusion is **not inherently impossible**, but **BLOCKED (method/tool availability this round)**; a future run needs a reviewed, test-only HostJointInstrumentation build on H1, or a repaired user-visible join path. Do not use SQL edits or restore old snapshots to bypass the pairing flow.

@@ -1,0 +1,9 @@
+H2 controlled startup attempt — 2026-10-29 UTC
+
+The pre-start snapshot and stop conditions are in `h2-start-risk-before-20261030.md`. H2 was launched without changing or wiping the existing API 35 Google Play AVD. Serial mapping was checked through `ro.boot.qemu.avd_name`: 5554=GW API34, 5556=H1 API35 Play, 5558=H2 API35 Play. All three reached `sys.boot_completed=1`; GW and H1 remained ADB-responsive.
+
+H2 boot completed at 19:14:19Z. During boot, MemAvailable dipped from 1620 MiB to about 634 MiB; SwapFree fell from 3210 MiB to about 1823 MiB. `vmstat` showed continued non-zero swap-in/out in consecutive samples after boot, triggering the pre-recorded stop condition. H2 was cleanly stopped at 19:15:03Z using `adb emu kill`; its userdata was not deleted. After shutdown, only GW/H1 remained, both returned `sys.boot_completed=1`, MemAvailable returned to about 3833 MiB, and the final two `vmstat` samples had no swap-in/out.
+
+No B5/C call was made while H2 was starting. Server endpoint state was checked without exposing IDs or URLs. The H1 row remained generation 4, failures 0, call_failures 0, event cursor 6, call cursor 280. H2's stale generation-1 row remained, with failures increasing from 35 to 37 during the boot window; call_failures remained 11 and cursors remained 4/281. It did not re-register a fresh endpoint. This is recorded as a boot side effect, not a product verdict; subsequent server assertions must isolate H1 by its device digest and generation.
+
+Outcome: H2 can technically boot, but this host cannot keep three AVDs running without sustained swapping. B5's “only H2 rings” assertion and C tests requiring H2 are therefore BLOCKED (environment/resource) on this host. Do not retry H2 startup or delete userdata in this round without additional memory capacity.

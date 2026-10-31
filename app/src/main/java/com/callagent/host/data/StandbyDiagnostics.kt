@@ -143,7 +143,7 @@ object StandbyDiagnostics {
         }
     }
 
-    fun summary(): String {
+    fun summary(context: android.content.Context? = null): String {
         val data = json()
         val locks = data.getJSONObject("wake_locks")
         val lines = mutableListOf("本次进程运行以来的统计（耗时不是电量）：")
@@ -156,6 +156,18 @@ object StandbyDiagnostics {
         lines += "HTTP 请求：${snapshot().values.sumOf { it.requests }} 次"
         lines += if (lastPushAt == 0L) "本次运行尚未收到 FCM；这不等于注册失败。"
             else "最近收到 FCM：${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(lastPushAt))}"
+        context?.let { app ->
+            val reception = com.callagent.host.calls.ReceptionV2.diagnostics(app)
+            for (i in 0 until reception.length()) {
+                val node = reception.getJSONObject(i)
+                val mode = when (node.optString("mode")) {
+                    "push" -> "推送唤醒，空闲不常驻"
+                    "stream" -> "无推送，WebSocket 心跳 ${node.optInt("heartbeat_s")} 秒"
+                    else -> "旧方式，定期续约"
+                }
+                lines += "节点 ${node.getInt("node")}：$mode" + if (node.optBoolean("pending")) "；接收设置待同步" else ""
+            }
+        }
         lines += "分享统计可导出详细 JSON；进程异常结束前未采样的时间不计入历史。"
         return lines.joinToString("\n\n")
     }
@@ -174,7 +186,8 @@ object StandbyDiagnostics {
             .put("listening_requested", com.callagent.host.calls.CallRuntime.isListeningRequested)
             .put("wss_live", com.callagent.host.calls.CallRuntime.wakeChannelLive)
             .put("release_failed_idle_experiment", com.callagent.host.calls.StandbyPowerPolicy.releaseDuringFailure(context))
-            .put("stable_network", com.callagent.host.network.NetworkEnvironment.stable).toString(2)
+            .put("stable_network", com.callagent.host.network.NetworkEnvironment.stable)
+            .put("reception", com.callagent.host.calls.ReceptionV2.diagnostics(context)).toString(2)
     }
 
     fun <T> withCause(reason: String, block: () -> T): T {

@@ -71,6 +71,9 @@ class HostCallService : android.app.Service() {
     private var pendingAnswerCallId: String? = null
 
     val isForegroundListening: Boolean get() = foregroundListening
+    /** Stopped itself to wait for a push: a new call must start a new service. */
+    @Volatile internal var stoppingUntilInvited = false
+        private set
     val isSignalingReady: Boolean get() = connectionState == EngineConnectionState.READY
 
     override fun onCreate() {
@@ -83,6 +86,7 @@ class HostCallService : android.app.Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         latestStartId = startId
+        stoppingUntilInvited = false
         if (intent == null) {
             val persisted = runCatching { CallPreferences(this).enabledFor(sessionStore.read()) }.getOrDefault(false)
             if (persisted) setForegroundListening(true) else stopSelf(startId)
@@ -166,6 +170,40 @@ class HostCallService : android.app.Service() {
                 if (generation == engineGeneration) onCallEngineError()
             }
         }
+
+        override fun onIdle() {
+            executeOnIo {
+                if (generation == engineGeneration) stopUntilInvitedIfIdle()
+            }
+        }
+    }
+
+    /**
+     * Reception v2 with working push: the node keeps offering calls while this
+     * phone sleeps and wakes it by push for each one, so nothing has to stay
+     * running in between. With nothing ringing or live, call control and its
+     * notification stop; the next call's push starts them again. The user's
+     * choice to receive calls is unchanged. Without push this keeps running.
+     */
+    private fun stopUntilInvitedIfIdle() {
+        val session = engineSession ?: return
+        if (!mayStopUntilInvited(
+                listening = foregroundListening && !destroying,
+                callWork = pendingCallWake.get() || CallRuntime.currentSessionForService()?.phase?.isInProgress() == true ||
+                    pendingOutboundCallId != null || pendingAnswerCallId != null || inboundEngineIds.isNotEmpty(),
+                receptionV2 = ReceptionV2.active(this, session),
+                pushReady = runCatching { com.callagent.host.push.PushRegistration.isReady(this, session.sessionInstanceId) }.getOrDefault(false)
+            )) return
+        Log.i(TAG, "Call control idle; the next call arrives by push")
+        com.callagent.host.data.StandbyDiagnostics.event("call_control_stopped_until_push")
+        listeningGeneration.incrementAndGet()
+        stoppingUntilInvited = true
+        foregroundListening = false
+        listeningRequested = false
+        stopSignalingForeground()
+        closeEngine()
+        // A start that arrived meanwhile keeps the service.
+        stopSelf(latestStartId)
     }
 
     internal fun setForegroundListening(enabled: Boolean) {
@@ -219,6 +257,10 @@ class HostCallService : android.app.Service() {
                 listeningRequested = false
                 val message = readinessFailure(failure)
                 CallRuntime.onListeningFailed(this@HostCallService, message)
+                // The active node may be the one that is down while another
+                // node rings this phone: switch to a node that answers, which
+                // starts call control there.
+                com.callagent.host.mesh.NodeMonitor.requestFailover(this@HostCallService)
                 stopSignalingForeground()
                 closeEngine()
                 stopSelf()
@@ -298,14 +340,53 @@ class HostCallService : android.app.Service() {
         }
     }
 
+    /** Without [message] this is the user's own decline (the button, the
+     * notification or Telecom), which may end the call on every phone. */
     internal fun rejectCall(callId: String, message: String? = null) {
         executeOnIo {
             val engineKey = inboundEngineIds[callId]
-            if (engineKey != null) runCatching { callEngine?.reject(engineKey, CallRejection.DECLINED) }
-            else pendingOutboundCallId?.takeIf { it == callId }?.let { runCatching { callEngine?.hangup(it) } }
+            val byUser = message == null
+            val reason = if (byUser) CallRejection.DECLINED_BY_USER else CallRejection.DECLINED
+            val everywhere = byUser && engineKey != null && callEngine?.declinesEverywhere(engineKey) == true
+            val sent = engineKey != null && runCatching { callEngine?.reject(engineKey, reason) }.isSuccess
+            if (engineKey == null) pendingOutboundCallId?.takeIf { it == callId }?.let { runCatching { callEngine?.hangup(it) } }
             if (message != null) CallRuntime.setStatus(message, callId)
-            finishCall(callId, failed = false)
+            // Only the gateway can end the call for every phone; say what is known now.
+            val session = engineSession
+            val notice = when {
+                everywhere && sent -> "已拒接，正在等待网关让其他主机停止响铃…"
+                everywhere -> "本机已停止响铃，但拒接请求未送达；其他主机可能仍在响铃。"
+                byUser && session != null && ReceptionV2.active(this, session) -> "已在本机拒接（网关版本不支持让所有主机一起停止响铃）。"
+                else -> null
+            }
+            finishCall(callId, failed = false, endNotice = notice, statusText = notice)
+            if (everywhere && sent) confirmDeclineEverywhere(callId)
         }
+    }
+
+    /** Reads back, off the call path, whether the gateway ended the call for every phone. */
+    private fun confirmDeclineEverywhere(callId: String) {
+        val app = applicationContext
+        val session = runCatching { requireClientSession() }.getOrNull() ?: return
+        Thread({
+            val unanswered = "已拒接本机；网关尚未确认，其他主机可能仍在响铃。"
+            // The gateway ends the call for the other phones as soon as it can, so poll until it
+            // reports the call over instead of guessing once and leaving the waiting text behind.
+            val deadline = System.currentTimeMillis() + 35_000L
+            var wait = 1_500L
+            while (System.currentTimeMillis() < deadline) {
+                runCatching { Thread.sleep(wait) }
+                wait = 3_000L
+                val call = runCatching {
+                    if (SessionStore(app).read()?.sameSessionInstance(session) != true) return@Thread
+                    ApiClient(session.apiBaseUrl, SessionStore(app)).rtcCall(callId)
+                }.getOrNull() ?: continue
+                if (call.state != "ended") continue
+                CallRuntime.updateEndedNotice(callId, call.localTerminalNotice() ?: "来电已结束。")
+                return@Thread
+            }
+            CallRuntime.updateEndedNotice(callId, unanswered)
+        }, "decline-confirm").apply { isDaemon = true }.start()
     }
 
     /** A websocket is only a wake hint: the engine polls call control at once. */
@@ -406,7 +487,6 @@ class HostCallService : android.app.Service() {
                 throw SessionChanged()
             }
             startEngine()
-            if (connectionState == EngineConnectionState.READY) startAuthorizedOutbound()
         } catch (failure: Exception) {
             failPendingOutbound(readinessFailure(failure))
         }
@@ -768,7 +848,8 @@ class HostCallService : android.app.Service() {
                 pushReady = { com.callagent.host.push.PushRegistration.isReady(this, pushSession) },
                 sessionInstanceId = pushSession,
                 sessionIsCurrent = { sessionStore.read()?.sameSessionInstance(targetSession) == true },
-                listeningEnabled = { CallPreferences(this).enabledFor(targetSession) })
+                listeningEnabled = { CallPreferences(this).enabledFor(targetSession) },
+                receptionV2 = { ReceptionV2.active(this, targetSession) })
             engineSession = targetSession
         }
         if (connectionState !in setOf(EngineConnectionState.READY, EngineConnectionState.CONNECTING)) {
@@ -776,6 +857,10 @@ class HostCallService : android.app.Service() {
             requireCallEngine().connect()
         }
         deliverPendingCallWake()
+        // RTC dialing performs its own authenticated control/media setup. An
+        // incoming-disabled engine intentionally does not poll or emit READY,
+        // so a granted outgoing call must not wait for that listening signal.
+        startAuthorizedOutbound()
     }
 
     /** An engine is bound to the authenticated node session that started it. */
@@ -1153,7 +1238,7 @@ class HostCallService : android.app.Service() {
         else if (foregroundListening) {
             foregroundListening = false
             listeningRequested = false
-            CallRuntime.onListeningFailed(this, "通话引擎不可用，来电接收已关闭。")
+            CallRuntime.onListeningFailed(this, "通话引擎不可用，稍后自动重试。")
             stopSignalingForeground()
             closeEngine()
             stopSelf()
@@ -1191,6 +1276,14 @@ class HostCallService : android.app.Service() {
     private fun CallPhase.isInProgress(): Boolean = this !in setOf(CallPhase.IDLE, CallPhase.ENDED, CallPhase.FAILED)
 
     companion object {
+        /**
+         * Call control may stop until the next invitation only while it is
+         * listening with no call work of any kind, and only where a node that
+         * keeps the choice (reception v2) can wake this phone by push.
+         */
+        internal fun mayStopUntilInvited(listening: Boolean, callWork: Boolean, receptionV2: Boolean, pushReady: Boolean): Boolean =
+            listening && !callWork && receptionV2 && pushReady
+
         private const val TAG = "HostCall"
         private const val ACTION_OUTBOUND = "com.callagent.host.calls.OUTBOUND"
         private const val ACTION_LISTEN = "com.callagent.host.calls.LISTEN"

@@ -1,0 +1,13 @@
+started_utc=2026-10-31T13:46:32.107+00:00
+h2_airplane=
+h1_switch=None
+idle_state=['mState=IDLE mLightState=OVERRIDE']
+idle_start_utc=2026-10-31T13:49:23.419+00:00
+inject_utc=2026-10-31T13:50:23.420+00:00 ack=OK
+h1_ring_after_s=4.6
+answer_tap=(330, 652) label=接听
+participants_a=5a6a6d63-82ba-42e8-b239-ef94bae0aa79|ended|answered_elsewhere ; 5a6a6d63-82ba-42e8-b239-ef94bae0aa79|ended|answered_elsewhere
+call_a=ended|answered_elsewhere
+idle_after=['mState=ACTIVE mLightState=ACTIVE']
+result=PASS
+finished_utc=2026-10-31T13:50:41.227+00:00

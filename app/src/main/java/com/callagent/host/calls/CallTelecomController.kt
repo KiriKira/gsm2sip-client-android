@@ -58,7 +58,9 @@ internal object CallTelecomController {
         val handle = ensurePhoneAccount(app)
         val extras = Bundle().apply {
             putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, handle)
-            putDetails(details)
+            // Telecom forwards this nested Bundle as ConnectionRequest.extras;
+            // custom keys on the outer placeCall Bundle are not forwarded.
+            putBundle(TelecomManager.EXTRA_OUTGOING_CALL_EXTRAS, Bundle().apply { putDetails(details) })
         }
         val address = Uri.fromParts("gsm2sip", details.callId, null)
         try {
@@ -219,6 +221,21 @@ internal class HostCallConnection(
     }
 
     override fun onAnswer() = CallRuntime.onTelecomAnswer(callId)
+
+    /**
+     * Telecom lets this self-managed app show its incoming-call UI (no other
+     * app's call is in the way). The UI is the CallStyle notification with a
+     * full-screen intent: Android opens the call screen on a locked or idle
+     * phone and shows a heads-up with Answer/Decline on an unlocked one.
+     * Starting the Activity directly works only while Madoka is on screen;
+     * from the background Android blocks it, so that is done only then.
+     */
+    override fun onShowIncomingCallUi() {
+        if (details.direction != CallDirection.INCOMING || state != STATE_RINGING) return
+        val call = CallRuntime.snapshot(callId)?.takeIf { it.phase == CallPhase.INCOMING_RINGING } ?: return
+        if (CallRuntime.isAppVisible) context.startCallUi(callId)
+        else CallNotificationManager.ensureIncoming(context, call)
+    }
 
     override fun onAnswer(videoState: Int) = onAnswer()
 

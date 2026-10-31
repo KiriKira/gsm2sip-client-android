@@ -1,0 +1,17 @@
+# Homura SIM read-only probe — pre-action record
+
+Recorded 2026-10-30 UTC before running the identity guard.
+
+The ordinary Homura UI has persisted the existing mapping as `UNVERIFIED`; Node A still reports the same active SIM/Gateway digests at revision 9, slot 0. The local registry retains its salted fingerprint, but ordinary Android shell tools cannot read the current ICCID (`content://telephony/siminfo` rejects the shell UID). Sol requires comparing the live same-salt fingerprint and Telecom identity before any further retained-ID confirmation.
+
+Planned action: build and install a temporary **test-only** Android instrumentation APK that reads `SubscriptionInfo.iccId` under `UiAutomation` shell permission identity, computes the existing local salted SHA-256 in memory, compares it to the stored pin, and returns only booleans/digests plus subId, slot, default-dialer and active-call status. It will not emit or persist ICCID, salt, fingerprint, raw SIM/Gateway IDs, phone number, or endpoint. It will not call the server, mutate SharedPreferences, change default roles, or start GatewayService. No production source is changed; the temporary test source will be removed after build. The normal instrumentation APK will be restored after the probe.
+
+The local SDK/JDK build succeeded with JDK 21 after the system JDK 17 was found to lack `jlink`; no system package was changed. The local default debug certificate differs from Homura's test certificate, so the probe APK will be re-signed on the test host with its existing debug keystore. The private key stays on that host; the resulting certificate digest must match the installed Homura before installation.
+
+Reversibility: installing the test-only package is reversible by replacing it with the standard `GatewayJointInstrumentation` test APK built from the unchanged branch. The target Homura app APK and its private data are not uninstalled, cleared, or downgraded. The only expected device changes are replacement of the instrumentation APK and transient target-process startup; the probe uses read-only preference and Telecom/Telephony APIs. If the pin is absent, cannot be read, or differs, stop without proposing or confirming a SIM binding. If the identity matches, retain the current server SIM UUID and revision; any later proposal requires a separate new pre-write backup/risk record.
+
+Resource impact: a local Gradle test-APK build and a brief instrumentation run; no AVD, Docker, node, or system-service restart is planned.
+
+The first standalone instrumentation entry installed with the matching test-host certificate but did not finish within the command timeout. It exposed no result and made no server/API or registry write. The target and test app processes were force-stopped; current telephony call state is idle and `emu gsm list` is empty. The probe APK will be replaced with the branch's normal `GatewayJointInstrumentation` APK after the next attempt.
+
+Fallback before any retained-ID write: use the already exercised `GatewayJointInstrumentation` component with a temporary `sim_probe=true` early-return path, which adopts the same shell permission identity, reads the same fields without calling `SimRegistry.snapshot`, does not start/stop GatewayService, and returns only the redacted comparison result. The temporary change is confined to `androidTest` source, will be reverted immediately after building, and the unchanged normal runner will be rebuilt/re-signed/restored after capture. The probe still must not call any API or persist any target-app state.

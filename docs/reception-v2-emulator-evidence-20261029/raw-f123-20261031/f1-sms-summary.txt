@@ -1,0 +1,9 @@
+started_utc=2026-10-31T07:04:06.589+00:00
+text=F1SMS-070350
+owner_hash=aa1a225b
+sms_ack=OK
+db_message_rows=1
+host_ui_shows_text=True
+db_rows_after_settle=1
+f1_sms=PASS;utc=2026-10-31T07:04:21.780+00:00
+finished_utc=2026-10-31T07:04:21.781+00:00

@@ -13,7 +13,11 @@ Android host app for controlling calls and SMS through the two SIMs in a separat
 
 The app includes server call control over HTTPS, native WebRTC audio, self-managed Telecom calls, CallStyle notifications, mute/DTMF/audio routing and server-authorized remote calls. Calling requires configured server/gateway voice capability; real dual-SIM audio remains a device acceptance gate. It does not read or send SMS through the host phone or fall back to the host carrier dialer.
 
-Several hosts can pair to the same owner and gateway, using separate one-time codes and credentials. Settings lists paired hosts and preserves its last snapshot offline and through folding. Incoming calls select the first host that actually answers; other hosts show that another device answered. One host rejecting does not reject the call for everyone. See [multi-host operation](docs/multi-host.md); the shared protocol supports future platforms, while a Windows client is not yet implemented.
+Several hosts can pair to the same owner and gateway, using separate one-time codes and credentials. Settings lists paired hosts and preserves its last snapshot offline and through folding. Incoming calls select the first host that actually answers; other hosts show that another device answered. When the server and gateway support it, declining on one host ends the call for every host; with older versions a decline only stops that host. See [multi-host operation](docs/multi-host.md); the shared protocol supports future platforms, while a Windows client is not yet implemented.
+
+## 来电接收（Reception v2）
+
+支持 [Reception v2](https://github.com/KiriKira/gsm2sip-server/blob/main/docs/reception-v2.md) 的节点会保存本机“接收来电”和“后台同步（短信提醒）”的选择：待机时不再续约、不持唤醒锁、不常驻通话服务，来电和短信通过推送唤醒；没有推送时保留 WebSocket 并降低心跳频率。旧节点仍按原方式工作。设计与取舍见 [PLAN](docs/reception-v2-PLAN.md)（随 #37 合并），模拟器验收见 [测试计划](docs/reception-v2-emulator-test-plan.md)。
 
 ## 多服务器节点
 

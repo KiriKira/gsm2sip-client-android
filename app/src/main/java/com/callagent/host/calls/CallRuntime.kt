@@ -18,6 +18,10 @@ object CallRuntime {
     @Volatile
     private var service: HostCallService? = null
 
+    /** Set by whichever component has a context, so a late state change still reaches a visible screen. */
+    @Volatile
+    private var appContext: Context? = null
+
     @Volatile
     private var appVisible = false
 
@@ -44,8 +48,11 @@ object CallRuntime {
     val isForegroundListening: Boolean get() = service?.isForegroundListening == true
     val isSignalingReady: Boolean get() = service?.isSignalingReady == true
     val isListeningRequested: Boolean get() = wantsForegroundListening
+    /** A Madoka activity is on screen, so it may start the call screen itself. */
+    internal val isAppVisible: Boolean get() = appVisible
 
     fun restoreForegroundPreference(context: Context, session: HostSession?) {
+        adoptContext(context)
         val nextSessionInstance = session?.sessionInstanceId
         val previousSessionInstance = rememberedSessionInstance
         if (previousSessionInstance != null && previousSessionInstance != nextSessionInstance) {
@@ -115,6 +122,8 @@ object CallRuntime {
     }
 
     fun enableForegroundListening(activity: Activity): Boolean {
+        val session = runCatching { SessionStore(activity.applicationContext).read() }.getOrNull()
+        if (session != null) CallPreferences(activity).setUserChoice(session, true)
         return ensureIncomingCallSignalingForPairedSession(activity)
     }
 
@@ -162,9 +171,11 @@ object CallRuntime {
         }
     }
 
-    fun disableForegroundListening(context: Context) {
+    /** [byUser]: the user turned it off, and opening the app keeps it off. */
+    fun disableForegroundListening(context: Context, byUser: Boolean = false) {
         val session = SessionStore(context.applicationContext).read()
-        CallPreferences(context).setEnabled(session, false)
+        if (byUser) CallPreferences(context).setUserChoice(session, false)
+        else CallPreferences(context).setEnabled(session, false)
         wantsForegroundListening = false
         signalingStartRequestedFor = null
         if (service != null) service?.setForegroundListening(false)
@@ -322,10 +333,15 @@ object CallRuntime {
         service?.failCall(callId, if (microphone) "Android blocked microphone access for this call" else "Android blocked the call notification service")
     }
 
+    /**
+     * Call control could not start this time: a node that is down, no
+     * network, Android refusing the service. The user's choice to receive
+     * calls stays as it is. Writing it off here used to reach every node
+     * through reception v2, which then withdrew this phone from calls still
+     * ringing on healthy nodes. The next push, network change, node switch or
+     * app open tries again.
+     */
     internal fun onListeningFailed(context: Context, message: String) {
-        val session = SessionStore(context.applicationContext).read()
-        CallPreferences(context).setEnabled(session, false)
-        wantsForegroundListening = false
         signalingStartRequestedFor = null
         statusText = message
         notifyChanged(currentCallId)
@@ -341,6 +357,12 @@ object CallRuntime {
 
     internal fun attach(hostCallService: HostCallService) {
         service = hostCallService
+        adoptContext(hostCallService)
+    }
+
+    /** A visible screen or the service hands its context over so late updates still reach the UI. */
+    internal fun adoptContext(context: Context) {
+        appContext = context.applicationContext
     }
 
     /** Wake an already-owned call service without starting signaling or another foreground service. */
@@ -352,7 +374,8 @@ object CallRuntime {
     /** An FCM wake-up: start call control if Android stopped it, else poll now. */
     internal fun wakeFromPush(context: Context): Boolean {
         val app = context.applicationContext
-        service?.let { if (it.requestCallSyncFromWakeHint()) return true }
+        service?.takeUnless { it.stoppingUntilInvited }?.let { if (it.requestCallSyncFromWakeHint()) return true }
+        signalingStartRequestedFor = null
         val session = runCatching { SessionStore(app).read() }.getOrNull() ?: return false
         restoreForegroundPreference(app, session)
         return runCatching { startSignalingIfNeeded(app, session) }.getOrDefault(false)
@@ -377,8 +400,9 @@ object CallRuntime {
         }
         if (signalingStartRequestedFor == session.sessionInstanceId) return@synchronized true
         signalingStartRequestedFor = session.sessionInstanceId
-        val started = if (service != null) {
-            service?.setForegroundListening(true)
+        val running = service?.takeUnless { it.stoppingUntilInvited }
+        val started = if (running != null) {
+            running.setForegroundListening(true)
             true
         } else {
             HostCallService.setForegroundListening(context, true)
@@ -401,7 +425,7 @@ object CallRuntime {
     }
 
     internal fun notifyChanged(callId: String?) {
-        val host = service?.applicationContext ?: return
+        val host = service?.applicationContext ?: appContext ?: return
         IncomingRinger.sync(host, coordinator.current)
         ProximityScreenLock.sync(host, coordinator.current)
         host.sendBroadcast(

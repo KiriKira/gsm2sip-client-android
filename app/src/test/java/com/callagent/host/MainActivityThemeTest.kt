@@ -14,6 +14,8 @@ import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import androidx.lifecycle.ViewModelProvider
+import com.callagent.host.calls.ReceptionConfig
+import com.callagent.host.calls.ReceptionV2
 import com.callagent.host.data.ClientDatabase
 import com.callagent.host.data.GatewaySnapshot
 import com.callagent.host.data.HostSession
@@ -209,6 +211,111 @@ class MainActivityThemeTest {
 
     @Test
     @Config(sdk = [34])
+    fun phoneHomeShowsReceptionSyncStateAcrossNavigationAndRecreation() {
+        val application = RuntimeEnvironment.getApplication()
+        Shadows.shadowOf(application).grantPermissions("${application.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION")
+        application.getSharedPreferences("host-session", 0).edit().clear().commit()
+        application.getSharedPreferences("host-settings", 0).edit().clear().commit()
+        ReceptionV2.resetForTest(application)
+
+        val originalProvider = Security.getProvider("AndroidKeyStore")
+        Security.removeProvider("AndroidKeyStore")
+        TestAndroidKeyStoreBacking.keys.clear()
+        Security.insertProviderAt(RobolectricAndroidKeyStoreProvider(), 1)
+
+        val session = HostSession(
+            sessionInstanceId = "robolectric-reception-instance",
+            apiBaseUrl = "https://127.0.0.1:1/v1",
+            ownerId = "robolectric-reception-owner",
+            deviceId = "robolectric-reception-client",
+            role = "client",
+            accessToken = "test-only-access-token",
+            accessExpiresAt = "2099-01-01T00:00:00Z",
+            refreshToken = "test-only-refresh-token",
+            refreshExpiresAt = "2099-01-01T00:00:00Z",
+        )
+        val databaseName = clientDatabaseName(session.apiBaseUrl, session.ownerId, session.deviceId)
+        application.deleteDatabase(databaseName)
+        application.getSharedPreferences("host-call-settings", 0).edit().clear().commit()
+        application.getSharedPreferences("host-background", 0).edit().clear().commit()
+        var controller: org.robolectric.android.controller.ActivityController<MainActivity>? = null
+        try {
+            assertTrue(SessionStore(application).writeIfCurrent(null, session))
+            assertTrue(com.callagent.host.calls.CallPreferences(application).setUserChoice(session, false))
+            val activityController = Robolectric.buildActivity(MainActivity::class.java).setup()
+            controller = activityController
+            assertReceptionStatus(activityController.get(), null)
+
+            selectTab(activityController.get(), R.id.tab_settings)
+            var incomingToggle = activityController.get().findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.settings_incoming_calls)
+            assertFalse("the setting must reflect the saved user-off choice", incomingToggle.isChecked)
+            incomingToggle.performClick()
+            assertTrue("the settings control must let a user turn reception back on", com.callagent.host.calls.CallPreferences(application).enabledFor(session))
+            assertFalse("re-enabling must clear the persisted user-off guard", com.callagent.host.calls.CallPreferences(application).declinedByUser(session))
+            incomingToggle.performClick()
+            assertFalse(com.callagent.host.calls.CallPreferences(application).enabledFor(session))
+            assertTrue(com.callagent.host.calls.CallPreferences(application).declinedByUser(session))
+
+            activityController.recreate()
+            selectTab(activityController.get(), R.id.tab_settings)
+            incomingToggle = activityController.get().findViewById(R.id.settings_incoming_calls)
+            assertFalse("recreation must preserve the user's disabled state", incomingToggle.isChecked)
+            incomingToggle.performClick()
+            assertTrue(com.callagent.host.calls.CallPreferences(application).enabledFor(session))
+
+            val backgroundToggle = activityController.get().findViewById<com.google.android.material.materialswitch.MaterialSwitch>(R.id.settings_background_sync)
+            assertFalse("background SMS sync starts opt-in", backgroundToggle.isChecked)
+            backgroundToggle.performClick()
+            assertTrue("the settings control must enable background SMS sync", com.callagent.host.background.HostBackgroundRuntime.smsWanted(application, session))
+            backgroundToggle.performClick()
+            assertFalse(com.callagent.host.background.HostBackgroundRuntime.smsWanted(application, session))
+
+            val choice = ReceptionV2.choice(application, session)
+            val confirmed = ReceptionConfig(2, choice.incoming, choice.sms, 1)
+            val receptionPrefs = application.getSharedPreferences("host-reception-v2", 0)
+            receptionPrefs.edit().putString(session.sessionInstanceId, confirmed.encode()).commit()
+            selectTab(activityController.get(), R.id.tab_settings)
+            selectTab(activityController.get(), R.id.tab_phone)
+            assertReceptionStatus(activityController.get(), "接收设置已同步到 1 个节点。")
+
+            activityController.recreate()
+            assertReceptionStatus(activityController.get(), "接收设置已同步到 1 个节点。")
+
+            application.getSharedPreferences("host-reception-v2", 0).edit()
+                .putString(session.sessionInstanceId, confirmed.copy(incoming = !choice.incoming).encode()).commit()
+            selectTab(activityController.get(), R.id.tab_settings)
+            selectTab(activityController.get(), R.id.tab_phone)
+            assertReceptionStatus(activityController.get(), "1 个节点的接收设置待同步（联网后自动提交，本机设置已生效）。")
+
+            selectTab(activityController.get(), R.id.tab_messages)
+            // Activity focus may enable paired background sync, so acknowledge its current choice.
+            val currentChoice = ReceptionV2.choice(application, session)
+            application.getSharedPreferences("host-reception-v2", 0).edit()
+                .putString(session.sessionInstanceId, ReceptionConfig(2, currentChoice.incoming, currentChoice.sms, 2).encode()).commit()
+            selectTab(activityController.get(), R.id.tab_phone)
+            assertReceptionStatus(activityController.get(), "接收设置已同步到 1 个节点。")
+
+            ReceptionV2.resetForTest(application)
+            selectTab(activityController.get(), R.id.tab_messages)
+            selectTab(activityController.get(), R.id.tab_phone)
+            assertReceptionStatus(activityController.get(), null)
+        } finally {
+            controller?.let { runCatching { it.pause().stop().destroy() } }
+            runCatching { com.callagent.host.calls.CallRuntime.disableForegroundListening(application, byUser = false) }
+            runCatching { com.callagent.host.background.HostBackgroundRuntime.setEnabled(application, false) }
+            runCatching { SessionStore(application).clearIfCurrent(session) }
+            application.getSharedPreferences("host-call-settings", 0).edit().clear().commit()
+            application.getSharedPreferences("host-background", 0).edit().clear().commit()
+            ReceptionV2.resetForTest(application)
+            application.deleteDatabase(databaseName)
+            TestAndroidKeyStoreBacking.keys.clear()
+            Security.removeProvider("AndroidKeyStore")
+            originalProvider?.let { Security.insertProviderAt(it, 1) }
+        }
+    }
+
+    @Test
+    @Config(sdk = [34])
     fun pairedDashboardWithTwoCachedSimsStartsAndRecreatesWithSelectableSingleLineChips() {
         val application = RuntimeEnvironment.getApplication()
         val receiverPermission = "${application.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
@@ -386,6 +493,14 @@ class MainActivityThemeTest {
         assertEquals(R.id.tab_phone, navigation.selectedItemId)
         assertTrue("empty call history should be visible", descendants(rootView(activity)).filterIsInstance<android.widget.TextView>()
             .any { it.text.toString() == "暂无通话记录" })
+    }
+
+    private fun assertReceptionStatus(activity: MainActivity, expected: String?) {
+        assertPhoneHome(activity)
+        val visibleStatus = descendants(rootView(activity)).filterIsInstance<android.widget.TextView>()
+            .filter { it.isShown && it.text.contains("接收设置") }
+            .map { it.text.toString() }.toList()
+        assertEquals("phone home should show the current reception sync state", listOfNotNull(expected), visibleStatus)
     }
 
     private fun selectTab(activity: MainActivity, itemId: Int) {

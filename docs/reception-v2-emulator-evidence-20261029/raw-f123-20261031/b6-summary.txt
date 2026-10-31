@@ -1,0 +1,13 @@
+started_utc=2026-10-31T08:16:26.274+00:00
+clients=89ee33a1-da6c-4a61-adc4-59a7fdb3c328|t|t ; 2d326382-3a88-4b10-9bc0-781b255297cc|t|t
+toggle_sync_off=True
+h1_sms_enabled_after_off=f
+sms_ack=OK;text=B6SMS-081646
+h1_sms_push_seen=False
+rows=1
+h1_rings_with_sms_sync_off=True
+toggle_sync_on=True
+backlog_delivered_after_reenable=True;utc=2026-10-31T08:17:31.558+00:00
+h1_sms_enabled_now=t
+b6=PASS
+finished_utc=2026-10-31T08:17:31.653+00:00

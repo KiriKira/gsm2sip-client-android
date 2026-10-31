@@ -1,0 +1,21 @@
+host_utc=2026-10-29T18:08:58Z
+root=/dev/root        61G   53G  8.1G  87% /
+mem=7.6Gi,available=2.7Gi
+devices=2
+gw_gsm_list=OK
+
+gw_telecom_calls=one incoming call is RINGING; instrumentation/install held until it ends
+gw_dialer_role=com.callagent.gateway
+gw_version=0.4.2-dev
+
+gw_session_url=    <string name="server_owner_control_base_url">http://10.0.2.2:18110</string>
+gw_service=3
+r1_container=running healthy
+r1_port=8080/tcp -> 127.0.0.1:18110
+api_probe=404
+
+Follow-up at 2026-10-29T18:09Z: `dumpsys telecom` showed one active Telecom call in RINGING state, despite `adb emu gsm list` returning only `OK`. A local boolean comparison (number value not printed or saved) confirmed it matched the plan's reserved `+15550100200` test number. At 18:10Z the matching stale test call was cleared with `adb emu gsm cancel +15550100200`; afterward Telecom had zero call records and `telephony.registry` returned `mCallState=0`. No active call remains.
+
+The current branch test APK was built from Homura commit `a41dd196aa4caa279cc28c688469c70ca4ba59f4` on the test host using its existing debug keystore. `:app:assembleDebugAndroidTest -PrtcLabRunner=com.callagent.lab.GatewayJointInstrumentation` succeeded in 1m53s. APK SHA-256: `b4b098675db8d7915fb334e15ea4dd5eab17f9474ac5ada2a107d02b163a80b1`; certificate SHA-256: `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28`, matching the installed Homura and instrumentation package. The installed Homura remains `0.4.2-dev`, versionCode `1000000000`; service is running. API base in the existing SIM owner record is `http://10.0.2.2:18110`, matching the healthy node-A container mapping. The test package had no prior fixture file; the new fixture will contain only this API base and `reuse_pairing=true`.
+
+Runner risk remains limited to a brief GatewayService stop/restart and normal heartbeat updates. No default-dialer role or SIM mapping changes are planned. Its final cleanup stops the service, so the ordinary background service must be restored and checked afterward.

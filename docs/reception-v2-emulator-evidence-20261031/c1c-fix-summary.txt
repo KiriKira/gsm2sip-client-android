@@ -1,0 +1,14 @@
+focus_before=ResumedActivity: ActivityRecord{815929e u0 com.callagent.host/.MainActivity t44}
+inject_utc=2026-10-31T16:35:31.630+00:00
+ui_open_after_s=3.9
+decline_tap_utc=2026-10-31T16:35:38.431+00:00
+decline_after_inject_s=6.8
+pending_text_after_s=3.59
+pending_text=返回 | SIM1 | <number> | 通话已结束 | 已拒接，正在等待网关让其他主机停止响铃… | 关闭 关闭
+terminal_text_seen=返回 | SIM1 | <number> | 通话已结束 | 已拒接，正在等待网关让其他主机停止响铃… | 关闭 关闭
+terminal_after_s=3.59
+final_text_after_s=6.02
+final_text=返回 | SIM1 | <number> | 通话已结束 | 已拒接，所有主机已停止响铃。 | 关闭 关闭
+result=final_seen
+log=ONE]]: TSI.rPA(cch)@AxE || 10-31 16:35:41.392 I/Telecom (  526): PhoneAccountRegistrar: Modify account: [ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}(lbl: Madoka 远程 SIM -> Madoka)]: TSI.rPA(cch)@AxE || 10-31 16:35:41.395 I/Telecom (  526): CallsManager: handlePhoneAccountChanged: phoneAccount=[[X] PhoneAccount: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0} Capabilities: SelfManaged  Audio Routes: BESW Schemes: gsm2sip  Extras: null GroupId: *** SC Restrictions: [NONE]]: TSI.rPA(cch)@AxE || 10-31 16:35:41.445 I/HostCall( 6552): Call control idle; the next call arrives by push
+finished_utc=2026-10-31T16:35:44.583+00:00

@@ -1,0 +1,13 @@
+{
+  "phase": "f2",
+  "direction": "outgoing",
+  "scope": "normal_UI_call_control_no_cellular_HAL_audio",
+  "started_utc": "2026-10-31T06:59:30.978930+00:00",
+  "status": "FAIL_BASELINE_TELECOM_MISSING_CALL_DETAILS",
+  "normal_dial_tapped": true,
+  "last_server_state": "dialing",
+  "last_server_reason": "",
+  "telecom_missing_call_details": true,
+  "cleanup_callee_cancel_ok": true,
+  "finished_utc": "2026-10-31T06:59:53.130776+00:00"
+}

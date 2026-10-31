@@ -1,0 +1,43 @@
+run=d3-2 started_utc=2026-10-31T12:21:49.431+00:00
+active_node_before=<node-url>
+reception_a=5a6a6d63-82ba-42e8-b239-ef94bae0aa79|t|2|2
+active_calls_a=0
+gw_modem_before=0
+
+node_b_stopped_utc=2026-10-31T12:21:51.797+00:00
+inject_utc=2026-10-31T12:21:51.797+00:00
+inject_ack=OK
+host_ring_detected_after_s=6.15
+answer_tap=(330, 652) utc=2026-10-31T12:22:01.967+00:00
+call_after_answer_a=connecting|accepted|-|false
+participants_a=5a6a6d63-82ba-42e8-b239-ef94bae0aa79|accepted|- ; 5a6a6d63-82ba-42e8-b239-ef94bae0aa79|ended|cellular_ended ; c82e4382-17d9-430a-bd81-04d26869bb84|ended|cellular_ended
+active_node_after=<node-url>
+reception_a_after=5a6a6d63-82ba-42e8-b239-ef94bae0aa79|t|2
+after_cancel_a=ended
+gw_offers=
+  10-31 08:44:43.229  4437  4522 I GsmRtc  : call_id=c4f22b1f-59fb-415c-8522-e645c799bf3d node=cee97c30 remaining_ring_ms=24805 event=incoming_offer
+  10-31 08:44:43.303  4437  4522 I GsmRtc  : call_id=c4f22b1f-59fb-415c-8522-e645c799bf3d node=1bfea1c7 remaining_ring_ms=24736 event=incoming_offer
+  10-31 08:44:43.790  4437  4522 W GsmRtc  : call_id=c4f22b1f-59fb-415c-8522-e645c799bf3d node=1bfea1c7 remaining_ring_ms=24736 event=incoming_offer_failed error=MediaApiException code=NO_INCOMING_SUBSCRIBERS
+  10-31 08:44:43.791  4437  4522 I GsmRtc  : call_id=c4f22b1f-59fb-415c-8522-e645c799bf3d node=289933f4 remaining_ring_ms=24243 event=incoming_offer
+  10-31 08:44:44.268  4437  4522 W GsmRtc  : call_id=c4f22b1f-59fb-415c-8522-e645c799bf3d node=289933f4 remaining_ring_ms=24243 event=incoming_offer_failed error=MediaApiException code=NO_INCOMING_SUBSCRIBERS
+  10-31 08:44:44.269  4437  4522 I GsmRtc  : call_id=c4f22b1f-59fb-415c-8522-e645c799bf3d event=incoming_offered nodes=1
+  10-31 08:47:40.614  4437  4522 I GsmRtc  : call_id=99adc8c1-fab3-4a0d-86ba-0dfccf418b7b node=cee97c30 remaining_ring_ms=24767 event=incoming_offer
+  10-31 08:47:40.688  4437  4522 I GsmRtc  : call_id=99adc8c1-fab3-4a0d-86ba-0dfccf418b7b node=1bfea1c7 remaining_ring_ms=24693 event=incoming_offer
+  10-31 08:47:40.725  4437  4522 I GsmRtc  : call_id=99adc8c1-fab3-4a0d-86ba-0dfccf418b7b node=289933f4 remaining_ring_ms=24656 event=incoming_offer
+  10-31 08:47:41.215  4437  4522 W GsmRtc  : call_id=99adc8c1-fab3-4a0d-86ba-0dfccf418b7b node=289933f4 remaining_ring_ms=24656 event=incoming_offer_failed error=MediaApiException code=NO_INCOMING_SUBSCRIBERS
+  10-31 08:47:41.215  4437  4522 I GsmRtc  : call_id=99adc8c1-fab3-4a0d-86ba-0dfccf418b7b event=incoming_offered nodes=2
+  10-31 08:48:17.248  4437  4522 I GsmRtc  : call_id=e26ebb10-4278-4e73-bd92-2f58499f6a62 node=cee97c30 remaining_ring_ms=24618 event=incoming_offer
+host_push=
+  10-31 12:19:13.979  7038  7350 I HostPush: received wire=2 kind=call priority=1 original=1
+  10-31 12:19:23.693  7038  7459 I HostPush: received wire=2 kind=call priority=1 original=1
+  10-31 12:19:26.295  7038  7468 I HostPush: received wire=2 kind=call priority=1 original=1
+  10-31 12:19:28.517  7038  7479 I HostPush: received wire=2 kind=call priority=1 original=1
+  10-31 12:19:30.161  7038  7487 I HostPush: received wire=2 kind=call priority=1 original=1
+  10-31 12:21:53.620  7038  7726 I HostPush: received wire=2 kind=call priority=1 original=1
+host_ring_lines=
+  10-31 12:19:16.775  7038  7365 I HostCall: Incoming call ringing
+  10-31 12:21:55.533  7038  7739 I HostCall: Incoming call ringing
+host_call_failures=
+  
+result=PASS host_rang_after_s=6.15
+finished_utc=2026-10-31T12:22:07.929+00:00

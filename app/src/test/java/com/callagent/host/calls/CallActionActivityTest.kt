@@ -1,6 +1,7 @@
 package com.callagent.host.calls
 
 import android.content.Intent
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -14,6 +15,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -94,6 +96,30 @@ class CallActionActivityTest {
             assertNull(Shadows.shadowOf(controller.get()).lastRequestedPermission)
         } finally { controller.pause().stop().destroy() }
     }
+
+    @Test
+    fun endedNoticeStillReachesTheVisibleScreenAfterTheServiceStops() {
+        val now = System.currentTimeMillis()
+        assertTrue(coordinator.incomingInvite(IncomingInviteIdentity("fixture-engine", "fixture-notice"),
+            CallAuthority("fixture-notice", "incoming", "ringing", "sim-2", "+120****0104", now + 60000), now))
+        val intent = Intent(RuntimeEnvironment.getApplication(), CallActionActivity::class.java)
+            .putExtra(CallActionActivity.EXTRA_CALL_ID, "fixture-notice")
+        val controller = Robolectric.buildActivity(CallActionActivity::class.java, intent).setup()
+        try {
+            assertTrue(coordinator.ended("fixture-notice"))
+            // No service is attached here: the decline confirmation arrives after call control stopped,
+            // and the screen the user is looking at still has to show the final text.
+            CallRuntime.updateEndedNotice("fixture-notice", "已拒接，正在等待网关让其他主机停止响铃…")
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(visibleTexts(controller.get()).contains("已拒接，正在等待网关让其他主机停止响铃…"))
+            CallRuntime.updateEndedNotice("fixture-notice", "已拒接，所有主机已停止响铃。")
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(visibleTexts(controller.get()).contains("已拒接，所有主机已停止响铃。"))
+        } finally { controller.pause().stop().destroy() }
+    }
+
+    private fun visibleTexts(activity: CallActionActivity): List<String> =
+        descendants(activity.findViewById(android.R.id.content)).filterIsInstance<TextView>().map { it.text.toString() }.toList()
 
     private fun descendants(view: View): Sequence<View> = sequence {
         yield(view)

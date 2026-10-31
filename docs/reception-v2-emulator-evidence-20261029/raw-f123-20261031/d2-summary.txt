@@ -1,0 +1,10 @@
+started_utc=2026-10-31T08:47:34.517+00:00
+ack=OK
+call_b_hash=99adc8c1
+host_telecom_ringing_count=2;ringing=True
+node_b_participants=ringing|-
+node_d_participants=ringing|-
+answer_tap=(346, 322);utc=2026-10-31T08:47:50.612+00:00
+after_answer_b=accepted|-
+after_answer_d=ended|answered_elsewhere
+finished_utc=2026-10-31T08:48:05.034+00:00

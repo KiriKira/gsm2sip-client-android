@@ -1,0 +1,18 @@
+C1 immediate real-call UI retest — 2026-10-30
+
+The post-fix controls had been visibly observed in an earlier real FCM call, but the reject tap was outside that call's ringing window. This attempt used a fresh modem injection and did not reach the UI assertion.
+
+- At 2026-10-30T04:37:35.432Z, `adb emu gsm call` returned `OK`.
+- No new Homura `GsmCallService.onCallAdded` / incoming callback or SoulGem RTC offer was observed in the attempt window; Madoka had no new call-push/ringing event for this attempt.
+- H1 did not show `CallActionActivity`; no reject tap was made.
+- The GW modem was idle by 04:37:43.654Z (8.222 s after injection). H2 was in airplane mode during injection; after network restoration, an 8-second watch found no late ring.
+- The call was cancelled at the 8-second stop boundary. This is an upstream injection/callback failure, not a pass or product failure for C1's visible reject behavior.
+
+Raw emulator logcat and Telecom dumps remain only on the private test host. SHA-256:
+
+- GW logcat: `3811fd5dd39d2f0dfab7787df957e47f5bd5a7b34f031400a1ea4782e6dfc82b`
+- H1 logcat: `a08e34a572ed2795f38519c9a193d3632016a4a7ee7f5f32a943f617ac25206b`
+- H2 pre-restore logcat: `580942d18479e440ab2bb58a88e9468c52249ca367458253259ff5caecaeaf14`
+- H2 post-restore logcat: `36bd6a610b58d0f6184e030dbc248bc1315ab20938a0a0d25f3265f543c342ed`
+
+No raw log, screenshot, phone number, endpoint, session ID, or credential is included in the repository.

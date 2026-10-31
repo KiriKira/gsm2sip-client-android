@@ -1,0 +1,11 @@
+Reception v2 R1 C3 — Node B private TURN sidecar retry — 2026-10-31
+
+Result: authenticated private TURN allocation preflight PASS; C3 call remains untested.
+
+- First start failed before opening a socket with `exec /usr/bin/turnserver: operation not permitted`. Image history showed the binary carries `CAP_NET_BIND_SERVICE`; the failed container had dropped all capabilities. No listener, Node B change, database change, or call resulted.
+- The single documented retry kept the pinned coturn digest, UID 1000, `no-new-privileges`, read-only root filesystem, host networking, VPC-only address, 128 MiB memory limit, 0.5 CPU limit, config, and ports; the only container security change was adding `NET_BIND_SERVICE` while retaining `cap-drop=ALL`.
+- Container state: running, zero restarts. TCP and UDP listener sockets were present only on `172.31.15.170:13478`; no public bind or CLI listener was observed.
+- A short-lived REST credential derived from Node B's existing shared secret produced two Allocate responses and a relay address on UDP port `49368`, within the configured `49300-49399` range. The client exited 0 and no authentication rejection was observed. The username, credential, and shared secret were not recorded.
+- Node B still uses its original TURN environment and container. No call, pairing, reception setting, database write, firewall change, or product-code change was made.
+
+This proves only private-listener authenticated allocation. It does not establish AVD reachability, media, or C3.

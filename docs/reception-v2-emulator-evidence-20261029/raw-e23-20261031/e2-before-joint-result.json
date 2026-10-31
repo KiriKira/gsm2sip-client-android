@@ -1,0 +1,1 @@
+{"id":"e2-status-1b5dfc83b6","status":"OK","bridge":"BRIDGED","media":"webrtc","call_control":"rtc","telecom_state":4,"pcm":[{"hardware":"SYNTHETIC_PCM_16K","capture_frames":312,"decoded_frames":218,"remote_tone_frames":0,"silent_frames":218,"queue_underruns":26,"queue_overruns":122}],"dtmf_events":[]}

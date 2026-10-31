@@ -72,6 +72,48 @@ class HostCallServiceStartupTest {
     }
 
     private fun field(name:String)=HostCallService::class.java.getDeclaredField(name).apply{isAccessible=true}
+
+    @Test fun authorizedOutboundStartsWithoutAnIncomingPollAndKeepsReceptionOff() {
+        val originalProvider = java.security.Security.getProvider("AndroidKeyStore")
+        java.security.Security.removeProvider("AndroidKeyStore")
+        java.security.Security.insertProviderAt(com.callagent.host.RobolectricAndroidKeyStoreProvider(), 1)
+        StartupTelecomShadow.release = CountDownLatch(0)
+        StartupTelecomShadow.returned = CountDownLatch(1)
+        val controller = Robolectric.buildService(HostCallService::class.java).create()
+        val service = controller.get()
+        val session = HostSession("outbound-node", "https://outbound.example.invalid/v1", "owner", "client", "client",
+            "access", "2099-01-01T00:00:00Z", "refresh", "2099-02-01T00:00:00Z")
+        val store = com.callagent.host.data.SessionStore(service)
+        assertTrue(store.writeIfCurrent(store.read(), session))
+        CallPreferences(service).setEnabled(session, false)
+        val engine = CountingEngine()
+        try {
+            assertTrue(StartupTelecomShadow.returned.await(5, TimeUnit.SECONDS))
+            assertTrue(CallRuntime.coordinator.beginOutbound("sim", "+12025550101"))
+            assertTrue(CallRuntime.coordinator.outboundAuthorized("outbound-call", System.currentTimeMillis() + 60_000,
+                System.currentTimeMillis()))
+            field("callEngine").set(service, engine)
+            field("engineSession").set(service, session)
+            field("pendingOutboundCallId").set(service, "outbound-call")
+            field("pendingDestination").set(service, "+12025550101")
+            field("pendingOutboundExpiry").set(service, System.currentTimeMillis() + 60_000)
+            val start = HostCallService::class.java.getDeclaredMethod("startEngine").apply { isAccessible = true }
+            start.invoke(service)
+            assertEquals("an authorized RTC dial must not wait for incoming-listener READY", 1, engine.dialed)
+            assertEquals(CallPhase.DIALING, CallRuntime.currentSession?.phase)
+            start.invoke(service)
+            assertEquals("a late READY or repeated start cannot dial twice", 1, engine.dialed)
+            assertFalse("outgoing calls must not enable incoming reception", CallPreferences(service).enabledFor(session))
+            assertFalse(service.isForegroundListening)
+        } finally {
+            controller.destroy()
+            CallRuntime.coordinator.failed("outbound-call", "test cleanup")
+            CallRuntime.clearTerminal("outbound-call")
+            store.clear()
+            java.security.Security.removeProvider("AndroidKeyStore")
+            originalProvider?.let { java.security.Security.insertProviderAt(it, 1) }
+        }
+    }
     @Test fun wakeHintReachesAnyEngineThroughTheInterface() {
         StartupTelecomShadow.release = CountDownLatch(0)
         StartupTelecomShadow.returned = CountDownLatch(1)
@@ -105,9 +147,10 @@ class HostCallServiceStartupTest {
     private class CountingEngine:CallEngine {
         var closed=0
         var woken=0
+        var dialed=0
         override fun wake(){woken++}
         override fun connect()=Unit
-        override fun dial(serverCallId:String,destination:String)=Unit
+        override fun dial(serverCallId:String,destination:String){dialed++}
         override fun answer(callId:String)=Unit
         override fun reject(callId:String,reason:CallRejection)=Unit
         override fun hangup(callId:String)=Unit

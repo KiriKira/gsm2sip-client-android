@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- AGP assigns rtcLabRunner to the first instrumentation entry. -->
+    <instrumentation
+        android:name="com.callagent.lab.HostJointInstrumentation"
+        android:targetPackage="com.callagent.host"
+        android:functionalTest="false"
+        android:handleProfiling="false" />
+    <!-- Keep mesh setup independent of call-service readiness. -->
+    <instrumentation
+        android:name="com.callagent.lab.MeshSetupInstrumentation"
+        android:targetPackage="com.callagent.host"
+        android:functionalTest="false"
+        android:handleProfiling="false" />
+</manifest>

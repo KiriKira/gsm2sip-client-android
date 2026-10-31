@@ -1,0 +1,18 @@
+case=C2 trial=1b order=answer-first preflight=idle_listening
+gsm_call_command=OK host_utc_ns=1793349689451586640
+h1_fresh_hostcall_ringing_epoch=1793349690.394
+h2_fresh_hostcall_ringing_epoch=1793349681.065
+fresh_call_id_short=c5f00567 server_created_utc=2026-10-30 08:41:30.094 server_state=ringing
+h1_phase=INCOMING_RINGING h2_phase=INCOMING_RINGING same_call_id=yes
+action_h1=answer reply=OK phase=ANSWERING write_ms=40.6
+action_h2=reject reply=OK phase=DISCONNECTING write_ms=803.3
+action_separation_seconds=[0.429,1.626] uncertainty_width=1.198 target=0.500
+final_phases={'h1': 'ACTIVE', 'h2': 'ENDED'} gateway_modem_call_state=2
+server_call_short=c5f00567 state=active reason= winner=True
+server_participant_states=["accepted||1","ended|answered_elsewhere|2"]
+outcome=CONNECTED_STABLE winner_host=h1
+test_hangup_reply=OK
+after_test_hangup_phases={'h1': 'ENDED', 'h2': 'ENDED'}
+h1_fresh_control_incoming=True fresh_disconnect=True
+h2_fresh_control_incoming=True fresh_disconnect=True
+trial_result=PASS

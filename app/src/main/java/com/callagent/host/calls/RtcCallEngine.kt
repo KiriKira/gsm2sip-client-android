@@ -18,7 +18,9 @@ internal class RtcCallEngine(
     private val pushReady: () -> Boolean = { false },
     private val sessionInstanceId: String? = null,
     private val sessionIsCurrent: () -> Boolean = { true },
-    private val listeningEnabled: () -> Boolean = { true }
+    private val listeningEnabled: () -> Boolean = { true },
+    /** The node keeps this phone's reception choice (see [ReceptionV2]). */
+    private val receptionV2: () -> Boolean = { false }
 ) : CallEngine {
     private val control = RtcCallControl(api)
     private val worker = Executors.newSingleThreadScheduledExecutor { Thread(it,"RTC-Call-Control") }
@@ -97,10 +99,14 @@ internal class RtcCallEngine(
      * an alarm), so it holds a short lock until the poll owns its own. */
     override fun wake() = systemWake()
 
+    private fun v2() = runCatching(receptionV2).getOrDefault(false)
+
     private fun updateContinuousLease() {
         when {
             hasLiveCall() -> wakeLease.renew(if (media.isEmpty()) RtcSignalingWakeLease.Reason.RINGING else RtcSignalingWakeLease.Reason.LIVE_CALL)
-            !hasNetwork() || !listeningEnabled() -> wakeLease.releaseContinuous()
+            // Reception v2: the node offers calls without renewals, so idle
+            // holds nothing; a call arrives as push or a WebSocket hint.
+            !hasNetwork() || !listeningEnabled() || v2() -> wakeLease.releaseContinuous()
             failedPolls >= 3 && StandbyPowerPolicy.releaseDuringFailure(context) -> wakeLease.releaseContinuous()
             failedPolls == 0 && sleepyEligible() -> { sleepyActive = true; wakeLease.releaseContinuous() }
             else -> wakeLease.renew(RtcSignalingWakeLease.Reason.COMPAT_IDLE)
@@ -110,7 +116,7 @@ internal class RtcCallEngine(
     /** After a poll: keep the alarm beat while sleepy, else drop it. */
     private fun scheduleSleepyBeat() {
         val sleepy = !closed.get() && !hasLiveCall() && hasNetwork() && listeningEnabled() &&
-            failedPolls == 0 && sleepyEligible()
+            failedPolls == 0 && !v2() && sleepyEligible()
         if (sleepy) {
             sleepyActive = true
             lastSleepyPollAt = android.os.SystemClock.elapsedRealtime()
@@ -146,7 +152,7 @@ internal class RtcCallEngine(
      * server routes calls to it for 90 s) and backs up a lost hint; HTTPS every
      * 750 ms kept the radio busy and the phone hot, worst on a weak signal.
      */
-    private fun nextPollDelay():Long=if (sleepyActive && !hasLiveCall()) beatInterval + 15_000L else idlePollDelay(
+    private fun nextPollDelay():Long=if (!hasLiveCall() && v2()) V2_IDLE_POLL_MS else if (sleepyActive && !hasLiveCall()) beatInterval + 15_000L else idlePollDelay(
         live = hasLiveCall(),
         wakeChannelLive = CallRuntime.wakeChannelLive,
         pushReady = runCatching(pushReady).getOrDefault(false),
@@ -187,7 +193,7 @@ internal class RtcCallEngine(
         try { budget.run {
             updateContinuousLease()
             val now=System.nanoTime()
-            if(now-lastCapability>30_000_000_000L){
+            if(!v2() && now-lastCapability>30_000_000_000L){
                 control.capability(true);lastCapability=now
                 com.callagent.host.data.StandbyDiagnostics.event("rtc_capability")
             }
@@ -232,6 +238,7 @@ internal class RtcCallEngine(
                     android.os.SystemClock.elapsedRealtime() - startedAt, environment)
             }
             com.callagent.host.data.StandbyDiagnostics.event("rtc_poll_succeeded")
+            if (!hasLiveCall()) listener.onIdle()
             lastPollSucceededAt=android.os.SystemClock.elapsedRealtime()
             sessionInstanceId?.let { id -> synchronized(pollEvidence) { pollEvidence[id] = lastPollSucceededAt } }
         } }catch(_:Throwable){
@@ -382,8 +389,32 @@ internal class RtcCallEngine(
         catch (error: Throwable) { fail(callId,"answer_setup_failed"); throw error }
     }
     override fun reject(callId:String,reason:CallRejection) = controlAction {
+        // The user's decline ends the call on every phone when the gateway can
+        // decide it; it stays ringing on the server until the gateway does, so
+        // this phone stops at once on its own.
+        if (reason == CallRejection.DECLINED_BY_USER && declinesEverywhere(callId)) {
+            try { store(callId,control.operation(callId,"decline_all"));endLocally(callId,"declined") }
+            catch (error: Throwable) { fail(callId,"local_reject_unconfirmed"); throw error }
+            return@controlAction
+        }
         try { store(callId,control.operation(callId,"reject"));report(callId) }
         catch (error: Throwable) { fail(callId,"local_reject_unconfirmed"); throw error }
+    }
+    override fun declinesEverywhere(callId:String)=snapshots[callId]?.optBoolean("global_decline")==true
+    /** Ends a call here only; later snapshots never bring it back. */
+    private fun endLocally(id:String,reason:String){
+        val snapshot=snapshots[id]?:return
+        val retired = synchronized(lifecycle) {
+            if (closed.get() || delivered[id] in TERMINAL) return
+            delivered[id] = EngineCallState.DISCONNECTED
+            terminalSeenAt.putIfAbsent(id, android.os.SystemClock.elapsedRealtime())
+            audioAllowed.remove(id)
+            media.remove(id)
+        }
+        retired?.close()
+        updateContinuousLease()
+        listener.onCallState(EngineCallSnapshot(id,direction(snapshot),EngineCallState.DISCONNECTED,serverCallId=id,
+            terminalReason=reason))
     }
     override fun hangup(callId:String) = controlAction {
         media[callId]?.enableAudio(false)
@@ -416,6 +447,9 @@ internal class RtcCallEngine(
         /** With FCM wake-ups registered on this node, polling is only the last backup. */
         private const val IDLE_POLL_WITH_PUSH_MS=30_000L
         private const val IDLE_POLL_WITH_PUSH_WITHOUT_WAKE_MS=10_000L
+        /** Reception v2 idle: only a backup for a lost hint, on a timer that
+         * does not wake a sleeping phone. */
+        private const val V2_IDLE_POLL_MS=15 * 60_000L
 
         /** When call control last answered, on the elapsed-realtime clock. */
         @Volatile internal var lastPollSucceededAt = 0L

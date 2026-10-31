@@ -1,0 +1,1 @@
+{"id": "e2-status-40b1c3c117", "status": "OK", "bridge": "BRIDGED", "media": "webrtc", "call_control": "rtc", "telecom_state": 4, "pcm": [{"hardware": "SYNTHETIC_PCM_16K", "capture_frames": 311, "decoded_frames": 252, "remote_tone_frames": 0, "silent_frames": 252, "queue_underruns": 1, "queue_overruns": 61}], "dtmf_events": []}

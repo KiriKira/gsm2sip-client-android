@@ -1,0 +1,55 @@
+== utc 2026-10-31T09:05:42Z  step: gsm on + airplane cycle
+allows you to change GSM-related settings, or to make a new inbound phone call
+
+available sub-commands:
+    list             list current phone calls
+    call             create inbound phone call
+    busy             close waiting outbound call as busy
+    hold             change the state of an outbound call to 'held'
+    accept           change the state of an outbound call to 'active'
+    cancel           disconnect an inbound or outbound phone call
+    data             modify data connection state
+    meter            modify mobile data meterness
+    voice            modify voice connection state
+    status           display GSM status
+    signal           set sets the rssi and ber
+    signal-profile   set the signal strength profile
+
+KO:  bad sub-command
+OK
+OK
+OK
+== radio state
+    mServiceState={mVoiceRegState=1(OUT_OF_SERVICE), mDataRegState=1(OUT_OF_SERVICE), mChannelNumber=0, duplexMode()=0, mCellBandwidths=[], mOperatorAlphaLong=null, mOperatorAlphaShort=null, isManualNetworkSelection=false(automatic), getRilVoiceRadioTechnology=0(Unknown), getRilDataRadioTechnology=0
+    mDataConnectionState=-1
+== radio props
+[debug.tracing.battery_stats.wifi_radio]: [0]
+[gsm.current.phone-type]: [1]
+[gsm.network.type]: [HSPA]
+[gsm.operator.alpha]: [T-Mobile]
+[gsm.operator.iso-country]: [us]
+[gsm.operator.isroaming]: [false]
+[gsm.operator.numeric]: [310260]
+[gsm.sim.operator.alpha]: []
+== ifaces
+lo:
+dummy0:
+ifb0:
+ifb1:
+tunl0@NONE:
+gre0@NONE:
+gretap0@NONE:
+erspan0@NONE:
+ip_vti0@NONE:
+ip6_vti0@NONE:
+== svc data enable + wifi disable
+== default network
+Active default network: none
+== transports seen
+      5 Transports: CELLULAR
+      3 Transports: CELLULAR|WIFI
+      7 Transports: WIFI
+== telephony
+    mDataConnectionState=-1
+== ping
+connect: Network is unreachable

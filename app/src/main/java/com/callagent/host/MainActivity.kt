@@ -52,6 +52,7 @@ import com.callagent.host.calls.CallPhase
 import com.callagent.host.calls.CallPreferences
 import com.callagent.host.calls.CallEngineFactory
 import com.callagent.host.calls.CallRuntime
+import com.callagent.host.calls.ReceptionV2
 import com.callagent.host.calls.CallActionActivity
 import com.callagent.host.calls.startCallUi
 import com.callagent.host.data.ApiClient
@@ -668,6 +669,9 @@ class MainActivity : AppCompatActivity() {
         callDestinationEdit = null
         searchEdit = null
         callSearchEdit = null
+        backgroundSwitch = null
+        backgroundSummary = null
+        backgroundRestartButton = null
         smsList = null
         smsThreadList = null
         smsConversationList = null
@@ -828,6 +832,9 @@ class MainActivity : AppCompatActivity() {
         callSearchEdit = search
         content.addView(search)
         if (session != null) content.addView(gatewayStatusCard(compact = true))
+        ReceptionV2.describe(ReceptionV2.status(this))?.let { line ->
+            content.addView(body(line))
+        }
         phoneContactsList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(phoneContactsList)
         callHistoryList = LinearLayout(this).apply {
@@ -1185,6 +1192,10 @@ class MainActivity : AppCompatActivity() {
         }
         content.addView(HostUi.groupHeader(this, "通知与权限"))
         addPermissionSettings(content)
+        if (session != null) {
+            content.addView(HostUi.groupHeader(this, "后台接收"))
+            addBackgroundReceptionSettings(content)
+        }
         content.addView(HostUi.groupHeader(this, "待机与省电"))
         val sleepy = com.callagent.host.calls.StandbyPowerPolicy.sleepyListening(this)
         content.addView(HostUi.tile(this, HostUi.Position.FIRST, "省电接听",
@@ -1219,7 +1230,7 @@ class MainActivity : AppCompatActivity() {
             onClick = {
                 val report = com.callagent.host.data.StandbyDiagnostics.export(this)
                 MaterialAlertDialogBuilder(this).setTitle("待机统计")
-                    .setMessage(com.callagent.host.data.StandbyDiagnostics.summary()).setPositiveButton("关闭", null)
+                    .setMessage(com.callagent.host.data.StandbyDiagnostics.summary(this)).setPositiveButton("关闭", null)
                     .setNeutralButton("分享统计") { _, _ ->
                         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
@@ -1235,6 +1246,61 @@ class MainActivity : AppCompatActivity() {
         ).apply { id = R.id.full_backup_entry })
         content.addView(smsArchiveEntryButton())
         settingsMessage = null
+    }
+
+    private fun addBackgroundReceptionSettings(content: LinearLayout) {
+        val pairedSession = session ?: return
+        val incomingToggle = MaterialSwitch(this).apply {
+            id = R.id.settings_incoming_calls
+            contentDescription = "后台来电接收"
+            isSaveEnabled = false
+            isChecked = CallPreferences(this@MainActivity).enabledFor(pairedSession)
+        }
+        incomingToggle.setOnCheckedChangeListener { _, checked ->
+            val accepted = if (checked) {
+                CallRuntime.enableForegroundListening(this@MainActivity)
+            } else {
+                CallRuntime.disableForegroundListening(this@MainActivity, byUser = true)
+                true
+            }
+            if (!accepted && checked) showToast("无法启动后台来电接收。")
+        }
+        content.addView(HostUi.tile(this, HostUi.Position.FIRST, "后台来电接收",
+            summary = "允许本机在后台参与来电。关闭后仍可主动拨号和收发短信。",
+            icon = R.drawable.ic_ui_refresh,
+            trailing = incomingToggle,
+            onClick = { incomingToggle.isChecked = !incomingToggle.isChecked }))
+
+        val syncStatus = runCatching { HostBackgroundRuntime.snapshot(this) }.getOrNull()
+        val syncToggle = MaterialSwitch(this).apply {
+            id = R.id.settings_background_sync
+            contentDescription = "后台短信同步"
+            isSaveEnabled = false
+            isChecked = syncStatus?.enabled == true
+        }
+        syncToggle.setOnCheckedChangeListener { _, checked ->
+            val accepted = runCatching { HostBackgroundRuntime.setEnabled(this@MainActivity, checked) }.getOrDefault(false)
+            if (!accepted) showToast(if (checked) "后台同步无法启动，请检查通知权限。" else "无法停止后台同步。")
+            refreshBackgroundStatus()
+        }
+        content.addView(HostUi.tile(this, HostUi.Position.LAST, "后台短信同步",
+            summary = "开启后，在后台接收新短信提醒并同步消息。",
+            icon = R.drawable.ic_ui_refresh,
+            trailing = syncToggle,
+            onClick = { syncToggle.isChecked = !syncToggle.isChecked }))
+
+        backgroundSwitch = syncToggle
+        backgroundSummary = body("")
+        content.addView(backgroundSummary)
+        backgroundRestartButton = smallButton("重新启动后台同步").apply {
+            setOnClickListener {
+                val accepted = runCatching { HostBackgroundRuntime.setEnabled(this@MainActivity, true) }.getOrDefault(false)
+                if (!accepted) showToast("后台同步无法启动，请检查通知权限。")
+                refreshBackgroundStatus()
+            }
+        }
+        content.addView(backgroundRestartButton)
+        updateBackgroundCard(syncStatus)
     }
 
     private fun probeNodes(force: Boolean) {
@@ -1403,6 +1469,21 @@ class MainActivity : AppCompatActivity() {
                     HostBackgroundRuntime.openNotificationSettings(this@MainActivity)
                 }
             }).apply { id = R.id.settings_notifications })
+
+        // Android 14+ can withhold full-screen intents: an incoming call on a
+        // locked phone then shows only as a notification, not the call screen.
+        if (Build.VERSION.SDK_INT >= 34) {
+            val allowed = CallNotificationManager.fullScreenAllowed(this)
+            content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "全屏来电",
+                summary = if (allowed) "已允许" else "未允许 · 锁屏时来电只显示为通知",
+                icon = R.drawable.ic_ui_notifications,
+                trailing = HostUi.chevron(this),
+                onClick = {
+                    runCatching {
+                        startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:$packageName")))
+                    }.onFailure { HostBackgroundRuntime.openNotificationSettings(this@MainActivity) }
+                }).apply { id = R.id.settings_full_screen_calls })
+        }
 
         val autoCopy = MaterialSwitch(this).apply {
             isChecked = InboundSmsNotifications.autoCopyCodes(this@MainActivity)
@@ -2371,7 +2452,7 @@ class MainActivity : AppCompatActivity() {
         listen.isEnabled = serverReady && nativeReady
         listen.setOnClickListener {
             if (CallRuntime.isListeningRequested) {
-                CallRuntime.disableForegroundListening(this)
+                CallRuntime.disableForegroundListening(this, byUser = true)
                 renderCallPanel()
             } else if (!CallRuntime.enableForegroundListening(this)) {
                 showToast("无法启动前台来电接收。")
@@ -2379,6 +2460,10 @@ class MainActivity : AppCompatActivity() {
         }
         panel.addView(listen)
         panel.addView(body("开启后使用系统可见的专用信令前台服务保持呼叫控制和 HTTPS 来电检查；不启用麦克风。来电匹配服务器状态后才交给 Telecom，用户接听后才请求麦克风和通话前台服务。网络中断、强行停止或系统资源限制仍可能延迟来电。"))
+        // Nodes with reception v2 keep the choice themselves and wake the phone by push.
+        ReceptionV2.describe(ReceptionV2.status(this))?.let { line ->
+            panel.addView(body("$line 支持新接收方式的节点在待机时通过推送唤醒本机，不需要常驻信令服务；关闭后仍可主动拨号、收发短信。"))
+        }
 
         val refresh = smallButton(if (callAvailabilityLoading) "正在检查…" else "刷新通话可用状态")
         refresh.isEnabled = !callAvailabilityLoading

@@ -1,0 +1,18 @@
+B3 post-fix simulator retest — 2026-10-30
+
+Build and setup:
+- Madoka product APK SHA-256: `05d6cb74d8bd5e2f30edf6927679182218fbc17e8dcf8cf40fcb584ce0d91530`; debug signer SHA-256 `2c613d0386c319b54abd14796fee004ea44681bfe3b69ddd33f7062cd3845f28` matches the shared R1 key; `GSM_RELEASE_VERSION_CODE=1000000000`.
+- The product source includes B3 fix commit `d60e3c9` and C1 fix commit `299213b`; the test-only runner is from `5b6db6b`.
+- H1 is API 35 Google Play; Homura is API 34 standard. `GatewayJointInstrumentation` exercised the real gateway service, SIM mapping, RTC, Telecom, and SoulGem path while replacing only physical cellular PCM with synthetic PCM. No root/Magisk or HAL audio claim.
+- To preserve B1 state, no HostJoint runner was started on H1: that runner's setup turns incoming listening on. H1 was configured through Settings and its server-acknowledged local v2 state was `incoming=false, sms=true, revision=35`; H2 stayed `incoming=true, sms=true, revision=10`. SoulGem SQL showed the corresponding H1 row as `incoming_enabled=false, sms_enabled=true, revision=35` before and after the call.
+
+Result: PASS.
+
+- The actual H1 dial screen left the call button enabled with incoming reception disabled.
+- H1 started the outgoing call at `2026-10-30T07:10:42.218Z`.
+- Homura Telecom entered `DIALING` at `07:10:56.192Z` and `ACTIVE` at `07:10:57.689Z`; H1 Telecom entered `ACTIVE` at `07:10:58.975Z`.
+- H1 initiated hangup at `07:11:51.765Z`; H1 Telecom disconnected at `07:11:52.492Z` and Homura Telecom disconnected at `07:11:53.103Z`.
+- SoulGem's latest RTC outgoing row was `ended`, reason `cellular_ended`, with `dispatched=true`.
+- After hangup, Homura `emu gsm list` was empty, `mCallState=0`, gateway runner bridge was `IDLE`, H1 `HostCallService` was stopped, and H1 reception remained `incoming=false, sms=true, revision=35`.
+
+No device IDs, call IDs, phone numbers, authentication values, screenshots, or raw logs are included.

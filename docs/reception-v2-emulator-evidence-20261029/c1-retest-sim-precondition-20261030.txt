@@ -1,0 +1,31 @@
+C1 end-to-end retest precondition failure (sanitized)
+Date: 2026-10-30
+Gateway/H1 build under test: R1 branch builds containing Madoka 299213b
+
+Attempt timeline (UTC): runner capture started 03:59:09; ADB GSM call injected 03:59:11.
+At 03:59:12.4, Homura logged `Incoming GSM call detected`. At 03:59:12.784,
+GatewayService logged `Call not offered: SIM account mapping is unavailable`;
+the offer was torn down before a SoulGem call session or Madoka wake could be
+created. The local SIM registry state was `UNVERIFIED`; SIM PhoneAccount
+preflight had reported a SIM account and matching forward subscription mapping.
+The Host log has no call push/ringing event corresponding to this attempt.
+
+After explicit modem cancellation, `adb emu gsm list` returned `OK` with no
+active call; Gateway runner reported bridge `IDLE` and Telecom state
+`DISCONNECTED` (Android `Call.STATE_DISCONNECTED`, value 7); Host runner had
+`listening=true` and no call phase. A read-only SoulGem A query found zero
+active call sessions. This attempt is invalid for C1 scoring: it stopped at
+the Gateway SIM identity precondition and never exercised Madoka's incoming
+Telecom UI.
+
+Traceability: unredacted source captures remain private on the test machine at
+`/tmp/reception-r1-private-20261030/c1-retest/` and were not uploaded because
+they contain device/telecom identifiers and call metadata. Their SHA-256:
+
+- GW logcat: `be7a7643c58b01286023b8f72eedbf31343d03514331b619ca882dd53ee1fe7e`
+- H1 logcat: `3e14fb0b5362dccc7b7052bc52bf8781475a94823048eb02f634ce6889c08e11`
+
+The guarded follow-up is to keep the same pairing and SIM UUID, run the
+existing retained-SIM proposal/confirmation path, then verify server/local
+revision and identity before attempting another call. No data was cleared,
+and no database row was edited for this attempt.

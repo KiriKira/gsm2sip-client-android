@@ -50,6 +50,31 @@ class CallPreferencesTest {
         assertTrue(preferences.ensureEnabledFor(paired))
     }
 
+    @Test
+    fun aUserTurningListeningOffIsNotUndoneByOpeningTheApp() {
+        val paired = session("paired-session")
+        assertTrue(preferences.ensureEnabledFor(paired))
+        assertTrue(preferences.setUserChoice(paired, false))
+        assertFalse(preferences.enabledFor(paired))
+        assertFalse("a paired screen must not turn it back on", preferences.ensureEnabledFor(paired))
+        assertFalse(preferences.enabledFor(paired))
+        // A failure that turned it off is not the user's choice.
+        assertTrue(preferences.setUserChoice(paired, true))
+        assertTrue(preferences.setEnabled(paired, false))
+        assertTrue(preferences.ensureEnabledFor(paired))
+    }
+
+    @Test
+    fun callControlFailingToStartKeepsTheChoiceToReceiveCalls() {
+        // A node that is down must not turn reception off: with reception v2
+        // that choice reaches every node, which then drop this phone from
+        // calls still ringing elsewhere.
+        val paired = session("paired-session")
+        assertTrue(preferences.setEnabled(paired, true))
+        CallRuntime.onListeningFailed(context, "node unreachable")
+        assertTrue(preferences.enabledFor(paired))
+    }
+
     private fun session(instanceId: String) = HostSession(
         sessionInstanceId = instanceId,
         apiBaseUrl = "https://api.example.test/v1",

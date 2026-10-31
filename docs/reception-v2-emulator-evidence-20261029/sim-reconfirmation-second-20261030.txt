@@ -1,0 +1,9 @@
+Controlled retained-SIM recovery, second operation — 2026-10-30 UTC
+
+Before the operation, the read-only guard found the same local salted fingerprint and live SIM, matching subscription/slot (1/0), one SIM PhoneAccount with forward Telephony match, Homura as default dialer, and no Telecom/GSM call. Node A still had the same active/verified SIM and Gateway binding at revision 9 with the same owner. The exact sanitized probe and Node A read-only state are in `gw-sim-readonly-probe-20261030.txt`.
+
+Paired recovery points were created immediately before the write and verified: Node A `pg_dump` SHA-256 `fc17f63be762a9182656e85f04fd29fafa9f999caeda8e81d49faaae5a58e9be` (183,852 bytes; `pg_restore --list` parsed 267 entries) and Homura app state SHA-256 `f75bc249731af1c6c2ef948131e07d5d9872ecc3d0c209c59ed0a69590681049` (330,240 bytes; 21 tar entries). Both are private mode 0600 in `/tmp/reception-r1-private-20261030/`; the directory is mode 0700. They contain credentials/application state and are not committed.
+
+The existing guarded runner used a newly generated operation ID and retained the original SIM UUID. Its `joint-ready.json` reported READY with the same SIM digest `e8929d4f6127114e7d66c2edd2c8795f`, Gateway digest `3e1e720d9e8b3feac035419ae8a4d16d`, and revision 10. A post-operation live registry read showed revision 10/barrier 5, same SIM/Gateway digests, subId 1/slot 0, `FINGERPRINT_VERIFIED`, and the pinned fingerprint still present. Node A SQL showed the same SIM/Gateway/owner, active state, `identity_verified=true`, slot 0, revision 10. No other mapping was active for this Gateway.
+
+The guarded runner remains alive in `commands` stage and GatewayService is running. No call was placed during confirmation. The runner's READY was not used as the SIM identity proof; the explicit before/after registry, same-salt probe, and SQL comparisons are the proof. This manual recovery is test setup and does not demonstrate F-group upgrade retention.

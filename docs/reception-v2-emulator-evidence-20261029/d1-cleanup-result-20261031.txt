@@ -1,0 +1,9 @@
+D1 temporary TURN and Node B rollback cleanup
+Pre-clean verification: A/B/C healthy; isolated owner eligibility A=0, B=1, C=0; active calls=0; no A/B/C TURN URL referenced the private sidecar.
+Node B: original TURN configuration restored; image, data mount, network, API port mapping, restart policy, and non-TURN environment preserved; health healthy.
+Removed: D1-only private TURN sidecar; stopped temporary Node B container; temporary TURN configuration; Node B private/original env snapshots; secret-bearing inspect snapshot; Node B database dump (recovery had been verified).
+Post-clean verification: A/B/C healthy; A=0, B=1, C=0; active calls=0; temporary containers absent.
+Workstation TCP forward used only for the temporary TURN sidecar: terminated after sidecar removal.
+ADB reverse tunnel for the persistent remote emulator session: retained.
+No broad disk cleanup or change to the test-machine disk was performed.
+Remote root filesystem after cleanup: 61 GiB total, 57 GiB used, 4.1 GiB available.

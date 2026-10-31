@@ -37,7 +37,7 @@ class ApiClient(
     private val connectTimeoutMillis: Int = 15_000,
     private val readTimeoutMillis: Int = 20_000
 ) {
-    private val apiRoot: String = normalizeApiBaseUrl(configuredBaseUrl)
+    internal val apiRoot: String = normalizeApiBaseUrl(configuredBaseUrl)
     private val boundSession: HostSession? = sessionStore.read()
     // Refreshes of one pairing must share an idempotency/token rotation lock,
     // even when a node switch moves its session between stores. A disconnected
@@ -235,6 +235,16 @@ class ApiClient(
         authenticatedRequest("PUT", "/devices/self/push-endpoint", JSONObject().put("endpoint", endpoint))
     }
 
+    /** This phone's reception settings on this node (see [com.callagent.host.calls.ReceptionV2]). */
+    fun reception(): com.callagent.host.calls.ReceptionConfig =
+        com.callagent.host.calls.ReceptionConfig.parse(authenticatedRequest("GET", "/devices/self/reception"))
+
+    /** Replaces the settings if they still have [expectedRevision]; a 409 means they changed. */
+    fun putReception(expectedRevision: Long, incoming: Boolean, sms: Boolean): com.callagent.host.calls.ReceptionConfig =
+        com.callagent.host.calls.ReceptionConfig.parse(authenticatedRequest("PUT", "/devices/self/reception",
+            JSONObject().put("version", 2).put("expected_revision", expectedRevision)
+                .put("incoming_enabled", incoming).put("sms_enabled", sms)))
+
     /** Stop this server posting wake-ups to this phone. */
     fun deletePushEndpoint() {
         authenticatedRequest("DELETE", "/devices/self/push-endpoint")
@@ -251,6 +261,7 @@ class ApiClient(
             .also {
                 ServerPushSignal.observed(apiRoot, it.push)
                 com.callagent.host.calls.RtcSleep.observed(apiRoot, json.optBoolean("rtc_sleep", false))
+                com.callagent.host.calls.ReceptionV2.observed(apiRoot, json.optBoolean("reception_v2", false))
             }
     }
 

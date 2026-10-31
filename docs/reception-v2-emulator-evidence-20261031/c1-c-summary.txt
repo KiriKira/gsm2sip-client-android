@@ -1,0 +1,10 @@
+scenario=c started_utc=2026-10-31T12:33:45.345+00:00
+focus_before=com.callagent.host/com.callagent.host.MainActivity
+focus_ready=com.callagent.host/com.callagent.host.MainActivity
+inject_utc=2026-10-31T12:34:04.268+00:00 ack=OK
+ring_after_s=3.77 ids=TC@8
+focus_ring=com.callagent.host/com.callagent.host.calls.CallActionActivity
+ring_ui=来电 ; 拒接 ; 接听
+decline_tap=(150, 652) label=拒接 utc=2026-10-31T12:34:13.002+00:00
+gateway_ended_after_decline_s=1.2
+host_text_waiting utc=2026-10-31T12:34:18.563+00:00

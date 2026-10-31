@@ -1,0 +1,7 @@
+B3 outbound readiness check — H1, 2026-10-29 UTC
+
+H1 was stable after reboot, retained incoming_enabled=false and sms_enabled=true, and the Phone page showed reception settings synchronized to one node. Opening the dialer displayed the exact readiness message:
+
+  旧手机通话尚未就绪，呼叫可能失败；请在旧手机完成“远程通话”设置。
+
+The outbound button was not pressed because the GW did not satisfy the plan's remote-calling prerequisite. Homura is the ordinary API 34 image without Magisk/root; the earlier E2 recovery evidence records that the UI reports remote calling requires root/Magisk. No B3 call was initiated in this follow-up. The earlier unsuccessful attempt (outgoing session expired with `control_expired` after about 20.5 seconds) remains evidence of the same environment path not being ready, not a confirmed product defect. B3 is BLOCKED (environment).

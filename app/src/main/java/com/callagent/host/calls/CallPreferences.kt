@@ -33,10 +33,24 @@ internal class CallPreferences(context: Context) {
         }
     }
 
+    /** Turns listening on for a paired screen, unless the user turned it off
+     * for this account: then only the user turns it back on. */
     fun ensureEnabledFor(session: HostSession?): Boolean {
         if (session == null || session.role != "client") return false
+        if (declinedByUser(session)) return false
         return enabledFor(session) || setEnabled(session, true)
     }
+
+    /** The user's own choice, which opening the app does not override. */
+    fun setUserChoice(session: HostSession?, enabled: Boolean): Boolean {
+        if (session == null) return false
+        val marked = if (enabled) preferences.edit().remove(KEY_USER_OFF).commit()
+            else preferences.edit().putString(KEY_USER_OFF, session.profileKey).commit()
+        return marked && setEnabled(session, enabled)
+    }
+
+    fun declinedByUser(session: HostSession): Boolean =
+        preferences.getString(KEY_USER_OFF, null) == session.profileKey
 
     fun canAutoListenFor(session: HostSession?, signalingAvailable: Boolean): Boolean =
         session?.role == "client" && signalingAvailable
@@ -55,5 +69,6 @@ internal class CallPreferences(context: Context) {
         const val KEY_ENABLED = "foreground_sip_opt_in"
         const val KEY_SESSION = "session_instance"
         const val KEY_LAST_DIAL_SIM = "dialer_last_sim"
+        const val KEY_USER_OFF = "user_turned_off"
     }
 }
