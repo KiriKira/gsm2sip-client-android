@@ -257,6 +257,10 @@ class HostCallService : android.app.Service() {
                 listeningRequested = false
                 val message = readinessFailure(failure)
                 CallRuntime.onListeningFailed(this@HostCallService, message)
+                // The active node may be the one that is down while another
+                // node rings this phone: switch to a node that answers, which
+                // starts call control there.
+                com.callagent.host.mesh.NodeMonitor.requestFailover(this@HostCallService)
                 stopSignalingForeground()
                 closeEngine()
                 stopSelf()
@@ -1229,7 +1233,7 @@ class HostCallService : android.app.Service() {
         else if (foregroundListening) {
             foregroundListening = false
             listeningRequested = false
-            CallRuntime.onListeningFailed(this, "通话引擎不可用，来电接收已关闭。")
+            CallRuntime.onListeningFailed(this, "通话引擎不可用，稍后自动重试。")
             stopSignalingForeground()
             closeEngine()
             stopSelf()

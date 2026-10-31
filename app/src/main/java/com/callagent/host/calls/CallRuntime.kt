@@ -326,10 +326,15 @@ object CallRuntime {
         service?.failCall(callId, if (microphone) "Android blocked microphone access for this call" else "Android blocked the call notification service")
     }
 
+    /**
+     * Call control could not start this time: a node that is down, no
+     * network, Android refusing the service. The user's choice to receive
+     * calls stays as it is. Writing it off here used to reach every node
+     * through reception v2, which then withdrew this phone from calls still
+     * ringing on healthy nodes. The next push, network change, node switch or
+     * app open tries again.
+     */
     internal fun onListeningFailed(context: Context, message: String) {
-        val session = SessionStore(context.applicationContext).read()
-        CallPreferences(context).setEnabled(session, false)
-        wantsForegroundListening = false
         signalingStartRequestedFor = null
         statusText = message
         notifyChanged(currentCallId)
