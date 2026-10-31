@@ -326,3 +326,16 @@ Sol 复核认为上一轮 `wait_answer` 结果同时可能代表答案文件缺�
 随后修正并加强恢复状态机：恢复命令与只读预检参数互斥；恢复期间屏蔽终端断连信号；恢复门槛不依赖 sidecar、ADB reverse、Host endpoint 或 H1/H2 在线状态；新 B 有有界启动等待；停止/改名任一步异常后按不可变容器 ID 对账，先尝试恢复原 B，再只在原 B 未健康时考虑私网配置回退。原 B 已健康而 A/C 或资源审计不完整时会保留原 B、明确报告审计未完成，不会为追求绿灯切回测试配置。最终 PASS 前验证原容器 ID/配置/健康、A/B/C 全部零活动呼叫，以及保留的私网容器已停止且 `restart=no`。GPT-6.1 Sol 对当前脚本做了只读复核并接受恢复路径；本地 `py_compile`、CLI 冲突参数检查及 `git diff --check` 通过。风险边界与停止条件见 `c3-node-b-turn-switch-risk-before-20261031.md`。
 
 这一步只是安全护栏修正，不是 C3 用例结果，也尚未切换 Node B。下一步按该风险记录运行远端只读预检，满足全部条件后再换 B 的 TURN URL；C3 仍需真实 GSM→RTC→FCM/Telecom 路径完成 H1 关闭接收、H2 继续响铃并接听的断言。真实蜂窝 HAL 音频不在模拟器结论内。
+
+### F1 保留 SIM 的正式确认 API 预检（2026-10-31）
+
+**结果：在写入前停止；没有发送 API 请求。** Kiri 已授权仅通过生产 SIM propose/confirm API、保留原 SIM UUID 的一次确认，并要求确认后若仍非 `VERIFIED` 或有任何异常就立即停止。只读预检发现现有可用会话与 F1 原始配对不匹配，因此不能安全地把授权用于当前 gateway。
+
+| 项目 | 写入前记录 | 本次写入后 |
+| --- | --- | --- |
+| F1 原始 Homura 映射 | 归档本地状态 `UNVERIFIED`，revision 2，local barrier 1，slot 0；SIM UUID 仅以散列 `70e90a9060f8155c` 标识。此前 2026-10-31 对 Node C 的只读审计记为 revision 2、`identity_verified=false`。 | 不适用：未发出 propose/confirm 请求，无写入响应或新 revision；本次测试没有改变映射。因匹配会话不可用，没有执行写后 API 查询。 |
+| 当前 API 34 Homura AVD | `0.4.2-dev`、versionCode `1000000000`；owner 散列 `26762fa7f4642cea`、SIM 散列 `463d8ed4c51ca599`、local revision 1、`LOCAL_CONFIRMED`。与 F1 原始 owner/SIM 均不同。 | 未变；未将当前 AVD 身份用于 F1 确认。 |
+
+证据 `f1-confirm-api-preflight-20261031.md` 记录了归档 SHA-256、状态和停止条件。F1 归档有加密 `session_v1`，但没有对应 Android Keystore 私钥；原 API 36 AVD/full snapshot 也不在现有备份中。当前 AVD 的会话属于另一 owner 和另一 SIM。把原始 app-data tar 解到当前 AVD不能恢复缺失的 Keystore，且会混用身份，所以未尝试；未手工 SQL、未直接改库、未清数据、未重新配对。
+
+因此 F1 来电/去电未复测；F2/F3 也未启动，因为本轮要求以 F1 业务基线通过后继续。2026-10-28 的 F2 失败原记录保留；历史 F3 证据不视为当前提交的升级结果。下一步需要恢复原 F1 API 36 AVD（含 Android Keystore 与配对/session）或能保留该密钥的受支持完整备份，随后才可按原 UUID 进行一次 API 确认；确认结果不是 `VERIFIED` 时立即停止，不重试。
