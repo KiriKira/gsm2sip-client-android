@@ -11,6 +11,9 @@
   断言 H1 `ended|reception_disabled`、H2 仍 `ringing`、通话未被挂断、H2 仍可接听。
 - `b12.py` — B1/B2：H1 关闭来电时只有 H2 响铃、短信两台各收一次（含 `dismiss_call_screen`，
   残留的 CallActionActivity 会吞掉 tab 点击）。
+- `c1-decline.py` — C1：H2 飞行模式下 H1 拒接，量蜂窝通话结束时延。
+- `c2-race.py` — C2：两台同时响铃后接听一台、0.5 s 后拒接另一台，两种顺序各 2 次。
+  接听/拒接按钮在通知栏，先唤醒屏幕并 `expand-notifications`，再按固定坐标点。
 - `f1-probe.py` — 单次取证的只读探针（1 Hz 采样 DB + Host Telecom）。
 - `labq.py` — 在节点 B 上执行只读 SQL 的小工具（SQL 走 stdin）。
 
