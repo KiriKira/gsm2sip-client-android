@@ -176,21 +176,44 @@ C1 里发现的那个问题已经修了（同一分支，随本报告提交）�
 - **门禁**：`./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug` → BUILD SUCCESSFUL；
   新 APK 已覆盖安装到 H1（数据与配对保留）。
 
-**还没有做的**：这条修复的端到端复测没能跑完，卡在网关侧而不是客户端。今天下午网关进程被
-模拟器看门狗以「主线程停滞 313 s」杀掉之后，呼叫链路没有自己回来。修复过程与现状：
+**端到端复测（已完成）**
 
-- 重新拉起网关测试 runner（合成 PCM）：`READY`，网关心跳正常，`device_reception` 仍是
-  `incoming=true`；
-- SIM 重新同步并在服务器确认（`sim_bindings` 新身份 active + `identity_verified=t`，
-  `mapping_revision` 到 6），runner 也读到了新的 `sim_id`；
-- 注入真实 GSM 呼叫后，网关能识别到来电（`Bridge: GSM_RINGING - Incoming GSM call`），但紧接着
-  `Call not offered: SIM account mapping is unavailable` / `Incoming GSM call has no verified SIM
-  account mapping`：`SimRegistry` 里这条映射没有 Telecom 电话账号（`phone_account=""`），而生成
-  电话账号要走网关的语音服务，其「设备诊断」在本机报 `系统通话音频采集: needs Magisk`——这台
-  AVD 只有 userdebug 的 `/system/xbin/su`、没有 Magisk，按任务规则也不做 Magisk 相关操作。
+复测一度卡在网关侧：网关进程被看门狗杀掉后，`SimRegistry` 里的 SIM 映射既没有指纹
+（`fingerprint=""`）也没有电话账号，于是每次来电都是
+`Call not offered: SIM account mapping is unavailable`。排查下来这不是 Magisk 缺失，而是
+**网关 APK 当时是普通安装**：API 34 上 `SubscriptionInfo.getIccId()` 对非特权应用返回
+null，算不出指纹，映射就永远停在 `UNVERIFIED`。用模拟器自身能力把它装成系统特权应用即可
+（不需要 Magisk 模块）：
 
-所以本节的结论是「代码与单测已验证，端到端待网关环境（语音服务/电话账号）恢复后补一次 C1-c」。
-C1 的三种界面行为本身在修复前的构建上已经按原判据通过，这条修复只影响第二段文案的出现时机。
+```
+emulator -writable-system …            # 重启网关 AVD，userdata 与配对保留
+adb root; adb disable-verity; adb reboot; adb root; adb remount   # /system 变可写
+/system/priv-app/Homura/Homura.apk     # 当前 0.4.2-dev 构建
+/system/etc/permissions/privapp-permissions-callagent.xml
+  CAPTURE_AUDIO_OUTPUT / READ_PRIVILEGED_PHONE_STATE /
+  CALL_PRIVILEGED / MODIFY_PHONE_STATE
+restorecon -R …
+```
+
+装完 `dumpsys package` 里四项特权权限都是 `granted=true`，包 flags 出现 `SYSTEM` 与
+`UPDATED_SYSTEM_APP`。随后 SIM 重新申请并确认，本地登记变成
+`identity_state=FINGERPRINT_VERIFIED`（带指纹），服务器侧 `sim_bindings` 新身份
+`active` + `identity_verified=t`、`mapping_revision=7`；网关恢复
+`Bridge: GSM_RINGING` → `GSM call is ringing; offering it to the hosts`。
+
+C1-c 修复后实测（主机 APK 为带本修复的构建）：
+
+| 事件 | 时间 |
+| --- | --- |
+| 注入真实 GSM 呼叫 | 0.00 s |
+| 通话界面在前台直接打开（`CallActionActivity` resumed） | 3.90 s |
+| 点「拒接」 | 6.80 s |
+| 服务器参与者 `declined`（两台主机） | 7.80 s |
+| 界面出现「已拒接，所有主机已停止响铃。」 | 6.02 s（相对点击） |
+
+修复前同一个界面要 1–3 分钟才从「正在等待网关…」换成终态文案；现在网关确认后数秒内就换。
+界面在点击后先显示「已拒接，正在等待网关让其他主机停止响铃…」，网关把两台主机都记成
+`declined` 后立即替换成终态文案。
 
 ## 结论：真机阶段与待修
 
