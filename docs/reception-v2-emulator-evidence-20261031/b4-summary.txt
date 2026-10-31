@@ -1,0 +1,8 @@
+started_utc=2026-10-31T13:02:04.050+00:00
+before_pref=<boolean name="foreground_sip_opt_in" value="false" />
+after_kill_pref=<boolean name="foreground_sip_opt_in" value="false" />
+boot_completed=1 after_s=60
+after_reboot_pref=<boolean name="foreground_sip_opt_in" value="false" />
+rows_a=c82e4382-17d9-430a-bd81-04d26869bb84|t|54 ; d654bbcd-7f82-4a6e-97e1-4bd384a73d85|t|12 ; b44d5dbd-aca6-4362-83dc-3366c8b2087f|t|2 ; 5a6a6d63-82ba-42e8-b239-ef94bae0aa79|f|3
+rows_b=3a3f0de1-df96-46ef-9a86-b8af15fa670a|t|14 ; 54d8648b-6e86-4c16-acd9-e0ccc2f9d56d|t|9 ; b423f774-e005-4be0-9bc8-38017026c11d|t|13 ; 01a73f0a-8d3d-4573-859a-7984f5d8268a|t|2 ; 89ee33a1-da6c-4a61-adc4-59a7fdb3c328|f|21 ; 2d326382-3a88-4b10-9bc0-781b255297cc|t|4
+finished_utc=2026-10-31T13:04:16.716+00:00

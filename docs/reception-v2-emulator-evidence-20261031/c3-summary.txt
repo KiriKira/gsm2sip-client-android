@@ -1,0 +1,18 @@
+started_utc=2026-10-31T13:34:58.658+00:00 attempt=5
+h1_on=true
+parked=(396, 548, 448, 596) checked=true
+focus_home=com.google.android.apps.nexuslauncher/com.google.android.apps.nexuslauncher.NexusLauncherActivity
+inject_utc=2026-10-31T13:35:58.721+00:00 ack=OK
+both_ringing_after_s=5.76
+focus_resumed=com.callagent.host/com.callagent.host.MainActivity
+toggled_utc=2026-10-31T13:36:06.979+00:00 after_resume_s=2.49
+h1_ringing_after=
+h2_ringing_after=TC@8
+call_state_b=65b2090d-acb4-4dde-a01c-a0aa7b4bf245|ringing
+participants_b=2d326382-3a88-4b10-9bc0-781b255297cc|ringing|- ; 89ee33a1-da6c-4a61-adc4-59a7fdb3c328|ended|reception_disabled ; 89ee33a1-da6c-4a61-adc4-59a7fdb3c328|ended|answered_elsewhere
+h2_answer=(346, 322) ⁦� ⁨Answer⁩⁩|Answer
+participants_b_after_answer=89ee33a1-da6c-4a61-adc4-59a7fdb3c328|ended|reception_disabled ; 2d326382-3a88-4b10-9bc0-781b255297cc|accepted|- ; 89ee33a1-da6c-4a61-adc4-59a7fdb3c328|ended|answered_elsewhere
+call_b_after_answer=active|-
+h1_final_participant_a=5a6a6d63-82ba-42e8-b239-ef94bae0aa79|ended|reception_disabled ; 5a6a6d63-82ba-42e8-b239-ef94bae0aa79|ended|answered_elsewhere
+rows_after_a=b44d5dbd-aca6-4362-83dc-3366c8b2087f|t|2 ; c82e4382-17d9-430a-bd81-04d26869bb84|t|54 ; 5a6a6d63-82ba-42e8-b239-ef94bae0aa79|f|7 ; d654bbcd-7f82-4a6e-97e1-4bd384a73d85|t|12
+finished_utc=2026-10-31T13:36:22.878+00:00

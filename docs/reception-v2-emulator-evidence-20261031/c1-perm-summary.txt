@@ -1,0 +1,4 @@
+started_utc=2026-10-31T12:37:21.363+00:00
+appops_before=Uid mode: USE_FULL_SCREEN_INTENT: allow | USE_FULL_SCREEN_INTENT: default; time=+3m14s194ms ago; rejectTime=+5h38m12s917ms ago
+appops_withheld=Uid mode: USE_FULL_SCREEN_INTENT: allow | USE_FULL_SCREEN_INTENT: ignore; time=+3m15s251ms ago; rejectTime=+5h38m13s974ms ago
+tile_not_found
