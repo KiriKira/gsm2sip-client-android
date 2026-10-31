@@ -1,0 +1,336 @@
+CallsManager: 
+  mCalls: 
+    [Call id=TC@6, state=RINGING, tpac=ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}, cmgr=ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}, handle=tel:**********00, vidst=A, childs(0), has_parent(false), cap=[ mut], prop=[ self_mng]], voip=true
+  mCallAudioManager:
+    All calls:
+      TC@6
+    Active dialing, or connecting calls:
+    Ringing calls:
+      TC@6
+    Holding calls:
+    Foreground call:
+    [Call id=TC@6, state=RINGING, tpac=ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}, cmgr=ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}, handle=tel:**********00, vidst=A, childs(0), has_parent(false), cap=[ mut], prop=[ self_mng]], voip=true
+    CallAudioModeStateMachine:
+      History:
+      2026-10-31T04:43:48.250393 - Enter RINGING
+      2026-10-31T04:43:48.399813 - Mode MODE_RINGTONE
+      2026-10-31T04:43:58.421515 - Enter VOIP_CALL
+      2026-10-31T04:43:58.422329 - Mode MODE_IN_COMMUNICATION
+      2026-10-31T04:44:17.333361 - Enter UNFOCUSED
+      2026-10-31T04:44:17.333536 - Mode MODE_NORMAL
+      2026-10-31T04:46:36.795832 - Enter RINGING
+      2026-10-31T04:46:36.903433 - Mode MODE_RINGTONE
+      2026-10-31T04:46:46.669317 - Enter VOIP_CALL
+      2026-10-31T04:46:46.700249 - Mode MODE_IN_COMMUNICATION
+      2026-10-31T04:46:57.315884 - Enter UNFOCUSED
+      2026-10-31T04:46:57.315968 - Mode MODE_NORMAL
+      2026-10-31T04:48:24.941779 - Enter RINGING
+      2026-10-31T04:48:25.052210 - Mode MODE_RINGTONE
+      2026-10-31T04:48:34.567294 - Enter VOIP_CALL
+      2026-10-31T04:48:34.568077 - Mode MODE_IN_COMMUNICATION
+      2026-10-31T04:48:49.541851 - Enter UNFOCUSED
+      2026-10-31T04:48:49.541986 - Mode MODE_NORMAL
+      2026-10-31T04:51:10.444673 - Enter RINGING
+      2026-10-31T04:51:10.645345 - Mode MODE_RINGTONE
+      Pending Msg:
+      Looper (CallAudioModeStateMachine, tid 201) {207406f}
+        (Total messages: 0, polling=true, quitting=false)
+    CallAudioRouteStateMachine:
+      Current state: ActiveSpeakerRoute
+      Pending messages:
+        Looper (com.android.server.telecom.CallAudioRouteStateMachine, tid 200) {792717c}
+          (Total messages: 0, polling=true, quitting=false)
+    BluetoothDeviceManager:
+      2026-10-31T04:06:00.806976 - Got BluetoothHearingAid: android.bluetooth.BluetoothHearingAid@5c005c4
+      2026-10-31T04:06:00.807846 - Got BluetoothHeadset: android.bluetooth.BluetoothHeadset@e1c5cad
+  mTtyManager:
+    mCurrentTtyMode: 0
+  mInCallController:
+    mInCallServices (InCalls registered):
+      [ComponentInfo{android/com.android.server.companion.datatransfer.contextsync.CallMetadataSyncInCallService} supportsExternal? false supportsSelfMg?true]
+      [ComponentInfo{com.android.bluetooth/com.android.bluetooth.telephony.BluetoothInCallService} supportsExternal? false supportsSelfMg?true]
+    ServiceConnections (InCalls bound):
+      Car Swapping ICS [not connected]
+        Dialer: Emergency ICS Connection [not proxying, connected]
+          Emergency: BindingConnection [not connected, not bound, [ComponentInfo{com.android.dialer/com.android.incallui.InCallServiceImpl} supportsExternal? true supportsSelfMg?false]
+          
+      CarModeTracker:
+        Current car mode apps:
+        Car mode history:
+    mCallDiagnosticServiceController:
+      activeCallDiagnosticService: 
+      isConnected: false
+    mCallAnomalyWatchdog:
+      Anomaly log:
+      Pending timeouts: TC@6
+      Pending destruction: 
+    mEmergencyCallDiagnosticLogger:
+        PERSISTED DIAGNOSTIC DATA FROM DROP BOX
+        END OF PERSISTED DIAGNOSTIC DATA FROM DROP BOX
+    mDefaultDialerCache:
+      User 0: com.android.dialer
+    mConnectionServiceRepository:
+      mServiceCache:
+        ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}
+        ComponentInfo{com.android.phone/com.android.services.telephony.TelephonyConnectionService}
+    mRoleManager:
+      DefaultCallRedirectionApp: 
+      DefaultCallScreeningApp: 
+      DefaultCallCompanionApps: (override ) 
+    mConnectionSvrFocusMgr:
+      Call Focus History:
+      2026-10-31T04:43:58.389711 - TC@3
+      2026-10-31T04:44:17.303100 - <none>
+      2026-10-31T04:46:46.600024 - TC@4
+      2026-10-31T04:46:57.291275 - <none>
+      2026-10-31T04:48:34.532287 - TC@5
+      2026-10-31T04:48:49.494294 - <none>
+  PhoneAccountRegistrar: 
+    xmlVersion: 0
+    defaultOutgoing: ComponentInfo{com.android.phone/com.android.services.telephony.TelephonyConnectionService}, 1, UserHandle{0}
+    outgoingPhoneAccountForTelScheme: ComponentInfo{com.android.phone/com.android.services.telephony.TelephonyConnectionService}, 1, UserHandle{0}
+    simCallManager: null
+    phoneAccounts:
+      [[X] PhoneAccount: ComponentInfo{com.android.phone/com.android.services.telephony.TelephonyConnectionService}, 1, UserHandle{0} Capabilities: CallProvider MultiUser PlaceEmerg SimSub  Audio Routes: BESW Schemes: tel voicemail  Extras: Bundle[{android.telecom.extra.SUPPORTS_VIDEO_CALLING_FALLBACK=true}] GroupId: ***]
+      [[X] PhoneAccount: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0} Capabilities: SelfManaged  Audio Routes: BESW Schemes: gsm2sip  Extras: null GroupId: ***]
+      test emergency PhoneAccount filter: null
+  Analytics:
+    Call TC@1: {
+        startTime: 0
+        endTime: 1793421645228
+        direction: INCOMING
+        isAdditionalCall: false
+        isInterrupted: false
+        isEmergency: false
+        callTechnologies: []
+        callTerminationReason: DisconnectCause [ Code: (REMOTE) Label: () Description: () Reason: () Tone: (-1)  TelephonyCause: 36/65535 ImsReasonInfo: null]
+        missedReason: []
+        connectionService: com.callagent.host/.calls.HostCallConnectionService
+        isVideoCall: false
+        inCallServices: [
+        name: android/com.android.server.companion.datatransfer.contextsync.CallMetadataSyncInCallService type: 4 is crashed: false service last time in ms: 24708
+        name: com.android.bluetooth/.telephony.BluetoothInCallService type: 4 is crashed: false service last time in ms: 24690
+    ]
+        callProperties: []
+        callSource: UNSPECIFIED
+    }
+    
+    Call TC@2: {
+        startTime: 0
+        endTime: 1793421743070
+        direction: INCOMING
+        isAdditionalCall: false
+        isInterrupted: false
+        isEmergency: false
+        callTechnologies: []
+        callTerminationReason: DisconnectCause [ Code: (REMOTE) Label: () Description: () Reason: () Tone: (-1)  TelephonyCause: 36/65535 ImsReasonInfo: null]
+        missedReason: []
+        connectionService: com.callagent.host/.calls.HostCallConnectionService
+        isVideoCall: false
+        inCallServices: [
+        name: android/com.android.server.companion.datatransfer.contextsync.CallMetadataSyncInCallService type: 4 is crashed: false service last time in ms: 7346
+        name: com.android.bluetooth/.telephony.BluetoothInCallService type: 4 is crashed: false service last time in ms: 7332
+    ]
+        callProperties: []
+        callSource: UNSPECIFIED
+    }
+    
+    Call TC@3: {
+        startTime: 1793421838390
+        endTime: 1793421857292
+        direction: INCOMING
+        isAdditionalCall: false
+        isInterrupted: false
+        isEmergency: false
+        callTechnologies: []
+        callTerminationReason: DisconnectCause [ Code: (ERROR) Label: () Description: () Reason: () Tone: (-1)  TelephonyCause: 36/65535 ImsReasonInfo: null]
+        missedReason: []
+        connectionService: com.callagent.host/.calls.HostCallConnectionService
+        isVideoCall: false
+        inCallServices: [
+        name: android/com.android.server.companion.datatransfer.contextsync.CallMetadataSyncInCallService type: 4 is crashed: false service last time in ms: 31401
+        name: com.android.bluetooth/.telephony.BluetoothInCallService type: 4 is crashed: false service last time in ms: 31400
+    ]
+        callProperties: []
+        callSource: UNSPECIFIED
+    }
+    
+    Call TC@4: {
+        startTime: 1793422006601
+        endTime: 1793422017290
+        direction: INCOMING
+        isAdditionalCall: false
+        isInterrupted: false
+        isEmergency: false
+        callTechnologies: []
+        callTerminationReason: DisconnectCause [ Code: (REMOTE) Label: () Description: () Reason: () Tone: (-1)  TelephonyCause: 36/65535 ImsReasonInfo: null]
+        missedReason: []
+        connectionService: com.callagent.host/.calls.HostCallConnectionService
+        isVideoCall: false
+        inCallServices: [
+        name: android/com.android.server.companion.datatransfer.contextsync.CallMetadataSyncInCallService type: 4 is crashed: false service last time in ms: 22616
+        name: com.android.bluetooth/.telephony.BluetoothInCallService type: 4 is crashed: false service last time in ms: 22608
+    ]
+        callProperties: []
+        callSource: UNSPECIFIED
+    }
+    
+    Call TC@5: {
+        startTime: 1793422114532
+        endTime: 1793422129493
+        direction: INCOMING
+        isAdditionalCall: false
+        isInterrupted: false
+        isEmergency: false
+        callTechnologies: []
+        callTerminationReason: DisconnectCause [ Code: (ERROR) Label: () Description: () Reason: () Tone: (-1)  TelephonyCause: 36/65535 ImsReasonInfo: null]
+        missedReason: []
+        connectionService: com.callagent.host/.calls.HostCallConnectionService
+        isVideoCall: false
+        inCallServices: [
+        name: android/com.android.server.companion.datatransfer.contextsync.CallMetadataSyncInCallService type: 4 is crashed: false service last time in ms: 26754
+        name: com.android.bluetooth/.telephony.BluetoothInCallService type: 4 is crashed: false service last time in ms: 26742
+    ]
+        callProperties: []
+        callSource: UNSPECIFIED
+    }
+    
+    Call TC@6: {
+        startTime: 0
+        endTime: 0
+        direction: INCOMING
+        isAdditionalCall: false
+        isInterrupted: false
+        isEmergency: false
+        callTechnologies: []
+        callTerminationReason: NOT SET
+        missedReason: []
+        connectionService: com.callagent.host/.calls.HostCallConnectionService
+        isVideoCall: false
+        inCallServices: [
+    ]
+        callProperties: []
+        callSource: UNSPECIFIED
+    }
+    
+    CSW.sA: 76.00
+    CSW.sDc: 463.20
+    CSW.rC: 2071.60
+    Hardware Version: 
+    Past analytics dumps: 
+  Historical Events:
+    SelfMgd CallTC@1 [Oct 31, 2026 4:40:22 AM](MT - incoming)(User=UserHandle{0})
+    	>>>Target PhoneAccount: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0} (Madoka)
+    	>>>Conn mgr: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}
+    	To address: tel:**********00 Verstat: not Presentation: Allowed
+      04:40:22.294 - PROPERTY_CHANGE (Current: [[ self_mng]], Removed [[]], Added [[ self_mng]]):TSI.aNIC(cch)@AKk
+      04:40:22.294 - SET_VOIP_MODE (Y):TSI.aNIC(cch)@AKk
+      04:40:22.295 - CREATED (null;null):TSI.aNIC(cch)@AKk
+      04:40:22.301 - BIND_CS (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):TSI.aNIC(cch)@AKk
+      04:40:22.314 - CS_BOUND (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):SBC.oSC(cch)@AKo
+      04:40:22.315 - START_CONNECTION (null via:com.callagent.host):SBC.oSC(cch)@AKo
+      04:40:22.351 - CAPABILITY_CHANGE (Current: [[ mut]], Removed [[]], Added [[ mut]]):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-AKo
+      04:40:22.588 - SET_RINGING (successful incoming call):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-AKo
+      04:40:23.656 - AUDIO_ROUTE (Leaving state QuiescentSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-AKo
+      04:40:23.663 - AUDIO_ROUTE (Entering state ActiveSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-AKo
+      04:40:23.664 - AUDIO_ROUTE_SPEAKER:(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-AKo
+      04:40:45.228 - SET_DISCONNECTED (disconnected set explicitly> DisconnectCause [ Code: (REMOTE) Label: () Description: () Reason: () Tone: (-1)  TelephonyCause: 36/65535 ImsReasonInfo: null]):CSW.sDc(cch)@ALg
+      04:40:45.550 - DESTROYED:CSW.rC->CM.pR(cch)@ALs
+      Timings (average for this call, milliseconds):
+        bind_cs: 13.00
+    SelfMgd CallTC@2 [Oct 31, 2026 4:42:19 AM](MT - incoming)(User=UserHandle{0})
+    	>>>Target PhoneAccount: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0} (Madoka)
+    	>>>Conn mgr: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}
+    	To address: tel:**********00 Verstat: not Presentation: Allowed
+      04:42:19.061 - PROPERTY_CHANGE (Current: [[ self_mng]], Removed [[]], Added [[ self_mng]]):TSI.aNIC(cch)@AME
+      04:42:19.081 - SET_VOIP_MODE (Y):TSI.aNIC(cch)@AME
+      04:42:19.094 - CREATED (null;null):TSI.aNIC(cch)@AME
+      04:42:19.095 - BIND_CS (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):TSI.aNIC(cch)@AME
+      04:42:19.101 - CS_BOUND (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):SBC.oSC(cch)@AMI
+      04:42:19.103 - START_CONNECTION (null via:com.callagent.host):SBC.oSC(cch)@AMI
+      04:42:19.143 - CAPABILITY_CHANGE (Current: [[ mut]], Removed [[]], Added [[ mut]]):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-AMI
+      04:42:19.200 - SET_RINGING (successful incoming call):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-AMI
+      04:42:19.428 - AUDIO_ROUTE (Leaving state QuiescentSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-AMI
+      04:42:19.432 - AUDIO_ROUTE (Entering state ActiveSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-AMI
+      04:42:19.432 - AUDIO_ROUTE_SPEAKER:(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-AMI
+      04:42:23.070 - SET_DISCONNECTED (disconnected set explicitly> DisconnectCause [ Code: (REMOTE) Label: () Description: () Reason: () Tone: (-1)  TelephonyCause: 36/65535 ImsReasonInfo: null]):CSW.sDc(cch)@AM0
+      04:42:24.538 - DESTROYED:CSW.rC->CM.pR(cch)@ANA
+      Timings (average for this call, milliseconds):
+        bind_cs: 6.00
+    SelfMgd CallTC@3 [Oct 31, 2026 4:43:47 AM](MT - incoming)(User=UserHandle{0})
+    	>>>Target PhoneAccount: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0} (Madoka)
+    	>>>Conn mgr: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}
+    	To address: tel:**********00 Verstat: not Presentation: Allowed
+      04:43:47.926 - PROPERTY_CHANGE (Current: [[ self_mng]], Removed [[]], Added [[ self_mng]]):TSI.aNIC(cch)@ANY
+      04:43:47.926 - SET_VOIP_MODE (Y):TSI.aNIC(cch)@ANY
+      04:43:47.927 - CREATED (null;null):TSI.aNIC(cch)@ANY
+      04:43:47.929 - BIND_CS (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):TSI.aNIC(cch)@ANY
+      04:43:47.934 - CS_BOUND (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):SBC.oSC(cch)@ANc
+      04:43:47.936 - START_CONNECTION (null via:com.callagent.host):SBC.oSC(cch)@ANc
+      04:43:47.993 - CAPABILITY_CHANGE (Current: [[ mut]], Removed [[]], Added [[ mut]]):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-ANc
+      04:43:48.069 - SET_RINGING (successful incoming call):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-ANc
+      04:43:48.645 - AUDIO_ROUTE (Leaving state QuiescentSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-ANc
+      04:43:48.649 - AUDIO_ROUTE (Entering state ActiveSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-ANc
+      04:43:48.655 - AUDIO_ROUTE_SPEAKER:(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-ANc
+      04:43:58.390 - SET_ACTIVE (active set explicitly for self-managed):CSW.sA->CSFM.rF(cch)@AOQ
+      04:44:17.292 - SET_DISCONNECTED (disconnected set explicitly> DisconnectCause [ Code: (ERROR) Label: () Description: () Reason: () Tone: (-1)  TelephonyCause: 36/65535 ImsReasonInfo: null]):CSW.sDc(cch)@AO0
+      04:44:17.549 - DESTROYED:CSW.rC->CM.pR(cch)@APA
+      Timings (average for this call, milliseconds):
+        bind_cs: 5.00
+    SelfMgd CallTC@4 [Oct 31, 2026 4:46:36 AM](MT - incoming)(User=UserHandle{0})
+    	>>>Target PhoneAccount: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0} (Madoka)
+    	>>>Conn mgr: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}
+    	To address: tel:**********00 Verstat: not Presentation: Allowed
+      04:46:36.487 - PROPERTY_CHANGE (Current: [[ self_mng]], Removed [[]], Added [[ self_mng]]):TSI.aNIC(cch)@APY
+      04:46:36.487 - SET_VOIP_MODE (Y):TSI.aNIC(cch)@APY
+      04:46:36.488 - CREATED (null;null):TSI.aNIC(cch)@APY
+      04:46:36.558 - BIND_CS (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):TSI.aNIC(cch)@APY
+      04:46:36.565 - CS_BOUND (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):SBC.oSC(cch)@APc
+      04:46:36.567 - START_CONNECTION (null via:com.callagent.host):SBC.oSC(cch)@APc
+      04:46:36.597 - CAPABILITY_CHANGE (Current: [[ mut]], Removed [[]], Added [[ mut]]):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-APc
+      04:46:36.682 - SET_RINGING (successful incoming call):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-APc
+      04:46:37.050 - AUDIO_ROUTE (Leaving state QuiescentSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-APc
+      04:46:37.051 - AUDIO_ROUTE (Entering state ActiveSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-APc
+      04:46:37.051 - AUDIO_ROUTE_SPEAKER:(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-APc
+      04:46:46.601 - SET_ACTIVE (active set explicitly for self-managed):CSW.sA->CSFM.rF(cch)@AQQ
+      04:46:57.290 - SET_DISCONNECTED (disconnected set explicitly> DisconnectCause [ Code: (REMOTE) Label: () Description: () Reason: () Tone: (-1)  TelephonyCause: 36/65535 ImsReasonInfo: null]):CSW.sDc(cch)@AQ0
+      04:46:57.354 - DESTROYED:CSW.rC->CM.pR(cch)@AQ4
+      Timings (average for this call, milliseconds):
+        bind_cs: 7.00
+    SelfMgd CallTC@5 [Oct 31, 2026 4:48:24 AM](MT - incoming)(User=UserHandle{0})
+    	>>>Target PhoneAccount: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0} (Madoka)
+    	>>>Conn mgr: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}
+    	To address: tel:**********00 Verstat: not Presentation: Allowed
+      04:48:24.673 - PROPERTY_CHANGE (Current: [[ self_mng]], Removed [[]], Added [[ self_mng]]):TSI.aNIC(cch)@ARY
+      04:48:24.674 - SET_VOIP_MODE (Y):TSI.aNIC(cch)@ARY
+      04:48:24.674 - CREATED (null;null):TSI.aNIC(cch)@ARY
+      04:48:24.683 - BIND_CS (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):TSI.aNIC(cch)@ARY
+      04:48:24.734 - CS_BOUND (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):SBC.oSC(cch)@ARc
+      04:48:24.737 - START_CONNECTION (null via:com.callagent.host):SBC.oSC(cch)@ARc
+      04:48:24.762 - CAPABILITY_CHANGE (Current: [[ mut]], Removed [[]], Added [[ mut]]):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-ARc
+      04:48:24.832 - SET_RINGING (successful incoming call):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-ARc
+      04:48:25.110 - AUDIO_ROUTE (Leaving state QuiescentSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-ARc
+      04:48:25.117 - AUDIO_ROUTE (Entering state ActiveSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-ARc
+      04:48:25.117 - AUDIO_ROUTE_SPEAKER:(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-ARc
+      04:48:34.532 - SET_ACTIVE (active set explicitly for self-managed):CSW.sA->CSFM.rF(cch)@ASQ
+      04:48:49.493 - SET_DISCONNECTED (disconnected set explicitly> DisconnectCause [ Code: (ERROR) Label: () Description: () Reason: () Tone: (-1)  TelephonyCause: 36/65535 ImsReasonInfo: null]):CSW.sDc(cch)@AS0
+      04:48:49.607 - DESTROYED:CSW.rC->CM.pR(cch)@AS4
+      Timings (average for this call, milliseconds):
+        bind_cs: 51.00
+    SelfMgd CallTC@6 [Oct 31, 2026 4:51:09 AM](MT - incoming)(User=UserHandle{0})
+    	>>>Target PhoneAccount: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0} (Madoka)
+    	>>>Conn mgr: ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}, ***, UserHandle{0}
+    	To address: tel:**********00 Verstat: not Presentation: Allowed
+      04:51:09.993 - PROPERTY_CHANGE (Current: [[ self_mng]], Removed [[]], Added [[ self_mng]]):TSI.aNIC(cch)@ATY
+      04:51:09.993 - SET_VOIP_MODE (Y):TSI.aNIC(cch)@ATY
+      04:51:09.994 - CREATED (null;null):TSI.aNIC(cch)@ATY
+      04:51:09.994 - BIND_CS (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):TSI.aNIC(cch)@ATY
+      04:51:10.040 - CS_BOUND (ComponentInfo{com.callagent.host/com.callagent.host.calls.HostCallConnectionService}):SBC.oSC(cch)@ATc
+      04:51:10.042 - START_CONNECTION (null via:com.callagent.host):SBC.oSC(cch)@ATc
+      04:51:10.112 - CAPABILITY_CHANGE (Current: [[ mut]], Removed [[]], Added [[ mut]]):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-ATc
+      04:51:10.161 - SET_RINGING (successful incoming call):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC(cch/cast)@E-E-ATc
+      04:51:10.751 - AUDIO_ROUTE (Leaving state QuiescentSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-ATc
+      04:51:10.754 - AUDIO_ROUTE (Entering state ActiveSpeakerRoute):(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-ATc
+      04:51:10.756 - AUDIO_ROUTE_SPEAKER:(...->CS.crCo->H.CS.crCo->H.CS.crCo.pICR)->CSW.hCCC->CAMSM.pM_2002->CARSM.pM_SWITCH_FOCUS(cch/cast)@E-E-ATc
+      Timings (average for this call, milliseconds):
+        bind_cs: 46.00

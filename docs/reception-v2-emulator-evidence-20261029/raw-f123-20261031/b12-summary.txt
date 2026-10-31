@@ -1,0 +1,9 @@
+started_utc=2026-10-31T07:49:56.085+00:00
+clients=89ee33a1-da6c-4a61-adc4-59a7fdb3c328|f ; 2d326382-3a88-4b10-9bc0-781b255297cc|t
+b1_gsm_call_ack=OK
+b1_h2_ringing=True;b1_participants={'2d326382-3a88-4b10-9bc0-781b255297cc': 'ringing'};b1_h1_ringing_tc=0;utc=2026-10-31T07:49:59.931+00:00
+b1=PASS;h1_row=absent
+b2_sms_ack=OK;text=B2SMS-075004
+b2_message_rows=1;b2_ui={'h1': True, 'h2': True};utc=2026-10-31T07:50:31.285+00:00
+b2=PASS
+finished_utc=2026-10-31T07:50:31.286+00:00

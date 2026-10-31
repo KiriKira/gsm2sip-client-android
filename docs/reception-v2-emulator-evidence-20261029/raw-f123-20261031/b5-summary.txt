@@ -1,0 +1,11 @@
+started_utc=2026-10-31T08:20:19.912+00:00
+clients=89ee33a1-da6c-4a61-adc4-59a7fdb3c328|t ; 2d326382-3a88-4b10-9bc0-781b255297cc|t
+h1_airplane=1
+toggle_offline=True
+offline_ui_has_pending=False
+server_flag_while_offline=t
+server_flag_after_online=f;synced_after_s=9.5
+online_ui_has_synced=False
+after_offline_participants={'2d326382-3a88-4b10-9bc0-781b255297cc': 'ringing'}
+b5=PASS;utc=2026-10-31T08:21:01.587+00:00
+finished_utc=2026-10-31T08:21:01.587+00:00

@@ -1,0 +1,20 @@
+started_utc=2026-10-31T04:49:58.291+00:00
+h3_identity_hash=32ab44a37b1d
+h3_reception_version_incoming_sms_revision_endpoint_count=2|t|t|2|0
+gateway_runner=READY;retained_pairing_SIM=true;synthetic_cellular_PCM=true
+screen_off_idle_start_utc=2026-10-31T04:50:06.041+00:00
+screen_off_idle_duration_s=61.27
+gsm_injection_utc=2026-10-31T04:51:07.311+00:00
+operator_wake_utc=2026-10-31T04:51:07.673+00:00
+call_activity_visible_utc=2026-10-31T04:51:08.182+00:00
+normal_UI_answer_bounds=(330, 628)
+answer_tap_utc=2026-10-31T04:51:13.912+00:00
+call_state=active;participant=accepted;dispatched=f;cellular_active=t;H3_winner=t;utc=2026-10-31T04:51:19.742+00:00
+host_Telecom_ACTIVE=true;gateway_modem_state=2
+gateway_bridge=BRIDGED;gateway_Telecom=4
+E2_call_assertion=PASS
+gsm_cancel=OK
+gateway_runner_cleanup=finished
+gateway_fixture_restored=true
+gateway_modem_final=0
+finished_utc=2026-10-31T04:51:30.145+00:00

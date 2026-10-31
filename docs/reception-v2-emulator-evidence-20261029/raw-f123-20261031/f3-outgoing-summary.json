@@ -1,0 +1,14 @@
+{
+  "phase": "f3",
+  "direction": "outgoing",
+  "scope": "normal_UI_call_control_no_cellular_HAL_audio",
+  "started_utc": "2026-10-31T07:50:40.059769+00:00",
+  "status": "PASS",
+  "normal_dial_tapped": true,
+  "last_server_state": "active",
+  "last_server_reason": "",
+  "full_active": true,
+  "normal_hangup_tapped": true,
+  "final_server_state": "ended",
+  "finished_utc": "2026-10-31T07:51:25.112675+00:00"
+}

@@ -1,0 +1,5 @@
+started_utc=2026-10-31T08:26:51.190+00:00
+owner_hash=aa1a225b;client_hash=2d326382
+attempt=1;gsm_call_ack=OK
+ringing_state=ringing||ringing||f|f|;utc=2026-10-31T08:26:59.283+00:00
+answer_tap=None;utc=2026-10-31T08:27:29.924+00:00

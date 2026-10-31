@@ -1,0 +1,15 @@
+started_utc=2026-10-31T08:41:30.260+00:00
+nodes_before=b=4,d=1,e=1
+d1_ack=OK
+d1_ringing=True;offer=none
+d1_answer_tap=(346, 322)
+d1_row=active|accepted|t
+d1=PASS
+stopped_d_e=2026-10-31T08:42:09.983+00:00
+d3_ack=OK
+d3_ringing=True;offer=10-31 08:42:13.987 I/GsmRtc  ( 4437): call_id=8d0db326-6305-421b-ab12-6cba2aa25743 event=i
+d3_answer_tap=(346, 322)
+d3_row=active|accepted|t
+d3=PASS
+restarted_d_e=2026-10-31T08:42:44.515+00:00
+finished_utc=2026-10-31T08:42:44.515+00:00

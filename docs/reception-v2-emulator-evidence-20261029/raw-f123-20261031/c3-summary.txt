@@ -1,0 +1,17 @@
+started_utc=2026-10-31T07:44:03.201+00:00
+clients=89ee33a1-da6c-4a61-adc4-59a7fdb3c328|t ; 2d326382-3a88-4b10-9bc0-781b255297cc|t
+h1_switch_visible=True;at=(422, 495)
+gsm_call_ack=OK
+call_id_hash=c9105f03;utc=2026-10-31T07:45:57.248+00:00
+both_ringing=True;utc=2026-10-31T07:45:57.336+00:00
+h1_switch_tapped_utc=2026-10-31T07:45:57.363+00:00
+h1_row=ended|reception_disabled;h2_row=ringing|-;utc=2026-10-31T07:45:58.384+00:00
+h1_stopped_ringing=True;h2_still_ringing=True
+call_state_after_switch=ringing
+h2_answer_tap=(346, 322);utc=2026-10-31T07:46:04.329+00:00
+h2_row=active|accepted|t
+h2_telecom_active=False
+participants=89ee33a1-da6c-4a61-adc4-59a7fdb3c328|ended|reception_disabled ; 2d326382-3a88-4b10-9bc0-781b255297cc|accepted|-
+final=ended|cellular_ended
+c3=PASS;utc=2026-10-31T07:46:16.654+00:00
+finished_utc=2026-10-31T07:46:16.656+00:00

@@ -1,0 +1,10 @@
+started_utc=2026-10-31T08:40:01.919+00:00
+node_b_gateways=4
+node_d_gateways=1
+node_e_gateways=1
+gsm_call_ack=OK
+h1_ringing_via_b=False
+gateway_offer_lines=10-31 08:40:07.097 W/GsmRtc  ( 4437): call_id=3d54b472-2b03-4849-b976-93520b848b83 node=1bfea1c7 remaining_rin || 10-31 08:40:07.097 I/GsmRtc  ( 4437): call_id=3d54b472-2b03-4849-b976-93520b848b83 node=289933f4 remaining_rin || 10-31 08:40:07.573 W/GsmRtc  ( 4437): call_id=3d54b472-2b03-4849-b976-93520b848b83 node=289933f4 remaining_rin || 10-31 08:40:07.573 I/GsmRtc  ( 4437): call_id=3d54b472-2b03-4849-b976-93520b848b83 event=incoming_offered node
+participants_per_node=b=1,d=0,e=0
+answer_tap=None;utc=2026-10-31T08:40:25.863+00:00
+call_row=

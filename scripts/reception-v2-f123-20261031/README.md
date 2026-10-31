@@ -29,3 +29,6 @@
 测试号码不在仓库里：脚本从私有的 `f1-number.private` 读取。
 
 已知的 harness 坑与修法见 `docs/reception-v2-emulator-evidence-20261029/f123-c3-results-20261031.md`。
+- `export-stats.py` — 导出 App「待机统计 → 分享统计」到 `com.callagent.lab.capture` 的
+  `files/export.json`，打印 `events`/`wake_locks`/`wss_live`/`reception`。用于网络切换前后
+  的 `wss_open`/`wss_closed` 计数对比（E3 重试的代理观察即用它取值）。

@@ -46,7 +46,7 @@ E2 操作员在中断前报告正在进行熄屏来电流程，但没有给出�
 | D2 | 通过 | `.../d2-multinode-retest-20261030.txt` — `7da54a4`；单 Telecom 来电、赢家及 `answered_elsewhere` |
 | D3 | 未通过（产品行为） | `.../d3-stop-a-retry-result-20261030.txt` — `dc387dd`；根因层级补充 `.../d3-root-cause-review-20261031.md` — `5a05e89`。B participant 收到 `reception_disabled` 后结束且未响铃；确切触发异常未由现存日志证明 |
 | E1 | 通过 | `.../h3-e1-diagnostics.json`、`.../h3-recovery-20261029.md` — `1ed36ac`；stream、120 秒心跳及服务端 ping/pong 证据 |
-| E2 | 阻塞（额度停测，未评分） | 既有环境记录 `.../h3-recovery-20261029.md` — `1ed36ac`；10/31 新尝试只留在远端私有目录 `/home/ubuntu/gsm-webrtc-validation/reception-v2-r1/private/e23-20261031/`，风险单仍为未提交 `.../e23-risk-before-20261031.md`。当时 H3 已连 Node B、`wss_live=true`；来电流程无终态，不能算通过或产品失败 |
+| E2 | 阻塞（额度停测，未评分） | 既有环境记录 `.../h3-recovery-20261029.md` — `1ed36ac`；10/31 新尝试只留在远端私有目录 `/home/ubuntu/gsm-webrtc-validation/reception-v2-r1/private/e23-20261031/`，风险单仍为未提交 `.../e23-risk-before-20261031.md`。当时 H3 已连 Node B、`wss_live=true`；来电流程无终态，不能算通过或产品失败；**更正 2026-10-31**：该轮 runner 实际写出终态 `E2_call_assertion=PASS`，见 `e2-20261031-summary.md` |
 | E3 | 阻塞（额度停测且移动数据前置未满足） | `.../e23-risk-before-20261031.md`（未提交）；Wi-Fi 关闭后 default network 变为 NONE 而非 MOBILE，未完成计划的双向切换。不能用“移动数据开关为 ON”替代网络 transport |
 | E4 | 仅记录 | `.../h3-e4-segment.json`、`.../h3-e4-diagnostics.json` — `1ed36ac`；已有 30 分钟记录，不作严格通过判断 |
 | F1 | 阻塞/未完成 | 10/30 旧 main 短信及真实 FCM 子项通过、来电/去电没完成，记录 `.../f1-call-rerun-20261030.md` 和 `.../f1-sms-rerun-20261030.md` — `c3f4f59`。10/28 历史 F1 曾失败（Telecom `Missing call details`），摘要在 `docs/reception-v2-emulator-validation-20261028.md` — `f516dfb`，原始证据文件仍未提交。10/31 APK 来源/签名见 `.../f123-fresh-baseline-decision-20261031.md`、`.../f123-fresh-build-artifacts-20261031.md` — `d02b94f`。新干净 AVD 和 APK 已准备，但没有启动 AVD、配对或跑业务断言 |
