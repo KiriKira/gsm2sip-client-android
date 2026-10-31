@@ -58,6 +58,17 @@ internal object CallNotificationManager {
         return notificationBuilder.build()
     }
 
+    /**
+     * Posts the ringing notification unless it is showing already: the call
+     * foreground service normally posts it, and posting it again would alert
+     * twice. Telecom can ask for the UI before that service has started.
+     */
+    fun ensureIncoming(context: Context, call: CallSession) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val showing = runCatching { manager.activeNotifications.any { it.id == NOTIFICATION_ID } }.getOrDefault(false)
+        if (!showing) post(context, incomingNotification(context, call))
+    }
+
     fun showOngoing(context: Context, call: CallSession) = post(context, ongoingNotification(context, call))
 
     fun ongoingNotification(context: Context, call: CallSession): Notification = ongoing(context, call)

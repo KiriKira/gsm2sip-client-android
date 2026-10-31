@@ -44,6 +44,8 @@ object CallRuntime {
     val isForegroundListening: Boolean get() = service?.isForegroundListening == true
     val isSignalingReady: Boolean get() = service?.isSignalingReady == true
     val isListeningRequested: Boolean get() = wantsForegroundListening
+    /** A Madoka activity is on screen, so it may start the call screen itself. */
+    internal val isAppVisible: Boolean get() = appVisible
 
     fun restoreForegroundPreference(context: Context, session: HostSession?) {
         val nextSessionInstance = session?.sessionInstanceId

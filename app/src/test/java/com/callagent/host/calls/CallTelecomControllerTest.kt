@@ -39,27 +39,59 @@ class CallTelecomControllerTest {
         assertEquals(details.simLabel, forwarded.getString(CallTelecomController.EXTRA_SIM_LABEL))
     }
 
-    @Test fun telecomIncomingUiRequestOpensAnswerAndRejectScreenWithoutAnswering() {
+    private fun ringing(callId: String): HostCallConnection {
         val app = RuntimeEnvironment.getApplication()
         val now = System.currentTimeMillis()
-        val callId = "incoming-ui-call"
         assertTrue(CallRuntime.coordinator.incomingInvite(IncomingInviteIdentity("engine", callId),
             CallAuthority(callId, "incoming", "ringing", "sim", "+12025550101", now + 60_000), now))
-        val connection = HostCallConnection(app, TelecomCallDetails(callId, CallDirection.INCOMING, "+12025550101", "SIM"))
+        return HostCallConnection(app, TelecomCallDetails(callId, CallDirection.INCOMING, "+12025550101", "SIM"))
+            .apply { setRinging() }
+    }
+
+    private fun finish(connection: HostCallConnection, callId: String) {
+        connection.destroy()
+        CallRuntime.coordinator.ended(callId)
+        CallRuntime.clearTerminal(callId)
+        val app = RuntimeEnvironment.getApplication()
+        CallRuntime.setAppVisible(app, false)
+        CallNotificationManager.cancel(app)
+    }
+
+    @Test fun withMadokaOnScreenTheUiRequestOpensTheCallScreenWithoutAnswering() {
+        val app = RuntimeEnvironment.getApplication()
+        val callId = "incoming-ui-visible"
+        val connection = ringing(callId)
         try {
-            connection.setRinging()
+            CallRuntime.setAppVisible(app, true)
             connection.onShowIncomingCallUi()
             val intent = shadowOf(app).nextStartedActivity
-            assertNotNull("Telecom's self-managed UI request must open visible call controls", intent)
+            assertNotNull("an app on screen opens its own call screen", intent)
             assertEquals(CallActionActivity::class.java.name, intent.component?.className)
             assertEquals(CallActionActivity.ACTION_SHOW_CALL, intent.action)
             assertEquals(callId, intent.getStringExtra(CallActionActivity.EXTRA_CALL_ID))
             assertEquals("showing UI must never accept the call", CallPhase.INCOMING_RINGING, CallRuntime.currentSession?.phase)
-        } finally {
-            connection.destroy()
-            CallRuntime.coordinator.ended(callId)
-            CallRuntime.clearTerminal(callId)
-        }
+        } finally { finish(connection, callId) }
+    }
+
+    @Test fun inTheBackgroundTheUiIsTheFullScreenCallNotification() {
+        val app = RuntimeEnvironment.getApplication()
+        val callId = "incoming-ui-background"
+        val connection = ringing(callId)
+        val notifications = shadowOf(app.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager)
+        try {
+            connection.onShowIncomingCallUi()
+            // Android blocks activity starts from the background; the
+            // notification's full-screen intent is what opens the screen.
+            assertNull(shadowOf(app).nextStartedActivity)
+            val posted = notifications.getNotification(CallNotificationManager.NOTIFICATION_ID)
+            assertNotNull("Telecom asked before the call service posted it", posted)
+            assertNotNull(posted.fullScreenIntent)
+            assertEquals(CallPhase.INCOMING_RINGING, CallRuntime.currentSession?.phase)
+
+            // Already showing (the call service posted it): not alerted again.
+            connection.onShowIncomingCallUi()
+            assertSame(posted, notifications.getNotification(CallNotificationManager.NOTIFICATION_ID))
+        } finally { finish(connection, callId) }
     }
 
     @Test fun aLateTelecomUiRequestCannotOpenAnEndedOrDifferentCall() {
@@ -79,6 +111,8 @@ class CallTelecomControllerTest {
             CallRuntime.coordinator.ended(callId)
             current.onShowIncomingCallUi()
             assertNull("an ended call must not reopen its UI", shadowOf(app).nextStartedActivity)
+            assertNull("nor ring again as a notification", shadowOf(app.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager)
+                .getNotification(CallNotificationManager.NOTIFICATION_ID))
         } finally {
             listOf(stale, outgoing, current).forEach { it.destroy() }
             CallRuntime.coordinator.ended(callId)

@@ -1470,6 +1470,21 @@ class MainActivity : AppCompatActivity() {
                 }
             }).apply { id = R.id.settings_notifications })
 
+        // Android 14+ can withhold full-screen intents: an incoming call on a
+        // locked phone then shows only as a notification, not the call screen.
+        if (Build.VERSION.SDK_INT >= 34) {
+            val allowed = CallNotificationManager.fullScreenAllowed(this)
+            content.addView(HostUi.tile(this, HostUi.Position.MIDDLE, "全屏来电",
+                summary = if (allowed) "已允许" else "未允许 · 锁屏时来电只显示为通知",
+                icon = R.drawable.ic_ui_notifications,
+                trailing = HostUi.chevron(this),
+                onClick = {
+                    runCatching {
+                        startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:$packageName")))
+                    }.onFailure { HostBackgroundRuntime.openNotificationSettings(this@MainActivity) }
+                }).apply { id = R.id.settings_full_screen_calls })
+        }
+
         val autoCopy = MaterialSwitch(this).apply {
             isChecked = InboundSmsNotifications.autoCopyCodes(this@MainActivity)
             isSaveEnabled = false
