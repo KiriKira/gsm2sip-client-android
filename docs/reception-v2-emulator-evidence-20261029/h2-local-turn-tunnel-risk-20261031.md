@@ -1,0 +1,7 @@
+# H2 local TURN tunnel risk and rollback
+
+H2 is the API 35 Google Play AVD on the local test workstation, reached from the test server through an SSH ADB forward. H1 is an AVD on the test server. H2 has working public STUN and validated Wi-Fi, but cannot route to the test server's private VPC address; an AVD-side UDP capture showed no packets arriving at the private TURN listener.
+
+For a reversible connectivity diagnostic, the local workstation may bind `127.0.0.1:13479` with an SSH local forward to the test server's private TURN TCP listener at `172.31.15.170:13478`. The earlier `10.0.2.2` route did not work for the remote H2 AVD. The validated route uses `adb reverse tcp:13479 tcp:13479`, so the device connects to its own `127.0.0.1:13479`; the workstation forward remains bound only to loopback and reaches the existing private TURN listener. This adds no public listener, cloud firewall rule, database write, product setting, pairing, or app-data reset. Only TURN/TCP control traffic uses the SSH tunnel; the server still allocates relay addresses from its existing private test range.
+
+Stop conditions: stop if the loopback listener cannot be kept bound only to `127.0.0.1`, if the H2 same-UID TCP Binding/401 preflight fails, or if test traffic attempts to open/modify any cloud firewall rule or public port. Rollback is to terminate the one SSH forwarding process and delete H1/H2 `turn-probe.json` and temporary SDP/result files; no persistent host or emulator network setting is changed.
